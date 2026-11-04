@@ -8,13 +8,18 @@ type defaults = { repo : (string * int) list; user : (string * int) list }
     or zero limit is unlimited. *)
 
 val v : store:Store.t -> now:(unit -> float) -> defaults:defaults -> t
+(** [v ~store ~now ~defaults] keeps settings in [store], with [now] the wall
+    clock in seconds, for expiry and calendar months. *)
 
 val note_owner : t -> repo:string -> owner:string -> unit
 (** [note_owner t ~repo ~owner] records whose repository [repo] is, so that
     banning the owner reaches it. *)
 
 val owner_of : t -> string -> string option
+(** [owner_of t repo] is the owner {!note_owner} recorded for [repo]. *)
+
 val repos_of : t -> string -> string list
+(** [repos_of t owner] is the repositories recorded as [owner]'s. *)
 
 (** {1 Secrets} *)
 
@@ -30,6 +35,8 @@ val add_secret : t -> repo:string -> by:string -> string -> string -> unit
     [SecretAlreadyExists]. *)
 
 val remove_secret : t -> repo:string -> string -> unit
+(** [remove_secret t ~repo key] removes a secret. An absent key answers
+    [SecretNotFound]. *)
 
 val check_secret : key:string -> value:string option -> unit
 (** [check_secret ~key ~value] applies the reference spindle's limits: a key is
@@ -38,8 +45,13 @@ val check_secret : key:string -> value:string option -> unit
 (** {1 Bans} *)
 
 val banned : t -> string -> bool
+(** [banned t did] holds when [did] is banned. *)
+
 val bans : t -> Jsont.json
+(** [bans t] is the [org.tangled.temp.spindle.moderation] list of bans. *)
+
 val ban : t -> string -> unit
+(** [ban t did] bans [did], which may then not use the spindle. *)
 
 val unban : t -> string -> unit
 (** [unban t did] lifts a ban. An absent ban answers [BanNotFound]. *)
@@ -70,7 +82,10 @@ val set_limit : t -> string -> string -> int option -> unit
 (** [set_limit t did resource limit] overrides a limit. [None] is unlimited. *)
 
 val unset_limit : t -> string -> string -> unit
+(** [unset_limit t did resource] removes an override, so the default applies. *)
+
 val limits : t -> Jsont.json
+(** [limits t] lists every override, with an unlimited one as [-1]. *)
 
 val add_minutes : t -> string list -> int -> unit
 (** [add_minutes t dids minutes] charges CI minutes this month to each DID. *)

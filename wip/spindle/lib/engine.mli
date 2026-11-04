@@ -57,15 +57,25 @@ val v :
     log, up to three times. Without it, an interrupted workflow fails. *)
 
 val catalog : t -> Catalog.t
+(** [catalog t] is the catalog [t] was made with. *)
+
 val store : t -> Store.t
+(** [store t] is the store [t] was made with. *)
+
 val settings : t -> Settings.t
+(** [settings t] is the settings [t] was made with. *)
+
 val system : t -> Eio_unix.Stdenv.base
+(** [system t] is the system [t] was made with. *)
 
 val prune : t -> now:float -> Operations.t -> int * int
 (** [prune t ~now policy] is {!Store.prune} of [t]'s store, while no pipeline
     changes. *)
 
 val migrate : t -> (string * string) option -> unit
+(** [migrate t static] imports, once, the pipelines that earlier versions kept
+    as JSON files in the state directory. Each must belong to the static
+    repository [static], a DID and its source, which then gives its source. *)
 
 val load : t -> unit
 (** [load engine] resumes pending work. Interrupted workflows are failed, or
@@ -79,11 +89,13 @@ val serve : ?lease:float -> t -> unit
     does nothing without a durable store. *)
 
 val push : string
+(** [push] is the push trigger's NSID. *)
+
 val pull_request : string
+(** [pull_request] is the pull request trigger's NSID. *)
 
 val manual : string
-(** The trigger NSIDs. *)
-
+(** [manual] is the manual trigger's NSID. *)
 
 val definition : string -> string -> Jsont.json
 (** [definition hostname name] is the [org.tangled.ci.defs#workflow] of the
@@ -118,6 +130,8 @@ val query :
     and each pipeline of a commit in [commits] matches. *)
 
 val select_workflows : pipeline -> string list -> Runner.t list
+(** [select_workflows p names] is the workflows of [p] called [names], or all of
+    them for [[]]. An unknown name answers a 404 [WorkflowNotFound]. *)
 
 val create :
   t ->
@@ -150,6 +164,9 @@ val first : t -> string -> string -> bool
 
 val cancel :
   t -> actor:string -> repo:string -> id:string -> names:string list -> unit
+(** [cancel t ~actor ~repo ~id ~names] cancels the workflows of pipeline [id]
+    called [names], or all of them for [[]], with every workflow they spawned.
+    [actor] must satisfy {!Catalog.permitted} for [repo]. *)
 
 val approve : t -> actor:string -> repo:string -> id:string -> unit
 (** [approve t ~actor ~repo ~id] starts the blocked workflows of pipeline [id].

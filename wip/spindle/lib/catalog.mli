@@ -47,6 +47,8 @@ val web_did : string -> string
 (** [web_did host] is the [did:web] of [host], encoding a port as [%3A]. *)
 
 val admin : t -> string -> bool
+(** [admin t did] holds for the owner and the admins. A ban is checked apart, by
+    {!admitted} and by the methods that authenticate callers. *)
 
 val admitted : t -> string -> bool
 (** [admitted t owner] holds when [owner]'s repositories may run here. A ban
@@ -60,6 +62,7 @@ val knot_origin : t -> string -> string
     document names. *)
 
 val allowed : t -> string list
+(** [allowed t] is the allow-listed owners. *)
 
 val allow : t -> string -> unit
 (** [allow t did] admits owner [did] and drops cached acceptance. *)
@@ -122,6 +125,7 @@ val pull_labels : t -> repo -> pull:string -> string list
     content id. It is [[]] when anything fails. *)
 
 val network : t -> Network.t
+(** [network t] is the network [t] reads through. *)
 
 type manifest = {
   name : string;

@@ -19,6 +19,8 @@ val pending_repo : t -> string -> bool
     lets these preserve push options and actor metadata before scanning refs. *)
 
 val ref_state : t -> repo:string -> ref_:string -> (string * int64) option
+(** [ref_state store ~repo ~ref_] is the commit and stream position of the last
+    checkpoint of [ref_] in [repo], if any. *)
 
 val checkpoint_ref :
   t -> repo:string -> ref_:string -> sha:string -> position:int64 -> unit
@@ -37,7 +39,11 @@ val open_ : sw:Eio.Switch.t -> _ Eio.Path.t -> t
 (** [open_ ~sw directory] initializes the SQLite database in [directory]. *)
 
 val get : t -> string -> string -> string option
+(** [get store namespace key] is the value of [key] in [namespace]. *)
+
 val list : t -> string -> (string * string) list
+(** [list store namespace] is every key and value of [namespace], in key order.
+    Use {!fold} for a namespace that may be large. *)
 
 val fold :
   t ->
@@ -75,7 +81,11 @@ val advance : t -> source:string -> cursor:string -> unit
     that is not stored. Cursors only move forward. *)
 
 val put : t -> string -> string -> string -> unit
+(** [put store namespace key value] sets [key] in [namespace]. *)
+
 val delete : t -> string -> string -> unit
+(** [delete store namespace key] removes [key] from [namespace], and its task
+    state. *)
 
 val schedule : t -> string -> string -> unit
 (** [schedule store namespace key] writes a fresh task generation. *)

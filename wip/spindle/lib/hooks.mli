@@ -19,12 +19,30 @@ val v :
 
 (** {1 Methods} *)
 
+(** Each answers the [org.tangled.webhook] method of its name, given the
+    method's input, for a repository its caller may change. Errors are XRPC
+    errors. *)
+
 val list : t -> repo:string -> Jsont.json
+(** [list t ~repo] is [repo]'s webhooks, without their secrets. *)
+
 val create : t -> repo:Catalog.repo -> Jsont.json -> Jsont.json
+(** [create t ~repo input] adds a webhook, within the repository's and owner's
+    [webhooks] limits. *)
+
 val update : t -> repo:string -> Jsont.json -> unit
+(** [update t ~repo input] changes a webhook's URL, secret, events or activity.
+*)
+
 val delete : t -> repo:string -> string -> unit
+(** [delete t ~repo id] removes webhook [id] and its deliveries. *)
+
 val deliveries : t -> repo:string -> ids:string list -> limit:int -> Jsont.json
+(** [deliveries t ~repo ~ids ~limit] is the newest [limit] deliveries of each of
+    the webhooks [ids], at most 50. *)
+
 val retry : t -> repo:string -> Jsont.json -> unit
+(** [retry t ~repo input] sends a delivery again. *)
 
 val counts : t -> (string * int) list
 (** [counts t] is how many webhooks each repository has. *)
@@ -42,8 +60,11 @@ val push :
   before:string ->
   after:string ->
   unit
+(** [push t repo ~actor ~ref_ ~before ~after] sends the [push] event of [actor]
+    moving [ref_] from [before] to [after]. *)
 
 val renamed : t -> Catalog.repo -> old_name:string -> unit
+(** [renamed t repo ~old_name] sends the [repository:renamed] event. *)
 
 val pull_request :
   t -> Catalog.repo -> event:string -> sender:string -> Jsont.json -> unit

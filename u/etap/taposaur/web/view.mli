@@ -6,6 +6,11 @@ val count : int -> string
 val link : string -> string -> Htmlit.El.html
 val url : string -> (string * string) list -> string
 val page : ?kind:string -> string -> Htmlit.El.html list -> string
+(** [page ~kind title body] is a whole page in Taposaur's {!Sitekit} shell. *)
+
+val assets : Sitekit.Asset.t list
+(** [assets] is the stylesheet and scripts pages link, for
+    {!Sitekit.Asset.routes}. *)
 val fragment : string -> Htmlit.El.html list -> string
 val home : details_cached:int ->
   Taposaur_catalog.stats -> (string * string) list -> string

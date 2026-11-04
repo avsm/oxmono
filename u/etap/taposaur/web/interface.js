@@ -18,7 +18,7 @@
         const content = doc.querySelector('[data-panel-content]');
         if (!content) throw new Error('Invalid server details response');
         target.replaceChildren(content);
-        document.dispatchEvent(new Event('taposaur:content'));
+        document.dispatchEvent(new Event('sitekit:content'));
         loaded = true;
       } catch (_) {
         const message = document.createElement('p');
@@ -45,7 +45,7 @@
     : location.pathname.startsWith('/job') ? '/jobs'
     : location.pathname.startsWith('/activity') ? '/activity'
     : location.pathname.startsWith('/audit') ? null : '/search';
-  document.querySelectorAll('.site-nav a').forEach(link => {
+  document.querySelectorAll('.sk-nav a').forEach(link => {
     if (link.pathname === section) link.setAttribute('aria-current', 'page');
   });
   const renderMath = root => {
@@ -214,7 +214,7 @@
         throw new Error('Missing paper details');
       }
       document.querySelector('main').replaceWith(main);
-      document.dispatchEvent(new Event('taposaur:content'));
+      document.dispatchEvent(new Event('sitekit:content'));
       document.title = html.title;
     } catch (_) {
       loading.setAttribute('aria-busy', 'false');
@@ -419,17 +419,17 @@
     while (web.children.length > 300) web.lastElementChild.remove();
     counter('web').textContent = ++webLines;
   };
-  const known = ['queued', 'running', 'done', 'failed', 'cancelled'];
+  const known = ['queued', 'running', 'done', 'failed', 'cancelled', 'blocked', 'notice'];
   const icon = state => {
     const id = known.includes(state) ? state : 'unknown';
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('class', `state-icon state-${id}`);
+    svg.setAttribute('class', `sk-state ${id}`);
     svg.setAttribute('role', 'img');
     svg.setAttribute('aria-label', state);
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
     title.textContent = state;
     const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-    use.setAttribute('href', `#state-${id}`);
+    use.setAttribute('href', `#sk-state-${id}`);
     svg.append(title, use);
     return svg;
   };

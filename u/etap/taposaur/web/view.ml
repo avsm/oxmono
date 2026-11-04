@@ -186,31 +186,31 @@ min-height:240px;z-index:20;border-radius:8px 8px 0 0;box-shadow:0 -4px 24px #23
 @media(max-width:700px){.journal-menu{left:0;right:auto}}
 |}
 
+(* Taposaur's stylesheet and scripts are served at content-hashed paths, so
+   pages need no inline style or script. Its colours are light only. *)
+let stylesheet =
+  Sitekit.Asset.css ~name:"taposaur" (css ^ interface_css ^ Ui.css)
+let script = Sitekit.Asset.js ~name:"interface" Client.source
+let katex = Sitekit.Asset.js ~name:"katex" Katex.source
+let assets = [stylesheet; script; katex]
+
+let nav label path = Sitekit.nav label (Sitekit.Url.path [path])
+
+let site = Sitekit.site ~name:"taposaur" ~brand:"tp" ~theme:`Light
+  ~nav:[nav "Browse & search" "search"; nav "Reviews" "reviews";
+        nav "Jobs" "jobs"; nav "Activity" "activity"]
+  ~stylesheets:[stylesheet] ~scripts:[katex; script]
+  ~footer:[El.v "details" ~at:[at "id" "server-debug"]
+    [el "summary" [txt "Debug · server paths & capabilities"];
+     El.v "div" ~at:[at "id" "server-debug-content"]
+       [p "Server configuration and available fetch strategies.";
+        link "/debug" "Open server details"]]] ()
+
+(* The current section is marked in the browser, since pages are built
+   before the request path reaches them. *)
 let page ?(kind = "") title body =
-  El.to_string ~doctype:true (El.v "html" ~at:[at "lang" "en"] [
-    el "head" [El.v "meta" ~at:[at "charset" "utf-8"] [];
-      El.v "meta" ~at:[at "name" "viewport";
-        at "content" "width=device-width, initial-scale=1"] [];
-      el "title" [txt (title ^ " · Taposaur")];
-      el "style" [El.unsafe_raw (css ^ interface_css ^ Ui.css)];
-      El.v "script" ~at:[at "src" "/assets/katex.js"; at "defer" ""] [];
-      El.v "script" ~at:[at "src" "/assets/interface.js"; at "defer" ""] []];
-    el "body" [El.v "a" ~at:[at "class" "skip-link";at "href" "#main"]
-      [txt "Skip to content"];
-      el "header" [El.v "a" ~at:[at "href" "/"]
-        [El.v "span" ~at:[at "class" "brand-mark";at "aria-hidden" "true"]
-          [txt "tp"];txt "taposaur"];
-        El.v "nav" ~at:[at "class" "site-nav";at "aria-label" "Main navigation"]
-          [link "/search" "Browse & search";link "/reviews" "Reviews";
-           link "/jobs" "Jobs";link "/activity" "Activity"]];
-      El.v "main" ~at:[at "id" "main";at "class" kind]
-        (el "h1" [txt title] :: body);
-      classed "footer" "site-footer"
-        [El.v "details" ~at:[at "id" "server-debug"]
-          [el "summary" [txt "Debug · server paths & capabilities"];
-           El.v "div" ~at:[at "id" "server-debug-content"]
-             [p "Server configuration and available fetch strategies.";
-              link "/debug" "Open server details"]]]]])
+  Sitekit.page site ~current:""
+    ?kind:(if kind = "" then None else Some kind) ~title body
 
 let form params =
   let get k = Option.value (List.assoc_opt k params) ~default:"" in

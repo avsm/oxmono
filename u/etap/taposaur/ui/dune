@@ -1,9 +1,9 @@
 (library
  (name taposaur_ui)
  (public_name taposaur.ui)
- (modules taposaur_ui stylesheet widgets)
- (private_modules stylesheet widgets)
- (libraries htmlit))
+ (modules taposaur_ui stylesheet)
+ (private_modules stylesheet)
+ (libraries htmlit sitekit))
 
 (rule
  (target stylesheet.ml)
@@ -15,14 +15,3 @@
     (echo "let source = {css|")
     (cat %{dep:style.css})
     (echo "|css}")))))
-
-(rule
- (target widgets.ml)
- (deps widgets.js)
- (action
-  (with-stdout-to
-   %{target}
-   (progn
-    (echo "let source = {js|")
-    (cat %{dep:widgets.js})
-    (echo "|js}")))))

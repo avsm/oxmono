@@ -506,13 +506,12 @@ let create ?(publisher_lookup=fun _ -> None) ?(abstract_lookup=fun _ -> None)
           | Media _ | Attachment _ | Artifact _ -> 200)
         ~elapsed_ms:(elapsed ());
     match response with
-    | Html (status, body) -> Resp.html respond ~status
-        ~headers:[Resp.other "X-Content-Type-Options" "nosniff";
-          Resp.other "Content-Security-Policy"
-            "default-src 'none'; style-src 'unsafe-inline'; \
-             script-src 'self'; connect-src 'self'; frame-src 'self'; \
-             img-src https: http:; \
-             form-action 'self'; base-uri 'none'; frame-ancestors 'self'"] body
+    (* Pages are public, so they may be kept, and TEI figures may come from
+       anywhere. Artifact pages frame this site's own PDFs. *)
+    | Html (status, body) -> Sitekit.respond_html respond ~status
+        ~headers:(Sitekit.Headers.html ~cache:`Revalidate
+          ~img_src:["https:"; "http:"] ~frame_src:["'self'"]
+          ~frame_ancestors:["'self'"] ()) body
     | Media (content_type, body) -> Resp.media respond
         ~headers:[Resp.other "X-Content-Type-Options" "nosniff";
           Resp.other "Cache-Control" "no-store"] content_type body
@@ -527,7 +526,7 @@ let create ?(publisher_lookup=fun _ -> None) ?(abstract_lookup=fun _ -> None)
 
 let site =
   let open Route in
-  Site.of_routes [
+  Site.of_routes ([
     get (s "audit") (fun env req respond -> env.handle Audit req respond);
     get root (fun env req respond -> env.handle Home req respond);
     get (s "debug") (fun env req respond -> env.handle Debug req respond);
@@ -560,3 +559,4 @@ let site =
     get (s "artifact") (fun env req respond -> env.handle Download req respond);
     get (s "pdf") (fun env req respond -> env.handle Pdf req respond);
     get (s "read") (fun env req respond -> env.handle Read req respond)]
+    @ Sitekit.Asset.routes View.assets)

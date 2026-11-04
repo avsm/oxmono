@@ -966,6 +966,16 @@ let website () = with_temp (fun env sw root ->
   count "interface script" 200 (code (request "/assets/interface.js"));
   let results = request "/search?q=bird" in
   count "search" 200 (code results);
+  (* Pages link their styles and scripts, so the policy allows no inline
+     code, and the linked files are served for good. *)
+  let csp = Option.value ~default:"" (W.header_other results "Content-Security-Policy") in
+  check "CSP has no unsafe-inline" false (includes csp "unsafe");
+  check "CSP refuses other origins' scripts" true (includes csp "script-src 'self'");
+  check "no inline style" false
+    (includes (W.body results) "<style" || includes (W.body results) "style=");
+  let linked = Sitekit.Url.to_string (Sitekit.Asset.url Sitekit.Asset.stylesheet) in
+  check "links Sitekit's stylesheet" true (includes (W.body results) linked);
+  count "Sitekit stylesheet" 200 (code (request linked));
   check "title escaped" true (includes (W.body results) "&lt;script&gt;");
   let q = "?uid=" ^ Uriz.pct_encode ~component:`Unreserved (Uid.to_string id) in
   let debug = request ("/debug" ^ q ^ "&view=panel") in

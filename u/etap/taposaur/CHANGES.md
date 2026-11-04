@@ -1,5 +1,11 @@
 # Changes
 
+- Build the website on Sitekit: its page shell and generic widgets, with
+  Taposaur's stylesheet and scripts served at content-hashed paths, so the
+  Content Security Policy no longer allows inline styles. Coverage bars are
+  SVG images rather than styled spans, and pages send
+  `Referrer-Policy: same-origin` and `Cross-Origin-Opener-Policy:
+  same-origin`.
 - Recover missing abstracts from OpenAlex: `taposaur abstracts fetch` batches
   exact-DOI lookups, retains every response, and falls back to free
   single-work reads when the daily budget refuses a batch; the resolver

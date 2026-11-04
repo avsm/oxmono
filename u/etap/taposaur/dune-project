@@ -25,6 +25,7 @@
   fmt
   xmlm
   htmlit
+  sitekit
   sqlite3
   sqlite3-eio
   cmdliner

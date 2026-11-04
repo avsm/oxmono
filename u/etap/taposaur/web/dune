@@ -22,6 +22,7 @@
   eio
   htmlit
   taposaur.ui
+  sitekit
   uriz
   unix
   cstruct
@@ -36,7 +37,7 @@
   (with-stdout-to
    %{target}
    (progn
-    (echo "let source = Taposaur_ui.javascript ^ {js|")
+    (echo "let source = {js|")
     (cat %{dep:interface.js})
     (echo "|js}")))))
 

@@ -1,10 +1,12 @@
-(** Small, domain-independent Htmlit widgets used by Taposaur views.
-    Tables sort their rendered rows in the browser, not the whole dataset. *)
+(** Taposaur's widgets. The generic ones are {!Sitekit}'s, styled by
+    Taposaur's stylesheet. Tables sort their rendered rows in the browser,
+    not the whole dataset, with {!Sitekit.Asset.script}. *)
 val css : string
-val javascript : string
-(** Load [javascript] with defer after pages containing sortable tables. *)
+(** [css] is Taposaur's own stylesheet, linked after Sitekit's. *)
 val node : string -> (string * string) list ->
   Htmlit.El.html list -> Htmlit.El.html
+(** [node name attrs children] is an element. Its attribute names are
+    Taposaur's literals, never request data. *)
 val badge : ?tone:[ `Neutral | `Good | `Warning ] -> string -> Htmlit.El.html
 val metric : label:string -> Htmlit.El.html -> Htmlit.El.html
 val input : name:string -> label:string -> kind:string -> value:string ->
@@ -18,14 +20,13 @@ val table : ?class_name:string -> ?gap_sort:bool -> (string * bool) list ->
   Htmlit.El.html list list -> Htmlit.El.html
 (** [table columns rows] renders sortable columns. [true] selects numeric
     sorting. Rows contain cells, optionally with explicit [cell] sort values.
-    Without a sort value the browser uses the cell's visible text. *)
+    Without a sort value the browser uses the cell's visible text. [gap_sort]
+    adds the choice of sorting coverage by count or by percentage. *)
 val coverage : present:int -> total:int -> Htmlit.El.html
+(** [coverage ~present ~total] is {!Sitekit.coverage} in a [coverage-spark]
+    element that Taposaur's layout sizes. *)
 val state_sprite : Htmlit.El.html
-(** [state_sprite] defines the job state icons once per page as hidden SVG
-    symbols [state-queued], [state-running], [state-done], [state-failed],
-    [state-cancelled], [state-notice] and [state-unknown]. Include it before any
-    {!state_icon} or a client-built [<use>] of those identifiers. *)
+(** [state_sprite] is {!Sitekit.state_sprite}. Include it before any
+    {!state_icon} or a client-built [<use>] of [#sk-state-STATE]. *)
 val state_icon : ?label:string -> string -> Htmlit.El.html
-(** [state_icon state] draws the symbol for a job state name from
-    {!state_sprite}, coloured by class [state-STATE], with [label]
-    (default the state name) as its accessible name and tooltip. *)
+(** [state_icon state] is {!Sitekit.state_icon}. *)

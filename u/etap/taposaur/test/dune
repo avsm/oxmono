@@ -28,6 +28,7 @@
   duraml
   duraml.memory
   proffer.mock
+  sitekit
   eio_main
   alcotest
   sqlite3
@@ -51,6 +52,7 @@
   taposaur.archive
   taposaur.web
   proffer.mock
+  sitekit
   eio_main
   alcotest
   sqlite3

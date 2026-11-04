@@ -857,7 +857,7 @@ let pipeline t s (req @ local) (respond @ local) =
                      ])
                 w.job.name;
             ];
-          S.cell [ status w.status ];
+          S.cell [ status (Runner.status_to_string w.status) ];
           S.cell [ S.text (Option.value ~default:"" w.started) ];
           S.cell [ S.text (Option.value ~default:"" w.finished) ];
           S.cell [ S.text (Option.value ~default:"" w.error) ];
@@ -905,7 +905,7 @@ let log t s (req @ local) (respond @ local) =
                         (S.Url.path [ "ui"; "pipeline" ]
                            ~query:[ ("repo", p.repo); ("id", p.id) ])
                         p.id) );
-                 ("Status", Some (status w.status));
+                 ("Status", Some (status (Runner.status_to_string w.status)));
                  ("Error", Option.map S.text w.error);
                ];
              S.terminal (Runner.outcome w).log;

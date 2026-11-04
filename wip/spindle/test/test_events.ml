@@ -177,13 +177,13 @@ let () =
   let pipeline = Engine.find engine blocked |> Option.get in
   assert (
     List.for_all
-      (fun (r : Spindle__Runner.t) -> r.status = "blocked")
+      (fun (r : Spindle__Runner.t) -> r.status = `Blocked)
       pipeline.workflows);
   assert (List.mem blocked (Engine.loaded engine));
   Engine.approve engine ~actor:owner ~repo ~id:blocked;
   assert (
     List.for_all
-      (fun (r : Spindle__Runner.t) -> r.status = "pending")
+      (fun (r : Spindle__Runner.t) -> r.status = `Pending)
       pipeline.workflows);
   (match Engine.approve engine ~actor:owner ~repo ~id:blocked with
   | () -> failwith "an unblocked pipeline was approved"
@@ -288,7 +288,7 @@ let () =
     if
       List.mem "grandchild" names
       && List.for_all
-           (fun (r : Spindle__Runner.t) -> r.status = "success")
+           (fun (r : Spindle__Runner.t) -> r.status = `Success)
            p.workflows
     then p
     else if n = 0 then
@@ -297,7 +297,9 @@ let () =
         ^ String.concat ", "
             (List.map
                (fun (r : Spindle__Runner.t) ->
-                 r.job.name ^ "=" ^ r.status ^ " "
+                 r.job.name ^ "="
+                 ^ Spindle__Runner.status_to_string r.status
+                 ^ " "
                  ^ Option.value ~default:"" r.error)
                p.workflows))
     else (

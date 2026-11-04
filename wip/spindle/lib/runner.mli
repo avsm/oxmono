@@ -1,10 +1,27 @@
 (** Execution and logs for one independently cancellable workflow. *)
 
+type status =
+  [ `Pending  (** Waiting for a slot, its limits or a builder's queue. *)
+  | `Running
+  | `Blocked  (** Waiting for a collaborator's approval. *)
+  | `Success
+  | `Failed
+  | `Cancelled
+  | `Timeout ]
+
+val status_to_string : status -> string
+(** [status_to_string s] is [s] as the lexicon spells it, such as ["pending"].
+*)
+
+val status_of_string : string -> status
+(** [status_of_string s] is the status spelled [s], and [`Failed] for any other
+    text. *)
+
 type t = {
   job : Job.t;
   parent : string option;
       (** The workflow that spawned this one while it ran, if any. *)
-  mutable status : string;
+  mutable status : status;
   mutable started : string option;
   mutable finished : string option;
   mutable error : string option;

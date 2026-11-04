@@ -307,7 +307,7 @@ let rec start_one t p (workflow : Runner.t) =
 
 and lost t p (workflow : Runner.t) message =
   if not (Runner.terminal workflow) then (
-    workflow.status <- "failed";
+    workflow.status <- `Failed;
     workflow.finished <- Some (Runner.now ());
     workflow.error <- Some message;
     persist t p)
@@ -330,7 +330,7 @@ and run t p (workflow : Runner.t) =
     }
   in
   let fail message =
-    workflow.status <- "failed";
+    workflow.status <- `Failed;
     workflow.finished <- Some (Runner.now ());
     workflow.error <- Some message;
     persist t p
@@ -389,7 +389,7 @@ and run t p (workflow : Runner.t) =
   | Eio.Cancel.Cancelled _ as e when t.durable <> None -> raise e
   | exn ->
       Eio.Cancel.protect (fun () ->
-          workflow.status <- "failed";
+          workflow.status <- `Failed;
           workflow.finished <- Some (Runner.now ());
           workflow.error <- Some (Runner.message exn);
           persist t p)
@@ -421,7 +421,7 @@ and spawn t p ~parent ~env name steps =
 let start t p =
   List.iter
     (fun (workflow : Runner.t) ->
-      if workflow.status = "pending" then start_one t p workflow)
+      if workflow.status = `Pending then start_one t p workflow)
     p.workflows
 
 let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
@@ -652,7 +652,7 @@ let serve ?(lease = 60.) t =
                   with
                   | Some w when w.cancelled && not (Runner.terminal w) ->
                       (* Cancelled while it waited to run again. *)
-                      w.status <- "cancelled";
+                      w.status <- `Cancelled;
                       w.error <- Some "User canceled the workflow";
                       w.finished <- Some (Runner.now ());
                       persist t p
@@ -961,7 +961,7 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false)
         (* A pipeline waiting for approval uses nothing until approved. *)
         let occupying p =
           List.exists
-            (fun (r : Runner.t) -> r.status = "pending" || r.status = "running")
+            (fun (r : Runner.t) -> r.status = `Pending || r.status = `Running)
             p.workflows
         in
         let active =
@@ -1009,7 +1009,7 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false)
               List.map
                 (fun job ->
                   let run = Runner.v job in
-                  if blocked then run.status <- "blocked";
+                  if blocked then run.status <- `Blocked;
                   run)
                 jobs;
           }
@@ -1068,12 +1068,12 @@ let approve t ~actor ~repo ~id =
          workflows once. *)
       Lock.protect t.lock (fun () ->
           let blocked =
-            List.filter (fun (r : Runner.t) -> r.status = "blocked") p.workflows
+            List.filter (fun (r : Runner.t) -> r.status = `Blocked) p.workflows
           in
           if blocked = [] then invalid "pipeline is not blocked";
           if not (Hashtbl.mem t.pipelines p.id) then
             Hashtbl.add t.pipelines p.id p;
-          List.iter (fun (r : Runner.t) -> r.status <- "pending") blocked);
+          List.iter (fun (r : Runner.t) -> r.status <- `Pending) blocked);
       persist t p;
       start t p
 

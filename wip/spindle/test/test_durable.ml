@@ -136,7 +136,7 @@ let () =
     let inspect =
       List.find (fun (r : Runner.t) -> r.job.name = "inspect") p.workflows
     in
-    assert (inspect.status = "success");
+    assert (inspect.status = `Success);
     assert (count "inspect" = 2);
     (* The child was spawned once, and its earlier run stands. *)
     assert (count "child" = 1);

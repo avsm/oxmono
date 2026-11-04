@@ -85,9 +85,9 @@ let () =
     ~spawn:(fun ~env:_ _ _ -> ())
     ~queued_for:(fun s -> queued := s)
     workflow;
-  assert (workflow.status = "success" && !queued >= 0.);
+  assert (workflow.status = `Success && !queued >= 0.);
   (match List.rev !seen with
-  | ("running", true) :: ("pending", false) :: ("running", true) :: _ -> ()
+  | (`Running, true) :: (`Pending, false) :: (`Running, true) :: _ -> ()
   | _ -> assert false);
   (* Steps, their outcomes and both streams. *)
   let w =
@@ -95,7 +95,7 @@ let () =
         ctx.step "one" (fun () -> ctx.log `Stdout "out");
         ctx.step "two" (fun () -> ctx.log `Stderr "err"))
   in
-  assert (w.status = "success");
+  assert (w.status = `Success);
   assert (ends w = [ (0, "user", "success"); (1, "user", "success") ]);
   assert (output w = "out" && output ~step:1 ~stream:"stderr" w = "err");
   (* A step that raises fails the workflow and is marked failed. *)
@@ -104,7 +104,7 @@ let () =
         ctx.step "one" ignore;
         ctx.step "two" (fun () -> failwith "broken"))
   in
-  assert (w.status = "failed" && w.error = Some "broken");
+  assert (w.status = `Failed && w.error = Some "broken");
   assert (ends w = [ (0, "user", "success"); (1, "user", "failed") ]);
   (* The log has one line per frame. An unterminated line waits for its
      newline or the end of the step, and a long one is split between UTF-8
@@ -147,7 +147,7 @@ let () =
     starts w = [ ("setup", None, "system"); ("build", Some "make", "user") ]);
   (* Logging outside a step is refused. *)
   let w = run (fun ctx _ -> ctx.log `Stdout "stray") in
-  assert (w.status = "failed" && w.events = []);
+  assert (w.status = `Failed && w.events = []);
   (* Malformed UTF-8 is replaced. *)
   let w = run (fun ctx _ -> ctx.step "s" (fun () -> ctx.log `Stdout "\xff€")) in
   assert (output w = "\xef\xbf\xbd€");
@@ -159,13 +159,13 @@ let () =
               ctx.log `Stdout (String.make 65536 'x')
             done))
   in
-  assert (w.status = "failed" && w.log_bytes <= 1024 * 1024);
+  assert (w.status = `Failed && w.log_bytes <= 1024 * 1024);
   (* The time limit stops a workflow. *)
   let w =
     run ~timeout:0.05 (fun ctx _ ->
         ctx.step "s" (fun () -> Eio.Time.sleep env#clock 5.))
   in
-  assert (w.status = "timeout" && w.error = None);
+  assert (w.status = `Timeout && w.error = None);
   assert (ends w = [ (0, "user", "failed") ]);
   (* Cancellation stops a running executor. *)
   let started, started_r = Eio.Promise.create () in
@@ -185,7 +185,7 @@ let () =
     (fun () ->
       Eio.Promise.await started;
       Runner.cancel ~persist:(fun () -> ()) workflow);
-  assert (workflow.status = "cancelled");
+  assert (workflow.status = `Cancelled);
   assert (workflow.error = Some "User canceled the workflow");
   assert (ends workflow = [ (0, "user", "failed") ]);
   (* Secret values and their base64 forms are hidden, even split across
@@ -221,12 +221,12 @@ let () =
   assert (w.error = Some "bad token ***");
   (* A workflow stopped while it waits in a builder's queue was running. *)
   let w = Runner.v (Job.v "q" []) in
-  w.status <- "pending";
+  w.status <- `Pending;
   w.queued <- true;
   let raw = Runner.snapshot w in
   assert (Runner.interrupted raw);
-  assert ((Runner.restore raw).status = "failed");
-  assert ((Runner.restore ~resume:true raw).status = "pending");
+  assert ((Runner.restore raw).status = `Failed);
+  assert ((Runner.restore ~resume:true raw).status = `Pending);
   w.queued <- false;
   assert (not (Runner.interrupted (Runner.snapshot w)));
   (* A line of exactly 16 KiB is one line. *)
@@ -245,7 +245,7 @@ let () =
   let w =
     run ~job ~secrets:[ ("TOKEN", "hunter2") ] (fun _ r -> seen := Some r)
   in
-  assert (w.status = "success");
+  assert (w.status = `Success);
   let r = Option.get !seen in
   assert (r.pipeline = "3jzfcijpj2z2a" && r.workflow = "build.yml");
   assert (r.source = "https://knot.test/repo" && not r.clone);
@@ -264,7 +264,7 @@ let () =
       ~secrets:[ ("TOKEN", "hunter2") ]
       (Executor.print ~delay:0. env#clock)
   in
-  assert (w.status = "success");
+  assert (w.status = `Success);
   assert (ends w = [ (0, "system", "success"); (1, "user", "success") ]);
   assert (
     starts w
@@ -294,7 +294,7 @@ let () =
     ~persist:(fun () -> ())
     ~spawn:(fun ~env name steps -> spawned := (name, env, steps) :: !spawned)
     workflow;
-  assert (workflow.status = "success");
+  assert (workflow.status = `Success);
   assert (List.map (fun (n, _, _) -> n) !spawned = [ "ocaml-5.5"; "ocaml-4.14" ]);
   let _, compiler_env, steps = List.hd !spawned in
   let build = Runner.v (Job.spawned ~env:compiler_env "ocaml-5.5" steps) in
@@ -305,7 +305,7 @@ let () =
     ~persist:(fun () -> ())
     ~spawn:(fun ~env:_ _ _ -> failwith "a build spawned")
     build;
-  assert (build.status = "success");
+  assert (build.status = `Success);
   assert (ends build = List.map (fun i -> (i, "user", "success")) [ 0; 1; 2 ]);
   let restored = Runner.restore (Runner.snapshot build) in
   assert (restored.job.spawned && restored.job.env = compiler_env);
@@ -346,7 +346,7 @@ let () =
             workflow)
         (fun () ->
           Eio.Promise.await written;
-          assert (workflow.status = "running");
+          assert (workflow.status = `Running);
           Eio.Switch.run (fun reader_sw ->
               let reopened = Store.open_ ~sw:reader_sw directory in
               let events =
@@ -360,7 +360,7 @@ let () =
               in
               assert (not (contains (J.list (J.required "events" snapshot)))));
           Eio.Promise.resolve release_r ());
-      assert (workflow.status = "success");
+      assert (workflow.status = `Success);
       assert (
         Store.logs store ~pipeline:input.id ~workflow:workflow.job.name = []);
       let restored =

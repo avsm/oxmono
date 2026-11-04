@@ -863,7 +863,7 @@ and handle_xrpc state name req respond =
             if
               not
                 (List.exists
-                   (fun (r : Runner.t) -> r.status = "blocked")
+                   (fun (r : Runner.t) -> r.status = `Blocked)
                    p.workflows)
             then
               reject Status.Bad_request "PipelineNotBlocked"

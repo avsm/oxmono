@@ -1,10 +1,31 @@
 (* SPDX-License-Identifier: ISC *)
 open Json
 
+type status =
+  [ `Pending | `Running | `Blocked | `Success | `Failed | `Cancelled | `Timeout ]
+
+let status_to_string = function
+  | `Pending -> "pending"
+  | `Running -> "running"
+  | `Blocked -> "blocked"
+  | `Success -> "success"
+  | `Failed -> "failed"
+  | `Cancelled -> "cancelled"
+  | `Timeout -> "timeout"
+
+let status_of_string = function
+  | "pending" -> `Pending
+  | "running" -> `Running
+  | "blocked" -> `Blocked
+  | "success" -> `Success
+  | "cancelled" -> `Cancelled
+  | "timeout" -> `Timeout
+  | _ -> `Failed
+
 type t = {
   job : Job.t;
   parent : string option;
-  mutable status : string;
+  mutable status : status;
   mutable started : string option;
   mutable finished : string option;
   mutable error : string option;
@@ -44,13 +65,13 @@ let now () = Ptime.to_rfc3339 ~tz_offset_s:0 (Ptime_clock.now ())
 (* A blocked workflow waits for a collaborator's approval. It is live, so
    cancellation and restart keep it, but it does not run until approved. *)
 let terminal p =
-  p.status <> "pending" && p.status <> "running" && p.status <> "blocked"
+  p.status <> `Pending && p.status <> `Running && p.status <> `Blocked
 
 let v ?parent job =
   {
     job;
     parent;
-    status = "pending";
+    status = `Pending;
     started = None;
     finished = None;
     error = None;
@@ -66,7 +87,9 @@ let v ?parent job =
 let view p =
   obj
     ([
-       ("id", str p.job.name); ("name", str p.job.name); ("status", str p.status);
+       ("id", str p.job.name);
+       ("name", str p.job.name);
+       ("status", str (status_to_string p.status));
      ]
     @ optional "startedAt" str p.started
     @ optional "finishedAt" str p.finished
@@ -144,7 +167,7 @@ let restore ?(resume = false) raw =
   in
   let p = v ?parent:(Option.map string (field "parent" raw)) job in
   p.queued <- false;
-  p.status <- get "status" workflow;
+  p.status <- status_of_string (get "status" workflow);
   p.started <- Option.map string (field "startedAt" workflow);
   p.finished <- Option.map string (field "finishedAt" workflow);
   p.error <- Option.map string (field "error" workflow);
@@ -154,12 +177,12 @@ let restore ?(resume = false) raw =
   if interrupted raw then
     if resume then (
       (* It runs again from the start, so the interrupted log goes. *)
-      p.status <- "pending";
+      p.status <- `Pending;
       p.started <- None;
       p.events <- [];
       p.log_bytes <- 0)
     else (
-      p.status <- "failed";
+      p.status <- `Failed;
       p.error <- Some "spindle restarted during workflow";
       p.finished <- Some (now ()));
   p
@@ -168,7 +191,7 @@ let restore ?(resume = false) raw =
 let reset p =
   p.cancel <- None;
   p.queued <- false;
-  p.status <- "pending";
+  p.status <- `Pending;
   p.started <- None;
   p.finished <- None;
   p.error <- None;
@@ -355,7 +378,7 @@ let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
      leaves it. *)
   let queued : 'a. (unit -> 'a) -> 'a =
    fun f ->
-    p.status <- "pending";
+    p.status <- `Pending;
     p.started <- None;
     p.queued <- true;
     persist ();
@@ -368,8 +391,8 @@ let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
         waited ();
         Eio.Cancel.protect (fun () ->
             p.queued <- false;
-            if p.status = "pending" then (
-              p.status <- "running";
+            if p.status = `Pending then (
+              p.status <- `Running;
               p.started <- Some (now ());
               persist ()));
         x
@@ -400,10 +423,8 @@ let text p =
 
 let ended p =
   match p.status with
-  | "success" -> `Success
-  | "cancelled" -> `Cancelled
-  | "timeout" -> `Timeout
-  | _ -> `Failed
+  | (`Success | `Cancelled | `Timeout | `Failed) as s -> s
+  | `Pending | `Running | `Blocked -> `Failed
 
 let outcome p : Executor.outcome =
   { workflow = p.job.name; status = ended p; error = p.error; log = text p }
@@ -423,8 +444,8 @@ let current_step p =
 let progress p : Executor.progress =
   let status =
     match p.status with
-    | "pending" | "blocked" -> `Pending
-    | "running" -> `Running
+    | `Pending | `Blocked -> `Pending
+    | `Running -> `Running
     | _ -> ended p
   in
   {
@@ -464,8 +485,8 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
     | None -> watch None
     | since -> released (fun () -> watch since)
   in
-  if (not p.cancelled) && p.status = "pending" then (
-    p.status <- "running";
+  if (not p.cancelled) && p.status = `Pending then (
+    p.status <- `Running;
     p.started <- Some (now ());
     persist ();
     let result =
@@ -497,18 +518,17 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
         p.cancel <- None;
         p.finished <- Some (now ());
         (match result with
-        | Ok () -> p.status <- "success"
+        | Ok () -> p.status <- `Success
         | Error (exn, _) ->
             let status, error =
-              if p.cancelled then
-                ("cancelled", Some "User canceled the workflow")
+              if p.cancelled then (`Cancelled, Some "User canceled the workflow")
               else
                 match exn with
-                | Eio.Time.Timeout -> ("timeout", None)
+                | Eio.Time.Timeout -> (`Timeout, None)
                 | Eio.Cancel.Cancelled _ ->
-                    ("failed", Some "the spindle stopped during the workflow")
+                    (`Failed, Some "the spindle stopped during the workflow")
                 | exn ->
-                    ( "failed",
+                    ( `Failed,
                       Some
                         (Mask.hide (List.map snd input.secrets) (message exn))
                     )
@@ -528,6 +548,6 @@ let cancel ~persist p =
     match p.cancel with
     | Some cancel -> cancel ()
     | None ->
-        p.status <- "cancelled";
+        p.status <- `Cancelled;
         p.finished <- Some (now ());
         persist ())

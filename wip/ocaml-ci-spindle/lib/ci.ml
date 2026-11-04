@@ -19,11 +19,6 @@ module Job = Spindle.Job
 let variant_var = "OCAMLCI_VARIANT"
 let pool_var = "OCAMLCI_POOL"
 let diagnose_var = "OCAMLCI_DIAGNOSE"
-
-(* The failed builds of each pipeline whose [diagnose] workflow has yet to
-   read them. A spindle restart loses them, as it loses the waiting plan. *)
-type pending = (string, Diagnose.failure list * string list) Hashtbl.t
-
 let jobs = [ Job.v "ocaml-ci" [ Job.step "plan" "opam-0install" ] ]
 
 let logf (ctx : Spindle.Executor.context) fmt =
@@ -192,7 +187,7 @@ let follow config (ctx : Spindle.Executor.context) ~primary ~later =
 (* The [summary] step reports every build, including those spawned once
    the newest compiler's passed. Failures are handed to a [diagnose]
    workflow when a model is configured. *)
-let summary config pending (ctx : Spindle.Executor.context)
+let summary config (ctx : Spindle.Executor.context)
     (r : Spindle.Executor.request) ~primary ~later =
   follow config ctx ~primary ~later;
   ctx.step "summary" (fun () ->
@@ -234,13 +229,6 @@ let summary config pending (ctx : Spindle.Executor.context)
         failed <> [] && config.diagnose <> None
         && List.mem diagnose_label (r.labels ())
       then (
-        if Hashtbl.length pending > 256 then Hashtbl.reset pending;
-        Hashtbl.replace pending r.pipeline
-          ( List.map
-              (fun (o : Spindle.Executor.outcome) ->
-                { Diagnose.workflow = o.workflow; error = o.error; log = o.log })
-              failed,
-            passed );
         ctx.spawn
           ~env:[ (diagnose_var, "1") ]
           "diagnose"
@@ -252,8 +240,8 @@ let summary config pending (ctx : Spindle.Executor.context)
              (List.length outcomes - List.length passed)
              (List.length outcomes)))
 
-let plan config pending (ctx : Spindle.Executor.context)
-    (r : Spindle.Executor.request) =
+let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
+    =
   let project = ref None and platforms = ref config.platforms in
   ctx.step ~command:"ls *.opam" "analyse" (fun () ->
       match Analysis.find r.files with
@@ -368,25 +356,39 @@ let plan config pending (ctx : Spindle.Executor.context)
           in
           ctx.spawn ~env:(env_of v) v.name (Job.step "obuilder" spec :: after))
         !builds;
-      summary config pending ctx r ~primary:(Option.map fst primary)
-        ~later:!later)
+      summary config ctx r ~primary:(Option.map fst primary) ~later:!later)
     !project
 
 (* The [diagnose] workflow: one question to the model, with no tools. *)
-let diagnose config pending (ctx : Spindle.Executor.context)
+let diagnose config (ctx : Spindle.Executor.context)
     (r : Spindle.Executor.request) =
   let d =
     match config.diagnose with
     | Some d -> d
     | None -> failwith "no model is configured"
   in
-  let failures, passed =
-    match Hashtbl.find_opt pending r.pipeline with
-    | Some x ->
-        Hashtbl.remove pending r.pipeline;
-        x
-    | None -> failwith "the failed builds' logs are gone, so rerun the pipeline"
+  (* The builds are the pipeline's other workflows, read back from the
+     spindle's store, so a diagnosis survives a restart. *)
+  let builds =
+    List.filter
+      (fun (o : Spindle.Executor.outcome) ->
+        o.workflow <> "ocaml-ci" && o.workflow <> r.workflow)
+      (ctx.finished ())
   in
+  let failures =
+    List.filter_map
+      (fun (o : Spindle.Executor.outcome) ->
+        if o.status = `Failed then
+          Some { Diagnose.workflow = o.workflow; error = o.error; log = o.log }
+        else None)
+      builds
+  and passed =
+    List.filter_map
+      (fun (o : Spindle.Executor.outcome) ->
+        if o.status = `Success then Some o.workflow else None)
+      builds
+  in
+  if failures = [] then failwith "no build of this pipeline failed";
   let prompt = ref "" in
   ctx.step ~kind:`System ~command:"prepare prompt" "collect logs" (fun () ->
       prompt := Diagnose.prompt ~files:r.files ~passed failures;
@@ -529,10 +531,9 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
     after
 
 let executor config =
-  let pending : pending = Hashtbl.create 7 in
-  fun ctx (r : Spindle.Executor.request) ->
-    if r.definition <> None then
-      failwith "this spindle runs only its own workflows, not the repository's"
-    else if List.mem_assoc variant_var r.env then build config ctx r
-    else if List.mem_assoc diagnose_var r.env then diagnose config pending ctx r
-    else plan config pending ctx r
+ fun ctx (r : Spindle.Executor.request) ->
+  if r.definition <> None then
+    failwith "this spindle runs only its own workflows, not the repository's"
+  else if List.mem_assoc variant_var r.env then build config ctx r
+  else if List.mem_assoc diagnose_var r.env then diagnose config ctx r
+  else plan config ctx r

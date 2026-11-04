@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Read the failed builds a `diagnose` workflow asks about from the
+  spindle's store, so a diagnosis survives a restart.
+
 - Build only arm64 after x86_64 by default. ppc64le, riscv64 and Windows,
   `--full-platforms`, are built for pull requests labelled `ci:full`.
 - Diagnose only pull requests labelled `ci:diagnose`. Labels count only

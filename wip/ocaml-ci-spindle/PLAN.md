@@ -92,5 +92,5 @@ be steered into proposing anything.
   `git am` route works.
 - Pushing straight to a branch of the repository itself would need the
   maintainer's credentials. The spindle should never hold those.
-- Fixes kept in memory, as the `diagnose` hand-over is now, are lost on a
-  restart, so the store is needed.
+- Fixes must be kept in a store, as the failures `diagnose` reads are now,
+  so that they survive a restart.

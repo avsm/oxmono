@@ -31,6 +31,7 @@ type config = {
   privacy_policy : string option;
   terms_of_service : string option;
   concurrency : int;
+  repository_workflows : bool;
 }
 
 type state = {
@@ -933,8 +934,7 @@ let handle state name req respond =
             require_admin state (authorize state name req);
             let subject = get "did" (body ()) in
             if not (Atp.Did.is_valid subject) then
-              reject Status.Bad_request "InvalidDid"
-                ("invalid DID: " ^ subject);
+              reject Status.Bad_request "InvalidDid" ("invalid DID: " ^ subject);
             Settings.ban state.settings subject;
             wipe state subject;
             obj []
@@ -942,8 +942,7 @@ let handle state name req respond =
             require_admin state (authorize state name req);
             let subject = get "did" (body ()) in
             if not (Atp.Did.is_valid subject) then
-              reject Status.Bad_request "InvalidDid"
-                ("invalid DID: " ^ subject);
+              reject Status.Bad_request "InvalidDid" ("invalid DID: " ^ subject);
             Settings.unban state.settings subject;
             obj []
         | "org.tangled.temp.spindle.quota.list" ->
@@ -1139,7 +1138,10 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
     Engine.v ~store ~catalog ~settings ~hostname:config.hostname
       ~jobs:config.jobs ~timeout:config.workflow_timeout
       ~executor:config.executor
-      ~read_workflows:(read_files config catalog network)
+      ?read_workflows:
+        (if config.repository_workflows then
+           Some (read_files config catalog network)
+         else None)
       ~tree:(tree config catalog network)
       ~concurrency:config.concurrency ~system ~directory ~sw ()
   in

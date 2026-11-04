@@ -17,10 +17,13 @@ val main :
   ?name:string ->
   ?doc:string ->
   ?workflow_timeout:float ->
+  ?repository_workflows:bool ->
   'a Cmdliner.Term.t ->
   'a make ->
   unit
 (** [main ~name ~doc extra make] parses the command line, with [extra] as
     additional options, and serves until stopped. [name] defaults to
     ["spindle"], and [workflow_timeout] is the default of [--workflow-timeout],
-    60 seconds unless given. It exits the process. *)
+    60 seconds unless given. [repository_workflows], [true] by default, runs
+    each repository's [.tangled/workflows] as well as the spindle's own. It
+    exits the process. *)

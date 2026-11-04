@@ -34,6 +34,9 @@ type config = {
   concurrency : int;
       (** Workflows that may run at once. An executor that waits on remote
           builders can allow many. *)
+  repository_workflows : bool;
+      (** Whether each repository's [.tangled/workflows] also run. A spindle
+          whose executor runs only its own [jobs] turns them off. *)
 }
 (** [config] serves repositories whose knot manifest names this spindle and
     whose owner is admitted. [owner] and [admins] administer the spindle and
@@ -50,6 +53,7 @@ val run :
   config ->
   unit
 (** [run system config] serves Tangled CI XRPC through Proffer. It hands the
-    OCaml [jobs] and each repository's [.tangled/workflows] YAML to
-    [config.executor]. State, event cursors, JWT nonces and logs persist in
-    SQLite. A workflow's log may hold at most 1 MiB. *)
+    OCaml [jobs], and each repository's [.tangled/workflows] YAML when
+    [repository_workflows] is set, to [config.executor]. State, event cursors,
+    JWT nonces and logs persist in SQLite. A workflow's log may hold at most 1
+    MiB. *)

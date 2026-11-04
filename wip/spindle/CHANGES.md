@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Let a custom spindle turn off repositories' own workflows with
+  `Spindle_cli.main ~repository_workflows:false`.
+
 - Give executors read access to the repository at the commit through the
   request's `files`, add `--concurrency`, and add the `spindle.cli` library
   so that custom spindles keep the `spindle` command's options.

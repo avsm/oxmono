@@ -7,10 +7,10 @@ type 'a make =
   'a ->
   Spindle.Job.t list * Spindle.Executor.t
 
-let serve make hostname owner admins admission repo source plc state_dir port
-    addr jetstream allow_http workflow_timeout quota_repo quota_user
-    private_webhooks cors_origins contact_email privacy_policy terms_of_service
-    concurrency extra operations =
+let serve ~repository_workflows make hostname owner admins admission repo source
+    plc state_dir port addr jetstream allow_http workflow_timeout quota_repo
+    quota_user private_webhooks cors_origins contact_email privacy_policy
+    terms_of_service concurrency extra operations =
   let repo =
     match (repo, source) with
     | None, None -> None
@@ -42,6 +42,7 @@ let serve make hostname owner admins admission repo source plc state_dir port
       privacy_policy;
       terms_of_service;
       concurrency;
+      repository_workflows;
     }
 
 let required name doc =
@@ -124,10 +125,10 @@ let origin =
   Arg.conv (parse, Format.pp_print_string)
 
 let main ?(name = "spindle") ?(doc = "Run a Tangled spindle")
-    ?(workflow_timeout = 60.) extra make =
+    ?(workflow_timeout = 60.) ?(repository_workflows = true) extra make =
   let term =
     Term.(
-      const (serve make)
+      const (serve ~repository_workflows make)
       $ option "hostname" "spindle.tangled.test" "Spindle did:web hostname."
       $ required "owner" "Spindle owner DID."
       $ Arg.(

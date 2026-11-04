@@ -3,6 +3,7 @@
  (public_name taposaur.regeneration)
  (libraries
   taposaur.audit
+  taposaur.lock
   taposaur
   taposaur.document
   unix

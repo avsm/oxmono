@@ -1,0 +1,17 @@
+(tests
+ (names test_duraml test_worker test_sqlite test_client)
+ (libraries
+  duraml
+  duraml.memory
+  duraml.sqlite
+  duraml.worker
+  duraml.mock
+  duraml.client
+  duraml.jsont
+  jsont
+  eio
+  eio.mock
+  eio_main
+  sqlite3
+  unix
+  alcotest))

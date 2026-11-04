@@ -1,0 +1,4 @@
+(library
+ (name duraml_jsont)
+ (public_name duraml.jsont)
+ (libraries duraml.client jsont jsont.bytesrw))

@@ -10,8 +10,13 @@ val execute : ?max_members:int ->
     searches and reads fixed lists. Recorded searches require supplied
     results. Invalid lines require an explicitly partial binding. Exceeding
     the result budget aborts without publishing a run. *)
-val snapshot : ?publishers:Taposaur.Publisher_evidence.t list -> ?max_members:int -> ?max_bytes:int -> ?capture_seconds:float ->
+val snapshot : ?publishers:Taposaur.Publisher_evidence.t list ->
+  ?abstracts:Taposaur.Abstract_evidence.t list ->
+  ?max_members:int -> ?max_bytes:int -> ?capture_seconds:float ->
   S.write S.t -> Taposaur_catalog.read Taposaur_catalog.t ->
   run_id:int -> parent:int option -> label:string -> actor:string -> int
 (** [snapshot store catalog ...] captures metadata in one catalogue read
-    transaction for fixed run membership. It never changes that membership. *)
+    transaction for fixed run membership. It never changes that membership.
+    [publishers] and [abstracts] are exact-DOI evidence applied to members
+    whose frozen observation lacks that field, catalogued or not, with the
+    evidence label recorded as the field's source. *)

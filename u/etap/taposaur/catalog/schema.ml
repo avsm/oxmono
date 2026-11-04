@@ -157,6 +157,13 @@ END;
 PRAGMA user_version=6;
 |}
 
-let current_version = 6
+(* Body text presence from the resolver: 1, 0 or NULL when unresolved
+   or when no document reader could tell. *)
+let text_schema = {|
+ALTER TABLE papers ADD COLUMN text INTEGER;
+PRAGMA user_version=7;
+|}
+
+let current_version = 7
 let migrations = [1, schema; 2, metadata_schema; 3, bibliography_schema;
-  4, freshness_schema; 5, journal_schema; 6, detail_schema]
+  4, freshness_schema; 5, journal_schema; 6, detail_schema; 7, text_schema]

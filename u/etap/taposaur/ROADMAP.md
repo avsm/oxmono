@@ -4,6 +4,9 @@ The agreed sequence is a library with a documented OCaml interface, a CLI,
 then Proffer integration. Keep the existing archive format. Use Fetch for
 HTTP and Eio for I/O. No Cap'n Proto layer is required.
 
+See [TAPOSAUR.md](TAPOSAUR.md) for the 2026-11-03 agent handoff, operational
+observations, uncommitted Duraml work and the next implementation sequence.
+
 ## 1. Read and inspect papers
 
 Implemented. Core codecs, confined archive reads, index and event streams,
@@ -50,19 +53,29 @@ with acceptance and migration.
 
 ## 5. Add independent conversion operations
 
-Pub2TEI and GROBID HTTP clients are extracted. Remaining: publisher XML
-normalisation and independent conversion jobs.
+Pub2TEI and GROBID HTTP clients are extracted, and conversion jobs run
+independently through the job queue. Springer Nature's API envelope is
+reduced to its JATS article before Pub2TEI by `Taposaur_document.Publisher_xml`.
+Remaining: normalisation for other publisher envelopes as they appear.
 Accept one input artifact and return validated output with provenance. Separate
 permanent document refusals from transient service failures. Key reusable work
 by input digest, route and converter/configuration version.
 
 ## 6. Compose ingestion and bulk processing
 
-Pending. Persist per-paper jobs, bounded Eio workers, attempts, retry deadlines,
-cancellation and recovery. Compose identify, plan, fetch, convert, inspect,
-accept and publish. Storage shards must not dictate scheduling. Publication
-must leave durable pending catalogue updates. Expose jobs through the website
-after the CLI works.
+The generic [Duraml library](../../../wip/duraml/README.md) is implemented with
+memory and SQLite backends, fenced claims, retries, cancellation, recovery,
+atomic successors and a typed Eio client. Its 56 tests pass after the repository
+rearrangement. The package remains uncommitted.
+
+Taposaur integration is implemented in `jobs/`, `accept/` and `lock/`:
+per-publisher acquisition queues, per-route conversion queues, catalogue
+refresh successors, PID-bearing archive locks, no-clobber acceptance with
+durable intents, an audit bridge, the `taposaur jobs` CLI and read-only
+`/jobs` pages. One worker process owns each served queue on a host.
+Remaining: a live pilot against configured publishers and converters, a
+cross-host rate-limit permit if several hosts must serve one publisher,
+retention of settled jobs and bulk submission of the soil-carbon review.
 
 ## 7. Build reviews and migrate
 

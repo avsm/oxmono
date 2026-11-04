@@ -64,7 +64,7 @@ let invalidate t candidate = run t (fun db ->
     bind s (guard candidate); done_ s; S.changes db > 0))
 
 let diagnostics_codec = Jsont.list Jsont.string
-let publish ?source_stamp ?detail_cache ?(diagnostics = [])
+let publish ?source_stamp ?detail_cache ?(diagnostics = []) ?text:body_text
     t candidate ~version result =
   if version < 1 then invalid_arg "version must be positive";
   let diagnostics = match
@@ -89,6 +89,7 @@ let publish ?source_stamp ?detail_cache ?(diagnostics = [])
 UPDATE papers SET title=?,authors=?,journal=?,publisher=?,year=?,abstract=?,
  bibliography_json=?,resolved_json=NULL,detail_json=?,detail_at=?,metadata_version=?,
  metadata_error=NULL,metadata_at=?,source_stamp=?,metadata_diagnostics=?,
+ text=?,
  metadata_stale=0,metadata_revision=metadata_revision+1 WHERE |} ^ condition)
            (fun s ->
            bind s ([text (opt_text b.title);
@@ -98,7 +99,9 @@ UPDATE papers SET title=?,authors=?,journal=?,publisher=?,year=?,abstract=?,
              text (opt_text b.abstract); text encoded;
              Option.fold ~none:S.Data.NULL ~some:text detail_cache;
              (if detail_cache = None then S.Data.NULL else now); version; now;
-             stamp; text diagnostics] @ guard candidate);
+             stamp; text diagnostics;
+             (match body_text with None -> S.Data.NULL
+              | Some t -> int (if t then 1 else 0))] @ guard candidate);
            done_ s));
     S.changes db > 0))
 
@@ -155,6 +158,29 @@ let detail t uid = run t (fun db -> with_stmt db
 let detail_count t = run t (fun db -> with_stmt db
   "SELECT papers FROM detail_counts WHERE singleton=1" (fun s ->
     ignore (S.step s); S.column_int s 0))
+
+let fill_abstract t ~uid ~abstract ~update_detail =
+  if String.trim abstract = "" then invalid_arg "Empty abstract";
+  run t (fun db -> transaction db (fun () ->
+    match Search.find_db db uid with
+    | None -> false
+    | Some summary when Option.fold ~none:false
+        ~some:(fun a -> String.trim a <> "") summary.bibliography.abstract -> false
+    | Some summary ->
+      let bibliography = {summary.bibliography with abstract=Some abstract} in
+      let encoded = match Bibliography.to_string bibliography with
+        | Ok s -> s | Error e -> failwith e in
+      let detail = with_stmt db "SELECT json,detail_json FROM papers WHERE uid=?"
+        (fun s -> bind s [text (Uid.to_string uid)];
+          if S.step s <> S.Rc.ROW then failwith "Missing paper during abstract fill";
+          match optional s 1 with None -> None | Some raw ->
+            let index = match Index.of_string (S.column_text s 0) with
+              | Ok i -> i | Error e -> failwith e in
+            Some (update_detail index raw)) in
+      with_stmt db "UPDATE papers SET abstract=?,bibliography_json=?,detail_json=?,metadata_revision=metadata_revision+1 WHERE uid=? AND trim(abstract)=''"
+        (fun s -> bind s [text abstract;text encoded;
+          Option.fold ~none:S.Data.NULL ~some:text detail;text (Uid.to_string uid)];
+          done_ s; S.changes db > 0)))
 
 let fill_publisher t ~uid ~publisher ~update_detail =
   if String.trim publisher = "" then invalid_arg "Empty publisher";

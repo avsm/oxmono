@@ -20,3 +20,12 @@ val table : ?class_name:string -> ?gap_sort:bool -> (string * bool) list ->
     sorting. Rows contain cells, optionally with explicit [cell] sort values.
     Without a sort value the browser uses the cell's visible text. *)
 val coverage : present:int -> total:int -> Htmlit.El.html
+val state_sprite : Htmlit.El.html
+(** [state_sprite] defines the job state icons once per page as hidden SVG
+    symbols [state-queued], [state-running], [state-done], [state-failed],
+    [state-cancelled], [state-notice] and [state-unknown]. Include it before any
+    {!state_icon} or a client-built [<use>] of those identifiers. *)
+val state_icon : ?label:string -> string -> Htmlit.El.html
+(** [state_icon state] draws the symbol for a job state name from
+    {!state_sprite}, coloured by class [state-STATE], with [label]
+    (default the state name) as its accessible name and tooltip. *)

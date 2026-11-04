@@ -10,7 +10,7 @@ type stats = {
   partial : int;
 }
 
-let run ?audit ?(publisher_lookup = fun _ -> None) ?(retry_errors = false) ?(force = false) ?(limit = max_int) ?uid ?(jobs = 8)
+let run ?audit ?(publisher_lookup = fun _ -> None) ?(abstract_lookup = fun _ -> None) ?(retry_errors = false) ?(force = false) ?(limit = max_int) ?uid ?uids ?(jobs = 8)
     ?(order = Directory)
     ?(progress = fun _ _ -> ()) catalog archive =
   if limit < 0 then invalid_arg "limit must be nonnegative";
@@ -21,6 +21,7 @@ let run ?audit ?(publisher_lookup = fun _ -> None) ?(retry_errors = false) ?(for
   let process candidate =
     let row = C.Metadata.index candidate in
     let stamp = ref None and diagnostics = ref [] and detail_cache = ref None in
+    let text = ref None in
     let result = try match A.find archive row.uid with
       | None -> Error "Paper is absent from the archive"
       | Some paper ->
@@ -28,10 +29,13 @@ let run ?audit ?(publisher_lookup = fun _ -> None) ?(retry_errors = false) ?(for
           let resolved = Taposaur_reader.load ~index:row paper in
           let resolved = match Option.bind (Uid.doi row.uid) publisher_lookup with
             | None -> resolved | Some e -> P.with_publisher e resolved in
+          let resolved = match Option.bind (Uid.doi row.uid) abstract_lookup with
+            | None -> resolved | Some e -> P.with_abstract e resolved in
           let after = Option.map A.fingerprint (A.find archive row.uid) in
           if after <> Some before then Error "Paper changed during resolution"
           else begin
             stamp := Some before;
+            text := resolved.text;
             detail_cache := Some (match P.cache_string resolved with
               | Ok json -> json | Error e -> failwith e);
             diagnostics := List.filter_map (fun (d : P.document) ->
@@ -44,7 +48,7 @@ let run ?audit ?(publisher_lookup = fun _ -> None) ?(retry_errors = false) ?(for
     | A.Parse_error e -> Error (A.error_to_string e)
     | Eio.Io _ as ex -> Error (Printexc.to_string ex) in
     let changed = C.Metadata.publish ?source_stamp:!stamp
-      ?detail_cache:!detail_cache
+      ?detail_cache:!detail_cache ?text:!text
       ~diagnostics:!diagnostics catalog candidate ~version:P.version result in
     let status = if not changed then (incr superseded; Superseded) else
       match result with
@@ -88,9 +92,24 @@ let run ?audit ?(publisher_lookup = fun _ -> None) ?(retry_errors = false) ?(for
       match List.rev shards with
       | [] -> ()
       | last :: _ -> directories last in
-  (match order, uid with
-   | Uid, _ | _, Some _ -> uid_loop ()
-   | Directory, None -> directories "");
+  (* A listed selection is resolved in the given order, [jobs] at a time,
+     so a caller can group it by archive directory. *)
+  let rec listed = function
+    | [] -> ()
+    | uids when !examined >= limit -> ignore uids
+    | uids ->
+        let batch, rest = List.fold_left (fun (batch, rest) uid ->
+          if List.length batch < 64 then uid :: batch, rest
+          else batch, uid :: rest) ([], []) uids in
+        let rows = List.concat_map (fun uid ->
+          C.Metadata.pending ~force ~retry_errors ~need_details:true ~uid
+            ~limit:1 ~version:P.version catalog) (List.rev batch) in
+        Eio.Fiber.List.iter ~max_fibers:jobs process rows;
+        listed (List.rev rest) in
+  (match uids, order, uid with
+   | Some uids, _, _ -> listed uids
+   | None, Uid, _ | None, _, Some _ -> uid_loop ()
+   | None, Directory, None -> directories "");
   { examined = !examined; updated = !updated; unavailable = !unavailable;
     superseded = !superseded; partial = !partial }
 

@@ -59,7 +59,8 @@ font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
 form{margin:0 0 20px}.search-line{display:flex;gap:8px;align-items:end}
 .search-line label{flex:1}.filters{display:grid;
 grid-template-columns:1fr 1.2fr 1.3fr 1.6fr 1.6fr .8fr .8fr;gap:8px;
-margin-top:8px}label{display:flex;flex-direction:column;font-size:12px;
+margin-top:8px}.filters button{align-self:end}
+label{display:flex;flex-direction:column;font-size:12px;
 color:var(--muted);gap:3px;min-width:0}input,select,button{font:inherit;
 font-size:14px;height:32px;padding:4px 8px;border:1px solid #bccabe;
 border-radius:3px;background:white;color:var(--ink);min-width:0;width:100%}
@@ -200,7 +201,8 @@ let page ?(kind = "") title body =
         [El.v "span" ~at:[at "class" "brand-mark";at "aria-hidden" "true"]
           [txt "tp"];txt "taposaur"];
         El.v "nav" ~at:[at "class" "site-nav";at "aria-label" "Main navigation"]
-          [link "/search" "Browse & search";link "/reviews" "Reviews"]];
+          [link "/search" "Browse & search";link "/reviews" "Reviews";
+           link "/jobs" "Jobs";link "/activity" "Activity"]];
       El.v "main" ~at:[at "id" "main";at "class" kind]
         (el "h1" [txt title] :: body);
       classed "footer" "site-footer"
@@ -501,6 +503,16 @@ let paper ?catalogue_status (paper : P.t) =
         el "li" [txt (Manifest.Field.to_string c.field ^ ": " ^ c.value);
           el "small" [txt (" · " ^ c.by ^ " · " ^ c.at)];
           nonempty (empty c.note)]) m.corrections)]) @
+    (if m.acquisitions_failed = [] then [] else [
+      el "h2" [txt "Acquisition refusals"];
+      el "ul" (List.map (fun (r : Manifest.Refusal.t) ->
+        el "li" [txt (r.strategy ^ ": " ^ r.reason);
+          classed "p" "status" [txt (Printf.sprintf "%d attempts · %s%s%s"
+            r.attempts r.at
+            (Option.fold ~none:"" ~some:(fun n -> Printf.sprintf " · HTTP %d" n)
+              r.status)
+            (if r.permanent then " · Permanent" else ""))]])
+        m.acquisitions_failed)]) @
     (if m.conversions_failed = [] then [] else [
       el "h2" [txt "Conversion failures"];
       el "ul" (List.map (fun (f : Manifest.Failure.t) ->

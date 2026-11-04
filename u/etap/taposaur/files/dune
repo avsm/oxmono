@@ -1,0 +1,4 @@
+(library
+ (name taposaur_files)
+ (public_name taposaur.files)
+ (libraries eio eio.unix digestif cstruct))

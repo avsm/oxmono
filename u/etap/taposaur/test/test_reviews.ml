@@ -144,13 +144,17 @@ let snapshots () = with_temp (fun _ sw root path ->
   let first_row = List.hd (S.rows store first) in
   let formats = R.Statistics.collect (fun consume ->
     consume {first_row with holdings={Summary.pdf=true;xml=false;
-      tei=true;s2orc=false}};
+      tei=true;s2orc=false;text=None}};
     consume {first_row with holdings={Summary.pdf=false;xml=false;
-      tei=false;s2orc=false}}) in
+      tei=false;s2orc=false;text=None}};
+    (* A converted document whose body is known to be empty is not full
+       text, even though the TEI and XML are held. *)
+    consume {first_row with holdings={Summary.pdf=false;xml=false;
+      tei=true;s2orc=false;text=Some false}}) in
   count "overlapping formats count one full text" 1
     (List.assoc "Full text" formats.overall.present);
   count "PDF coverage" 1 (List.assoc "PDF" formats.overall.present);
-  count "TEI coverage" 1 (List.assoc "TEI" formats.overall.present);
+  count "TEI coverage" 2 (List.assoc "TEI" formats.overall.present);
   count "missing XML" 0
     (List.assoc "Publisher XML" formats.overall.present);
   equal "catalogue title wins" "Catalogue title"

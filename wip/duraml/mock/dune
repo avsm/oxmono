@@ -1,0 +1,4 @@
+(library
+ (name duraml_mock)
+ (public_name duraml.mock)
+ (libraries duraml eio))

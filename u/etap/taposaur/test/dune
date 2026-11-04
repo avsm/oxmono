@@ -24,6 +24,9 @@
   taposaur.paper
   taposaur.reader
   taposaur.web
+  taposaur.jobs
+  duraml
+  duraml.memory
   proffer.mock
   eio_main
   alcotest
@@ -91,6 +94,27 @@
   jsont.bytesrw))
 
 (test
+ (name test_abstracts)
+ (modules test_abstracts)
+ (libraries
+  taposaur
+  taposaur.abstracts
+  taposaur.audit
+  taposaur.catalog
+  taposaur.paper
+  taposaur.review
+  taposaur.review-store
+  taposaur.review-run
+  fetch
+  fetch.mock
+  eio_main
+  alcotest
+  sqlite3
+  unix
+  jsont
+  jsont.bytesrw))
+
+(test
  (name test_mirrors)
  (modules test_mirrors)
  (libraries
@@ -109,3 +133,57 @@
   unix
   jsont
   jsont.bytesrw))
+
+(test
+ (name test_accept)
+ (modules test_accept)
+ (libraries
+  taposaur.accept
+  taposaur.lock
+  taposaur.archive
+  taposaur.store
+  taposaur.audit
+  taposaur
+  eio_main
+  eio.unix
+  alcotest
+  unix
+  jsont
+  jsont.bytesrw
+  digestif))
+
+(test
+ (name test_jobs)
+ (modules test_jobs)
+ (libraries
+  taposaur.jobs
+  taposaur.accept
+  taposaur.lock
+  taposaur.archive
+  taposaur.catalog
+  taposaur.store
+  taposaur.download
+  taposaur.services
+  taposaur.review
+  taposaur.review-store
+  taposaur.review-run
+  taposaur.audit
+  taposaur
+  duraml
+  duraml.client
+  duraml.memory
+  duraml.sqlite
+  fetch
+  fetch.mock
+  eio_main
+  alcotest
+  unix
+  jsont
+  jsont.bytesrw
+  digestif
+  ptime))
+
+(test
+ (name test_secrets)
+ (modules test_secrets)
+ (libraries taposaur.secrets sekrit sekrit.eio eio_main alcotest unix))

@@ -4,7 +4,7 @@ module Store = Taposaur_store
 
 type failure = Http of int | Timeout | Invalid_content of string
   | Transport | Unavailable of string
-type attempt = { source : string; failure : failure }
+type attempt = { source : string; failure : failure; retry_after : float option }
 type result = {
   uid : Uid.t; artifacts : Manifest.Artifact.t list; attempts : attempt list;
 }
@@ -27,6 +27,7 @@ let failure_message = function
   | Transport -> "HTTP transport failed"
   | Unavailable s -> s
 exception Remote of failure
+exception Busy_remote of failure * float option
 let create ?audit ?(timeout = 120.) ?(max_bytes = 128 * 1024 * 1024)
     ?lookup_timeout ?(busy_retries = 3) ?(busy_wait = 300.)
     ?cup ?plos ?tandf ?springer_pdf
@@ -54,13 +55,24 @@ let attempt ?timeout t f =
   try Ok (Eio.Time.with_timeout_exn t.clock
     (Option.value ~default:t.timeout timeout)
     (fun () -> Eio.Switch.run f)) with
-  | Remote failure -> Error failure
-  | Eio.Time.Timeout -> Error Timeout
-  | Store.Empty_artifact -> Error (Invalid_content "Empty artifact")
-  | Store.Limit_exceeded -> Error (Invalid_content "Artifact exceeds byte limit")
+  | Remote failure -> Error (failure, None)
+  | Busy_remote (failure, retry_after) -> Error (failure, retry_after)
+  | Eio.Time.Timeout -> Error (Timeout, None)
+  | Store.Empty_artifact -> Error (Invalid_content "Empty artifact", None)
+  | Store.Limit_exceeded ->
+      Error (Invalid_content "Artifact exceeds byte limit", None)
+let retry_after response =
+  match Http.Header.get (Fetch.headers response) "retry-after" with
+  | None -> None
+  | Some value ->
+      match float_of_string_opt (String.trim value) with
+      | Some seconds when Float.is_finite seconds && seconds >= 0. ->
+          Some seconds
+      | _ -> None
 let status response =
   let status = Fetch.status response in
-  if status < 200 || status >= 300 then raise (Remote (Http status))
+  if status < 200 || status >= 300 then
+    raise (Busy_remote (Http status, retry_after response))
 let json t codec f = attempt ~timeout:t.lookup_timeout t (fun sw ->
   let response = request (fun () -> f sw) in
   Eio.Switch.on_release sw (fun () -> Fetch.close response);
@@ -72,6 +84,7 @@ let json t codec f = attempt ~timeout:t.lookup_timeout t (fun sw ->
   match Jsont_bytesrw.decode_string codec body with
   | Ok value -> value
   | Error _ -> raise (Remote (Invalid_content "Invalid metadata JSON")))
+let json t codec f = Result.map_error fst (json t codec f)
 let json ?(service="metadata") t codec f =
   Taposaur_audit.with_operation ?session:t.audit
     ~action:"fetch.metadata.lookup" ~subject:t.subject
@@ -171,17 +184,17 @@ let transfer t paper ~source ~format ~strategy f =
       Option.iter (fun session ->
         let details = match result with
           | Ok a -> ["outcome","stored";"bytes",Int64.to_string a.Manifest.Artifact.bytes]
-          | Error (Http n) -> ["outcome","http_error";"http_status",string_of_int n]
-          | Error Timeout -> ["outcome","timeout"]
-          | Error (Invalid_content _) -> ["outcome","invalid_content"]
-          | Error Transport -> ["outcome","transport_error"]
-          | Error (Unavailable _) -> ["outcome","unavailable"] in
+          | Error (Http n, _) -> ["outcome","http_error";"http_status",string_of_int n]
+          | Error (Timeout, _) -> ["outcome","timeout"]
+          | Error (Invalid_content _, _) -> ["outcome","invalid_content"]
+          | Error (Transport, _) -> ["outcome","transport_error"]
+          | Error (Unavailable _, _) -> ["outcome","unavailable"] in
         Taposaur_audit.record session ~action:"fetch.transfer.result"
           ~subject:(Uid.to_string (Store.manifest paper).id) ~details ()) audit;
       result)
 
-let record t paper attempts source failure =
-  attempts := {source; failure} :: !attempts;
+let record ?retry_after t paper attempts source failure =
+  attempts := {source; failure; retry_after} :: !attempts;
   Store.record_error paper ~at:(now t) ~source (failure_message failure)
 let fetch_url t store uid ~format url =
   if format <> Manifest.Format.Pdf && format <> Xml then
@@ -191,7 +204,8 @@ let fetch_url t store uid ~format url =
     let artifacts = match transfer t paper ~source:Manifest.Source.Url
       ~format ~strategy:"url" (fun sw -> Fetch.get ~sw t.http url) with
       | Ok a -> [a]
-      | Error e -> record t paper attempts "url" e; [] in
+      | Error (e, retry_after) ->
+          record ?retry_after t paper attempts "url" e; [] in
     {uid; artifacts; attempts = List.rev !attempts})
 let publisher_strategy publisher =
   let publisher = String.lowercase_ascii (String.trim publisher) in
@@ -204,15 +218,36 @@ let publisher_strategy publisher =
     then Some `Tandf
   else if contains publisher "cambridge university press" then Some `Cup
   else None
+let strategies = ["elsevier"; "springer"; "plos"; "wiley"; "tandf"; "cup"]
+(* Crossref prefixes owned by the implemented publishers. A wrong guess is
+   harmless: the strategy itself resolves the DOI and refuses foreign
+   content. *)
+let prefix_publisher doi =
+  match String.index_opt doi '/' with
+  | None -> None
+  | Some i -> match String.sub doi 0 i with
+    | "10.1016" -> Some "Elsevier"
+    | "10.1007" | "10.1023" -> Some "Springer"
+    | "10.1371" -> Some "PLOS"
+    | "10.1002" | "10.1111" | "10.1046" -> Some "Wiley"
+    | "10.1080" -> Some "Taylor & Francis / Informa"
+    | "10.1017" -> Some "Cambridge University Press"
+    | _ -> None
+let strategy_name publisher = Option.map (function
+  | `Elsevier -> "elsevier" | `Springer -> "springer" | `Plos -> "plos"
+  | `Wiley -> "wiley" | `Tandf -> "tandf" | `Cup -> "cup")
+  (publisher_strategy publisher)
 
 type capability = { publisher : string; formats : string; access : string; requirements : string }
 let publisher_capabilities = [
   {publisher="Elsevier"; formats="Publisher XML";
-   requirements="API key required"; access="ELSEVIER_API_KEY; optional ELSEVIER_INST_TOKEN"};
+   requirements="API key required";
+   access="Keychain taposaur/elsevier/api-key, optional taposaur/elsevier/inst-token"};
   {publisher="Springer"; formats="Publisher XML; optional PDF";
    requirements="XML needs an API key; PDF needs subscription access";
-   access="SPRINGER_API_KEY for XML; --publisher-pdf and network entitlement for PDF"};
-  {publisher="Wiley"; formats="PDF"; requirements="API token required"; access="WILEY_TOKENS"};
+   access="Keychain taposaur/springer/api-key for XML; --publisher-pdf and network entitlement for PDF"};
+  {publisher="Wiley"; formats="PDF"; requirements="API token required";
+   access="Keychain taposaur/wiley/tokens"};
   {publisher="Taylor & Francis / Informa"; formats="PDF";
    requirements="Subscription access may be required";
    access="Network or subscription entitlement"};
@@ -259,7 +294,7 @@ let fetch t store input =
       Store.with_paper store input (fun paper ->
         Store.record_error paper ~at:(now t) ~source:"lookup"
           (failure_message failure));
-      {uid = input; artifacts = []; attempts = [{source = "lookup"; failure}]}
+      {uid = input; artifacts = []; attempts = [{source = "lookup"; failure; retry_after = None}]}
   | Ok (doi, r) ->
       let uid = match Uid.of_id Uid.Scheme.Doi (Doi.to_string doi) with
         | Ok uid -> uid | Error e -> failwith e in
@@ -271,14 +306,15 @@ let fetch t store input =
         let try_transfer source format strategy f =
           let rec run remaining =
             match transfer t paper ~source ~format ~strategy f with
-            | Error (Http (429 | 500 | 502 | 503 | 504))
+            | Error (Http (429 | 500 | 502 | 503 | 504), _)
                 when source = Manifest.Source.Publisher && remaining > 0 ->
                 Eio.Time.sleep t.clock t.busy_wait;
                 run (remaining - 1)
             | result -> result in
           match run t.busy_retries with
           | Ok a -> artifacts := a :: !artifacts; true
-          | Error e -> record t paper attempts strategy e; false in
+          | Error (e, retry_after) ->
+              record ?retry_after t paper attempts strategy e; false in
         let strategy = publisher_strategy (Option.value ~default:"" r.publisher) in
         let missing name = record t paper attempts name
           (Unavailable "Publisher credential is not configured"); false in
@@ -360,11 +396,13 @@ let fetch t store input =
         {uid; artifacts = List.rev !artifacts; attempts = List.rev !attempts})
 
 
-let fetch t store uid =
+let fetch ?audit t store uid =
+  let t = match audit with Some _ -> {t with audit} | None -> t in
   Taposaur_audit.with_operation ?session:t.audit ~action:"fetch.paper"
     ~subject:(Uid.to_string uid) ~success:(fun r -> r.artifacts <> [])
     (fun audit -> fetch {t with audit;subject=Uid.to_string uid} store uid)
-let fetch_url t store uid ~format url =
+let fetch_url ?audit t store uid ~format url =
+  let t = match audit with Some _ -> {t with audit} | None -> t in
   Taposaur_audit.with_operation ?session:t.audit ~action:"fetch.url"
     ~subject:(Uid.to_string uid) ~success:(fun r -> r.artifacts <> [])
     ~details:["format",Manifest.Format.to_string format]

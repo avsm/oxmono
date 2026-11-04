@@ -124,7 +124,7 @@ let run root db reviews snapshot work server jobs limit only =
             incr updated; report doi "updated" publisher
       with
       | (Failure _ | Invalid_argument _ | Eio.Io _ | Unix.Unix_error _ |
-         Eio.Time.Timeout | A.Parse_error _) as ex ->
+         Eio.Time.Timeout | A.Parse_error _ | Taposaur_lock.Busy _) as ex ->
           incr failed; report doi "failed" (Printexc.to_string ex)) dois;
     save (Filename.concat work "finished")
       (Printf.sprintf "updated=%d skipped=%d failed=%d resumed=%d\n"

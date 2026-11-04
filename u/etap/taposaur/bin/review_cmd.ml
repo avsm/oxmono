@@ -164,7 +164,12 @@ let command = Cmd.group (Cmd.info "review"
         List.filter_map (fun (m : R.member) ->
           Taposaur_mirrors.find mirrors (Result.get_ok (Taposaur.Doi.of_string m.doi)))
           (S.members store run_id) in
-      let id = X.snapshot ~publishers ~max_members ~max_bytes ~capture_seconds
+      let abstracts = match Taposaur_abstracts.open_configured ~sw ~fs:env#fs with
+        | None -> [] | Some evidence ->
+        List.filter_map (fun (m : R.member) ->
+          Taposaur_abstracts.find evidence (Result.get_ok (Taposaur.Doi.of_string m.doi)))
+          (S.members store run_id) in
+      let id = X.snapshot ~publishers ~abstracts ~max_members ~max_bytes ~capture_seconds
         store (catalogue env sw db)
         ~run_id ~parent ~label ~actor in
       Printf.printf "Snapshot %d\n" id)) $

@@ -12,27 +12,11 @@ type paper = {
 let get = function Ok x -> x | Error e -> failwith e
 let manifest p = p.manifest
 let open_root ?audit ~sw root = {root = Eio.Path.open_subtree ~sw root; audit}
-external try_lock : Unix.file_descr -> bool = "taposaur_try_lock"
-let fd file = match Eio_unix.Resource.fd_opt file with
-  | Some fd -> fd | None -> failwith "Staging requires Unix files"
-let sync_dir dir = Eio.Path.with_open_in dir (fun file ->
-  Eio_unix.Fd.use_exn "sync staging directory" (fd file) (fun fd ->
-    Eio_unix.run_in_systhread (fun () -> Unix.fsync fd)))
-let exists path = Eio.Path.kind ~follow:false path <> `Not_found
-let load path = Eio.Path.with_open_in ~follow:false path (fun file ->
-  Eio.Buf_read.(take_all (of_flow ~max_size:(16 * 1024 * 1024) file)))
-let atomic dir name value =
-  let tmp = dir / (name ^ ".tmp") in
-  Eio.Path.with_open_out ~follow:false ~create:(`Or_truncate 0o600) tmp
-    (fun file -> Eio.Flow.copy_string value file; Eio.File.sync file);
-  Eio.Path.rename tmp (dir / name);
-  sync_dir dir
-let empty id = {
-  Manifest.v = 1; id; doi = Option.map Doi.to_string (Uid.doi id);
-  pmcid = Uid.pmcid id; pmid = None; title = None; publisher = None;
-  year = None; corrections = []; artifacts = []; conversions_failed = [];
-  updated = "1970-01-01T00:00:00.000Z";
-}
+let sync_dir = Taposaur_files.sync_dir
+let exists = Taposaur_files.exists
+let load = Taposaur_files.load
+let atomic = Taposaur_files.atomic
+let empty = Manifest.empty
 let events dir =
   if exists (dir / "events.jsonl") then load (dir / "events.jsonl") else ""
 let outcome json =
@@ -79,15 +63,7 @@ let intent_codec =
   |> Jsont.Object.mem "offset" Jsont.int ~enc:fst
   |> Jsont.Object.mem "event" Jsont.string ~enc:snd
   |> Jsont.Object.finish
-let digest file =
-  let ctx = ref Digestif.SHA256.empty and bytes = ref 0 in
-  let buffer = Cstruct.create 65536 in
-  (try while true do
-    let n = Eio.Flow.single_read file buffer in
-    ctx := Digestif.SHA256.feed_string !ctx (Cstruct.to_string ~len:n buffer);
-    bytes := !bytes + n
-  done with End_of_file -> ());
-  Digestif.SHA256.(to_hex (get !ctx)), !bytes
+let digest = Taposaur_files.digest
 let recover p =
   let pending = p.dir / ".pending.json" in
   if exists pending then begin
@@ -148,18 +124,18 @@ let with_paper (t : t) id f =
           exists (dir / "events.jsonl")) then
         failwith "Refusing to modify a paper not created by this staging writer" in
     refuse_foreign ();
-    Eio.Path.with_open_out ~follow:false ~create:(`If_missing 0o600)
-      (dir / ".lock") (fun lock ->
-        if not (Eio_unix.Fd.use_exn "lock staging paper" (fd lock) try_lock)
-        then raise Busy;
-        refuse_foreign ();
-        if owned () then begin
-          if load (dir / ".taposaur-stage") <> "1\n" then
-            failwith "Unsupported staging writer version"
-        end else atomic dir ".taposaur-stage" "1\n";
-        let p = {dir; manifest = empty id; audit=t.audit} in
-        Eio.Cancel.protect (fun () -> recover p);
-        f p))
+    let lock = try Taposaur_lock.acquire ~component:"taposaur.store"
+        (Eio.Path.native_exn (dir / ".lock"))
+      with Taposaur_lock.Busy _ -> raise Busy in
+    Fun.protect ~finally:(fun () -> Taposaur_lock.release lock) (fun () ->
+      refuse_foreign ();
+      if owned () then begin
+        if load (dir / ".taposaur-stage") <> "1\n" then
+          failwith "Unsupported staging writer version"
+      end else atomic dir ".taposaur-stage" "1\n";
+      let p = {dir; manifest = empty id; audit=t.audit} in
+      Eio.Cancel.protect (fun () -> recover p);
+      f p))
 let append p ~at payload =
   let log = events p.dir in
   let seq = 1 + List.length (List.filter ((<>) "")

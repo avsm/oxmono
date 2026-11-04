@@ -8,6 +8,7 @@ module Journal_links = Journal_links
 type page = Home | Search | Paper | Events | Download | Pdf | Read | Debug | Audit
   | Journals | Script | Katex | Reviews | Review | Review_definition
   | Review_snapshot | Review_papers | Review_export | Review_input | Review_compare
+  | Jobs | Job | Activity_page
 
 type t = {
   handle : page -> (Req.t @ local -> Resp.respond @ local -> unit) @ local;
@@ -16,9 +17,11 @@ type t = {
 type storage = {
   audit_file : string option;
   mirrors_file : string option;
+  abstracts_file : string option;
   archive_root : string;
   catalog_file : string;
   reviews_file : string option;
+  jobs_file : string option;
   journal_links_file : string option;
   working_directory : string;
   executable : string;
@@ -67,10 +70,33 @@ let journal_codec =
   |> Jsont.Object.mem "papers" Jsont.int ~enc:(fun (j : C.journal) -> j.papers)
   |> Jsont.Object.finish
 
-let create ?(publisher_lookup=fun _ -> None) ?audit ?storage ?reviews ?(journal_links=Journal_links.empty)
-    ~archive ~catalog () =
-  let supplement p = match Option.bind (Uid.doi p.Taposaur_paper.manifest.id) publisher_lookup with
-    | None -> p | Some e -> Taposaur_paper.with_publisher e p in
+let page_name = function
+  | Home -> "home" | Search -> "search" | Paper -> "paper" | Events -> "events"
+  | Download -> "artifact" | Pdf -> "pdf" | Read -> "read" | Debug -> "debug"
+  | Audit -> "audit" | Journals -> "journals" | Script -> "script"
+  | Katex -> "katex" | Reviews -> "reviews" | Review -> "review"
+  | Review_definition -> "review-definition"
+  | Review_snapshot -> "review-snapshot" | Review_papers -> "review-papers"
+  | Review_export -> "review-export" | Review_input -> "review-input"
+  | Review_compare -> "review-compare" | Jobs -> "jobs" | Job -> "job"
+  | Activity_page -> "activity"
+
+let create ?(publisher_lookup=fun _ -> None) ?(abstract_lookup=fun _ -> None)
+    ?audit ?storage ?reviews ?jobs
+    ?mono_clock ?(journal_links=Journal_links.empty) ~archive ~catalog () =
+  let activity = Activity.create () in
+  let elapsed () = match mono_clock with
+    | None -> fun () -> 0.
+    | Some clock ->
+        let start = Eio.Time.Mono.now clock in
+        fun () -> Mtime.Span.to_float_ns (Mtime.span start
+          (Eio.Time.Mono.now clock)) /. 1e6 in
+  let supplement p =
+    let doi = Uid.doi p.Taposaur_paper.manifest.id in
+    let p = match Option.bind doi publisher_lookup with
+      | None -> p | Some e -> Taposaur_paper.with_publisher e p in
+    match Option.bind doi abstract_lookup with
+    | None -> p | Some e -> Taposaur_paper.with_abstract e p in
   let rec prepare page params =
     let html s = Html (Httpz.Res.Success, s) in
     let in_panel = get params "view" = "panel" in
@@ -82,7 +108,89 @@ let create ?(publisher_lookup=fun _ -> None) ?audit ?storage ?reviews ?(journal_
     let required_number key = match number params key with
       | Some n when n > 0 -> n
       | _ -> invalid_arg (key ^ " must be a positive integer") in
-    if page = Audit then
+    if page = Activity_page then
+      (if get params "format" = "json" then
+        let cursor key = match get params key with
+          | "" -> None
+          | s -> (match Int64.of_string_opt s with
+              | Some n when n >= 0L -> Some n
+              | _ -> invalid_arg ("Invalid activity cursor " ^ key)) in
+        let web_after = Int64.to_int (Option.value ~default:0L (cursor "web")) in
+        let before = cursor "before" and jobs_after = cursor "jobs" in
+        let snapshot = get params "snapshot" = "1" in
+        (* A snapshot seeds the page from the newest events and the jobs
+           still running. Polling then follows the log forward from the
+           newest sequence it saw, and older pages walk the tail back. *)
+        let described store events = List.map (fun e -> e,
+          Taposaur_jobs.Inspect.find store (Duraml.Event.job e)) events in
+        let job_events, running, jobs_cursor, older = match jobs with
+          | None -> [], [], 0L, None
+          | Some store ->
+              let tail = match before, jobs_after with
+                | Some before, _ -> Some (Duraml.tail ~before ~limit:300 store)
+                | None, None -> Some (Duraml.tail ~limit:300 store)
+                | None, Some _ -> None in
+              (match tail with
+               | Some tail ->
+                   let events = List.rev tail in
+                   let running = if snapshot then Taposaur_jobs.Inspect.list
+                       ~state:Duraml.Running ~limit:200 store else [] in
+                   let newest = match List.rev events with
+                     | [] -> Option.value ~default:0L jobs_after
+                     | last :: _ -> Duraml.Event.sequence last in
+                   let older = match events with
+                     | [] -> None
+                     | first :: _ -> Some (Duraml.Event.sequence first) in
+                   described store events, running, newest, older
+               | None ->
+                   let after = Option.get jobs_after in
+                   let events = Duraml.events ~after ~limit:500 store in
+                   let newest = List.fold_left (fun best e ->
+                     max best (Duraml.Event.sequence e)) after events in
+                   described store events, [], newest, None) in
+        let counts = match jobs with
+          | None -> 0, 0
+          | Some store ->
+              let total state = List.fold_left (fun n queue ->
+                n + Duraml.count store (Duraml.query ~queue ~state ()))
+                0 Taposaur_jobs.Queues.names in
+              total Duraml.Queued, total Duraml.Running in
+        Media ("application/json; charset=utf-8",
+          Activity_view.feed ~web:(Activity.since activity web_after)
+            ~web_cursor:(Activity.cursor activity) ~jobs:job_events ~running
+            ~jobs_cursor ~older ~counts)
+      else html (Activity_view.page ~jobs:(jobs <> None)))
+    else if page = Jobs || page = Job then
+      (match jobs with
+       | None -> html (View.page "Jobs"
+           [View.p "The job queue is not configured. Start the server with --jobs-db."])
+       | Some store when page = Job ->
+           let id = match Duraml.Id.of_string (get params "id") with
+             | Ok id -> id | Error e -> invalid_arg e in
+           (match Taposaur_jobs.Inspect.find store id with
+            | None -> Html (Httpz.Res.Not_found, View.page "Job not found" [])
+            | Some j ->
+                let records = match audit with
+                  | None -> []
+                  | Some store ->
+                      let subject = Option.value j.uid
+                        ~default:("job:" ^ j.id) in
+                      Taposaur_audit.query ~subject ~limit:500 store in
+                html (Jobs_view.job j (Taposaur_jobs.Inspect.children store id)
+                  records))
+       | Some store ->
+           let opt key = match get params key with "" -> None | s -> Some s in
+           let state = Option.map (fun s ->
+             match Taposaur_jobs.Inspect.state_of_string s with
+             | Some state -> state
+             | None -> invalid_arg "Unknown job state") (opt "state") in
+           let after = Option.map (fun s -> match Duraml.Id.of_string s with
+             | Ok id -> id | Error e -> invalid_arg e) (opt "after") in
+           let jobs = Taposaur_jobs.Inspect.list ?queue:(opt "queue") ?state
+             ?after ~limit:100 store in
+           html (Jobs_view.index params (Taposaur_jobs.Inspect.counts store)
+             jobs))
+    else if page = Audit then
       (match audit with
        | None -> html (View.page "Audit log"
            [View.p "Audit database is not configured. Start the server with --audit-db."])
@@ -109,6 +217,8 @@ let create ?(publisher_lookup=fun _ -> None) ?audit ?storage ?reviews ?(journal_
             (Option.value ~default:"Not configured" file) description in
           [optional "Mirror evidence (TAPOSAUR_MIRRORS_DB)" s.mirrors_file
              "Durable DOI responses, publisher evidence and original CSV fallback. Read-only here.";
+           optional "Abstract evidence (TAPOSAUR_ABSTRACTS_DB)" s.abstracts_file
+             "Retained OpenAlex responses and the abstracts decoded from them, applied when the archive has none. Read-only here.";
            optional "Audit log (--audit-db)" s.audit_file
              "Append-only operational audit. Separate from per-paper history and review snapshots.";
            path "Archive root (--root)" s.archive_root
@@ -121,6 +231,8 @@ let create ?(publisher_lookup=fun _ -> None) ?audit ?storage ?reviews ?(journal_
              "SQLite search index, resolved metadata and cached paper details. Rebuildable.";
            optional "Reviews (--reviews-db)" s.reviews_file
              "Durable review definitions, retained inputs, runs, snapshots and exports.";
+           optional "Job queue (--jobs-db)" s.jobs_file
+             "Duraml acquisition, conversion and refresh jobs. Opened read-only here; workers run separately.";
            optional "Journal links (--journal-links)" s.journal_links_file
              "OpenAlex citation-link mappings loaded at startup.";
            path "Working directory" s.working_directory
@@ -374,6 +486,7 @@ let create ?(publisher_lookup=fun _ -> None) ?audit ?storage ?reviews ?(journal_
   in
   let handle page req (respond @ local) =
     let params = Req.query req in
+    let elapsed = elapsed () in
     let response = try prepare page params with
       | Reviews.Not_found -> Html (Httpz.Res.Not_found,
           View.page "Review record not found" [])
@@ -384,6 +497,14 @@ let create ?(publisher_lookup=fun _ -> None) ?audit ?storage ?reviews ?(journal_
       | Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) ->
           Html (Httpz.Res.Not_found, View.page "File not found" [])
     in
+    (* The feed itself is not recorded, or polling would fill the log. *)
+    if not (page = Activity_page && get params "format" = "json") then
+      Activity.record activity ~time:(Unix.gettimeofday ())
+        ~page:(page_name page) ~query:params
+        ~status:(match response with
+          | Html (status, _) -> Proffer.Status.code status
+          | Media _ | Attachment _ | Artifact _ -> 200)
+        ~elapsed_ms:(elapsed ());
     match response with
     | Html (status, body) -> Resp.html respond ~status
         ~headers:[Resp.other "X-Content-Type-Options" "nosniff";
@@ -411,6 +532,10 @@ let site =
     get root (fun env req respond -> env.handle Home req respond);
     get (s "debug") (fun env req respond -> env.handle Debug req respond);
     get (s "reviews") (fun env req respond -> env.handle Reviews req respond);
+    get (s "jobs") (fun env req respond -> env.handle Jobs req respond);
+    get (s "activity")
+      (fun env req respond -> env.handle Activity_page req respond);
+    get (s "job") (fun env req respond -> env.handle Job req respond);
     get (s "review") (fun env req respond -> env.handle Review req respond);
     get (s "review-definition")
       (fun env req respond -> env.handle Review_definition req respond);

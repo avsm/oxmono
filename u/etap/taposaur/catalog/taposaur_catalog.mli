@@ -63,6 +63,18 @@ module Shard : sig
       Returns the number of published rows. Replacements invalidate
       metadata snapshots even when raw rows are byte-identical. [read]
       runs with the handle held exclusively and must not reenter it. *)
+  val upsert : write t -> shard:string -> stamp -> Taposaur.Index.t ->
+    [ `Inserted | `Updated | `Unchanged ]
+  (** [upsert catalog ~shard stamp row] publishes one row of an imported
+      shard in a short transaction, for a writer that has just rewritten
+      exactly that row in the shard file and supplies the file's new
+      [stamp]. The row's search entry, counters and generation change as
+      they would under {!replace}, invalidating only that paper's pending
+      metadata snapshot; resolved metadata and cached details for the
+      paper are discarded, as a reload would. [`Unchanged] means the stored
+      row already equals [row], and only the stamp was updated. Raises
+      [Invalid_argument] when the shard has never been imported or [row]
+      belongs elsewhere. *)
   val retire : write t -> shard:string -> unit
   (** [retire catalog ~shard] removes a shard, its rows and diagnostics
       atomically. The caller must verify that retirement is intended. *)
@@ -78,6 +90,12 @@ end
 (** {1 Derived metadata snapshots} *)
 
 module Metadata : sig
+val fill_abstract : write t -> uid:Taposaur.Uid.t -> abstract:string ->
+  update_detail:(Taposaur.Index.t -> string -> string) -> bool
+(** [fill_abstract t ~uid ~abstract ~update_detail] is {!fill_publisher}
+    for a missing abstract: the row, its search index and its cached
+    resolution are updated in one transaction, and nothing changes when
+    the paper already has an abstract. *)
 val fill_publisher : write t -> uid:Taposaur.Uid.t -> publisher:string ->
   update_detail:(Taposaur.Index.t -> string -> string) -> bool
 (** [fill_publisher t ~uid ~publisher ~update_detail] atomically fills a
@@ -116,14 +134,16 @@ val fill_publisher : write t -> uid:Taposaur.Uid.t -> publisher:string ->
       Cursors are for one scan, not durable checkpoints across imports. *)
   val publish :
     ?source_stamp:string -> ?detail_cache:string -> ?diagnostics:string list ->
-    write t -> candidate -> version:int ->
+    ?text:bool -> write t -> candidate -> version:int ->
     (Taposaur.Bibliography.t, string) result -> bool
   (** [publish catalog candidate ~version result] atomically updates
       bibliography and FTS, or records an error while retaining the last
       successful projection. Returns [false] when a shard replacement or
       metadata publication invalidated the snapshot. [diagnostics] records
       document failures alongside partial metadata. [source_stamp] identifies
-      the source snapshot used for a successful publication. It never changes holdings or raw rows. *)
+      the source snapshot used for a successful publication. [text] records
+      whether the resolved documents hold body prose; omitted, it is
+      unknown. It never changes holdings or raw rows. *)
   val errors : 'a t -> (Taposaur.Uid.t * string) list
   (** [errors catalog] returns at most 100 recent metadata failures. *)
 

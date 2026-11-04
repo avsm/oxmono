@@ -9,6 +9,9 @@ type source =
   | Index
   | Artifact of Taposaur.Manifest.Artifact.t
   | Mirror of Taposaur.Publisher_evidence.t
+  | External of Taposaur.Abstract_evidence.t
+      (** An abstract from an external metadata service, used only when
+          no archive document or index row supplies one. *)
 
 type 'a evidence = { value : 'a; source : source }
 
@@ -49,16 +52,23 @@ type metadata = private {
 type document = {
   artifact : Taposaur.Manifest.Artifact.t;
   bibliography : (Taposaur.Bibliography.t, string) result;
+  text : bool option;
+      (** Whether the document body holds prose, when its reader can
+          tell. TEI readers report it; others leave it unknown. *)
 }
 
 type t = private {
   publisher_evidence : Taposaur.Publisher_evidence.t option;
+  abstract_evidence : Taposaur.Abstract_evidence.t option;
   manifest : Taposaur.Manifest.t;
   index : Taposaur.Index.t option;
   metadata : metadata;
   documents : document list;
   preferred_tei : Taposaur.Manifest.Artifact.t option;
   preferred_pdf : Taposaur.Manifest.Artifact.t option;
+  text : bool option;
+      (** [Some true] when any document holds prose, [Some false] when
+          every document that could tell holds none, [None] otherwise. *)
 }
 
 val resolve :
@@ -81,7 +91,11 @@ val resolve :
 (** {1 Catalogue projection} *)
 
 val version : int
-(** [version] identifies the resolver rules for invalidating derived caches. *)
+(** [version] identifies the resolver rules for invalidating derived
+    caches. Raise it whenever a document reader or the selection rules
+    change, so every catalogue row is resolved again and search, exports
+    and snapshots see what the readers now see. Version 2 derives
+    abstracts from TEI bodies and records body text. *)
 
 val bibliography : t -> Taposaur.Bibliography.t
 (** [bibliography paper] returns its selected values without provenance.
@@ -102,3 +116,8 @@ val of_cache_string :
 
 val with_publisher : Taposaur.Publisher_evidence.t -> t -> t
 (** Fill a missing publisher from exact-DOI evidence. Existing sources win. *)
+val with_abstract : Taposaur.Abstract_evidence.t -> t -> t
+(** Fill a missing abstract from exact-DOI evidence. Existing sources win,
+    so an abstract read from a document or index row is never replaced.
+    The evidence is cached with the paper and reapplied by
+    {!of_cache_string}. *)

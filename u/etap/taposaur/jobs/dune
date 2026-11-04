@@ -1,0 +1,29 @@
+(library
+ (name taposaur_jobs)
+ (public_name taposaur.jobs)
+ (libraries
+  taposaur.audit
+  taposaur.lock
+  taposaur
+  taposaur.archive
+  taposaur.accept
+  taposaur.catalog
+  taposaur.indexing
+  taposaur.document
+  taposaur.services
+  taposaur.store
+  taposaur.download
+  taposaur.review
+  taposaur.review-store
+  duraml
+  duraml.client
+  duraml.jsont
+  fetch
+  eio
+  ptime
+  digestif
+  jsont
+  jsont.bytesrw
+  http
+  uriz
+  unix))

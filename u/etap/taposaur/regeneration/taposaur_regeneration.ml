@@ -64,6 +64,10 @@ let publish ~root ~work uid ~input ~xml =
     [Unix.O_RDWR; Unix.O_CREAT] 0o600 in
   Fun.protect ~finally:(fun () -> Unix.close lock) (fun () ->
   Unix.lockf lock Unix.F_TLOCK 0;
+  Taposaur_lock.with_lock ~component:"taposaur.consolidate" (file ".lock")
+    (fun () ->
+  if Sys.file_exists (file ".accept-pending.json") then
+    failwith "An acceptance publication is pending for this paper";
   regular (file "paper.json"); regular (file "events.jsonl");
   if not (Sys.file_exists (saved "intent")) then begin
     let old = load (file "paper.json") in
@@ -151,7 +155,7 @@ let publish ~root ~work uid ~input ~xml =
       if n = 0 then failwith "Short event write" else append (i+n) in
     append offset; Unix.fsync fd);
   atomic (file "paper.json") after;
-  atomic (saved "published") (now ()))
+  atomic (saved "published") (now ())))
 
 let publish ?audit ~root ~work uid ~input ~xml =
   Taposaur_audit.with_operation ?session:audit

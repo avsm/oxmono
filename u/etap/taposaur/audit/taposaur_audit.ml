@@ -90,6 +90,7 @@ let uuid () =
 let session ?(actor="system") ~component store =
   bounded "actor" 256 actor; bounded "component" 128 component;
   {store; actor; component; run=uuid (); parent=None}
+let store (s : session) = s.store
 let run_id (s : session) = s.run
 let actor (s : session) = s.actor
 let quote s = match Jsont_bytesrw.encode_string Jsont.string s with

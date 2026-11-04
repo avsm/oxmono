@@ -1,7 +1,8 @@
 (library
  (name taposaur_web)
  (public_name taposaur.web)
- (private_modules audit_view view artifact client review_view katex)
+ (private_modules audit_view view artifact client review_view jobs_view
+  activity activity_view katex)
  (libraries
   taposaur.audit
   taposaur
@@ -13,6 +14,10 @@
   taposaur.reader
   taposaur.review
   taposaur.review-store
+  taposaur.jobs
+  duraml
+  ptime
+  mtime
   proffer
   eio
   htmlit

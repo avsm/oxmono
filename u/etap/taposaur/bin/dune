@@ -5,6 +5,7 @@
  (libraries
   taposaur.audit
   taposaur.audit-cli
+  taposaur.lock
   taposaur
   taposaur.archive
   taposaur.catalog
@@ -24,10 +25,22 @@
 
 (executable
  (name main)
- (modules main review_cmd)
+ (modules main review_cmd jobs_cmd abstracts_cmd clients)
  (public_name taposaur)
  (libraries
+  taposaur.jobs
+  taposaur.secrets
+  sekrit
+  fetch-curl
+  fetch.cookies
+  taposaur.accept
+  taposaur.lock
+  duraml
+  duraml.client
+  duraml.sqlite
+  ptime
   taposaur.mirrors
+  taposaur.abstracts
   taposaur.audit
   taposaur.audit-cli
   taposaur
@@ -58,12 +71,14 @@
  (public_name taposaur-web)
  (libraries
   taposaur.mirrors
+  taposaur.abstracts
   taposaur.audit
   taposaur.audit-cli
   taposaur.archive
   taposaur.catalog
   taposaur.web
   taposaur.review-store
+  duraml.sqlite
   eio_main
   cmdliner
   proffer-httpz

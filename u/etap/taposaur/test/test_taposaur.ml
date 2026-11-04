@@ -350,6 +350,79 @@ let extended_metadata () =
     (rejected (parse ~max_bytes:(String.length json) json));
   check "S2ORC bound" true (rejected (parse ~max_bytes:10 json))
 
+(* GROBID's header model sometimes leaves the abstract in the body, as a
+   section headed "Abstract" or as unheaded leading paragraphs. The reader
+   recovers those, never invents one from an introduction, and reports
+   whether the body holds prose at all. *)
+let body_abstracts () =
+  let header abstract = Printf.sprintf
+    {|<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><titleStmt><title>Whales</title></titleStmt></fileDesc><profileDesc><abstract>%s</abstract></profileDesc></teiHeader>|}
+    abstract in
+  let back = {|<back><listBibl><biblStruct><analytic><title>Not an abstract</title></analytic></biblStruct></listBibl></back>|} in
+  let doc ?(abstract = "") body =
+    header abstract ^ "<text><body>" ^ body ^ "</body>" ^ back ^ "</text></TEI>" in
+  let inspect s = get (Taposaur_document.Tei.inspect_string s) in
+  let abstract (i : Taposaur_document.Tei.inspection) =
+    Option.value ~default:"" i.bibliography.abstract in
+  let long = String.concat " "
+    (List.init 60 (fun i -> "Sentence number " ^ string_of_int i ^ ".")) in
+  let intro = {|<div><head>Introduction</head><p>Intro text.</p></div>|} in
+  let headed = doc ({|<div><head>IntroductIon</head><p>Intro text.</p></div><div><head>Abstract.</head><p>First point.</p><p>Second <hi>point</hi>.</p></div><div><head>Methods</head><p>M</p></div>|}) in
+  let i = inspect headed in
+  equal "abstract from headed section" "First point. Second point."
+    (abstract i);
+  check "derived" true i.derived_abstract;
+  check "body text seen" true i.text;
+  equal "metadata derives too" "First point. Second point."
+    (Option.get (get (Taposaur_document.Tei.metadata_string headed)).abstract);
+  let i = inspect (doc ("<div><p>" ^ long ^ "</p></div>" ^ intro)) in
+  equal "unheaded leading section" long (abstract i);
+  check "leading section is derived" true i.derived_abstract;
+  let i = inspect (doc ("<p>" ^ long ^ "</p>" ^ intro)) in
+  equal "paragraphs before any section" long (abstract i);
+  let run_on = String.concat " " (List.init 250 (fun i ->
+    "Introduction sentence " ^ string_of_int i ^ ".")) in
+  let i = inspect (doc ("<div><p>" ^ long ^ "</p><p>" ^ run_on ^ "</p></div>"
+    ^ intro)) in
+  equal "first paragraph of a run-on block" long (abstract i);
+  let i = inspect (doc ("<div><p>Aim.</p><p>" ^ long ^ "</p></div>" ^ intro))
+  in
+  equal "short structured block kept whole" ("Aim. " ^ long) (abstract i);
+  let i = inspect (doc {|<div><head>Abstract</head><p><s>One.</s><s>Two.</s></p></div>|}) in
+  equal "sentence elements are spaced" "One. Two." (abstract i);
+  let i = inspect (doc (intro ^ {|<div><head>Methods</head><p>M</p></div>|})) in
+  check "introduction is not an abstract" true
+    (i.bibliography.abstract = None && i.text && not i.derived_abstract);
+  let i = inspect (doc ({|<div><p>Keywords: whales, sound.</p></div>|} ^ intro)) in
+  check "short leading block is not an abstract" true
+    (i.bibliography.abstract = None);
+  let i = inspect (doc ~abstract:"From the header."
+    {|<div><head>Abstract</head><p>From the body.</p></div>|}) in
+  equal "header abstract kept" "From the header." (abstract i);
+  check "header abstract is not derived" false i.derived_abstract;
+  let i = inspect (doc {|<div><p/></div>|}) in
+  check "empty body has no text" false i.text;
+  check "empty body has no abstract" true (i.bibliography.abstract = None);
+  let i = inspect (doc {|<div><figure><head>Fig 1</head><p>Caption only.</p></figure></div>|}) in
+  check "figure captions are not prose" false i.text;
+  let i = inspect (doc {|<div><p>Prose.</p><note>Marginal.</note></div>|}) in
+  check "prose is text" true i.text;
+  let i = inspect (doc ({|<div><head>A</head><p>a</p></div><div><head>B</head><p>b</p></div><div><head>C</head><p>c</p></div><div><head>D</head><p>d</p></div><div><head>Abstract</head><p>Too late to count.</p></div>|})) in
+  check "scan is bounded to the first sections" true
+    (i.bibliography.abstract = None);
+  let front = header "" ^ {|<text><front><div type="abstract"><abstract><p>Front matter.</p></abstract></div></front><body><div><head>Abstract</head><p>Body copy.</p></div></body></text></TEI>|} in
+  equal "Pub2TEI front abstract still wins" "Front matter."
+    (String.trim (abstract (inspect front)));
+  let primary = get (Jsont_bytesrw.decode_string Manifest.Artifact.jsont
+    {|{"file":"tei.xml","format":"tei","source":"tei","converter":"grobid","bytes":10,"at":"now"}|}) in
+  let m = {(get (Manifest.of_string (manifest_json (uid "doi:10.1000/text"))))
+    with artifacts = [primary]} in
+  let resolved text = (P.resolve m
+    [{P.artifact = primary; bibliography = Ok Bibliography.empty; text}]).text in
+  check "paper text from documents" true
+    (resolved (Some true) = Some true && resolved (Some false) = Some false
+     && resolved None = None)
+
 let resolution () =
   let id = uid "doi:10.1000/resolution" in
   let base = get (Manifest.of_string (manifest_json id)) in
@@ -365,10 +438,10 @@ let resolution () =
   let h = Bibliography.empty in
   let docs = [
     {P.artifact = other; bibliography = Ok {h with title = Some "PDF title";
-      abstract = Some "Only the other TEI has an abstract"}};
+      abstract = Some "Only the other TEI has an abstract"}; text = None};
     {P.artifact = primary; bibliography = Ok {h with title = Some "Publisher title";
-      abstract = Some "  "; published = Some "2024-10-23"}};
-    {P.artifact = broken; bibliography = Error "Malformed XML"}] in
+      abstract = Some "  "; published = Some "2024-10-23"}; text = None};
+    {P.artifact = broken; bibliography = Error "Malformed XML"; text = None}] in
   let index = get (Index.of_string (index_json id)) in
   let index = {index with title = Some "Old index title";
     publisher = Some "Index-only publisher"} in
@@ -402,8 +475,8 @@ let resolution () =
   let fallback = P.resolve m docs in
   equal "readable alternate" "tei-2.xml" (Option.get fallback.preferred_tei).file;
   let tie = {primary with file = "tei-other.xml"} in
-  let first = {P.artifact = primary; bibliography = Ok {h with title = Some "First"}} in
-  let second = {P.artifact = tie; bibliography = Ok {h with title = Some "Second"}} in
+  let first = {P.artifact = primary; bibliography = Ok {h with title = Some "First"}; text = None} in
+  let second = {P.artifact = tie; bibliography = Ok {h with title = Some "Second"}; text = None} in
   let tie_manifest = {m with artifacts = [primary; tie]} in
   let tied = P.resolve tie_manifest [second; first] in
   equal "ties follow manifest order" "First"
@@ -415,7 +488,7 @@ let resolution () =
     (Option.get (v versioned.metadata.title));
   let explicit_year = P.resolve m
     [{P.artifact = primary;
-      bibliography = Ok {h with year = Some 1987}}] in
+      bibliography = Ok {h with year = Some 1987}; text = None}] in
   count "format-independent explicit year" 1987
     (Option.get (v explicit_year.metadata.year));
   check "identity mismatch" true
@@ -438,6 +511,10 @@ let enrichment () = with_temp (fun _ sw root ->
   count "enriched FTS" 1 (List.length results);
   equal "enriched result" "Bird migration" (Option.get (List.hd results).Summary.bibliography.title);
   count "resume skips" 0 (E.run c a).examined;
+  count "listed resolved uid skipped" 0 (E.run ~uids:[id] c a).examined;
+  count "listed unknown uid ignored" 0
+    (E.run ~uids:[uid "doi:10.1000/none"] c a).examined;
+  count "listed uid forced" 1 (E.run ~force:true ~uids:[id] c a).updated;
   count "with title" 1 (List.length (C.search c
     {(C.Query.make ()) with metadata = [C.Query.Title,C.Query.Present]}).papers);
   count "without title" 0 (List.length (C.search c
@@ -489,7 +566,7 @@ let detail_cache () = with_temp (fun _ sw root ->
     version manifest documents in
   List.iter (fun json -> check "invalid cache rejected" true
     (rejected (P.of_cache_string ~index json)))
-    [invalid 2 "[]"; invalid 1 {|[{"file":"unknown","error":"bad"}]|};
+    [invalid 3 "[]"; invalid 1 {|[{"file":"unknown","error":"bad"}]|};
      invalid 1 {|[{"file":"tei.xml","error":"bad","bibliography":{}}]|};
      invalid 1 {|[{"file":"tei.xml","error":"a"},{"file":"tei.xml","error":"b"}]|}];
   let candidate () = List.hd (C.Metadata.pending ~force:true ~limit:1
@@ -497,6 +574,8 @@ let detail_cache () = with_temp (fun _ sw root ->
   let stale = candidate () in
   ignore (E.run c archive);
   count "detail counter" 1 (C.Metadata.detail_count c);
+  check "body text recorded in the catalogue" true
+    ((Option.get (C.find c id)).holdings.text <> None);
   let saved = Option.get (C.Metadata.detail c id) in
   check "atomic detail publication" true
     (get (P.of_cache_string ~index:saved.index saved.json) = original);
@@ -783,19 +862,91 @@ let website () = with_temp (fun env sw root ->
   ignore (I.shard c a ~shard);
   let read = C.open_read ~sw (root / "catalog.db") in
   let storage : Taposaur_web.storage = {
-    mirrors_file=None;audit_file=None;archive_root="/host/archive";catalog_file="/host/catalog.db";
-    reviews_file=None;journal_links_file=Some "/host/links<&>.jsonl";
+    mirrors_file=None;abstracts_file=None;audit_file=None;archive_root="/host/archive";catalog_file="/host/catalog.db";
+    reviews_file=None;jobs_file=None;journal_links_file=Some "/host/links<&>.jsonl";
     working_directory="/host/work";executable="/host/taposaur-web";
   } in
   let audit_write = Taposaur_audit.open_write ~sw (root / "audit.db") in
   let session = Taposaur_audit.session ~component:"test.web" audit_write in
   Taposaur_audit.record session ~action:"test.event" ~subject:"<script>" ();
   let audit = Taposaur_audit.open_read ~sw (root / "audit.db") in
-  let state = Taposaur_web.create ~audit ~storage ~archive:a ~catalog:read () in
+  let jobs = Duraml_memory.create ~sw ~clock:env#clock
+    ~random:env#secure_random () in
+  let queues = Taposaur_jobs.Queues.v jobs in
+  let job = match Taposaur_jobs.Submit.entries queues
+    [{doi = Uid.to_string id; publisher = "Elsevier <b>";
+      decision = Acquire {uid = id; strategy = "elsevier"; revision = 1;
+        publisher = "Elsevier <b>"; requested_by = "tester";
+        review = Some {slug = "soil"; snapshot = 7}}}] with
+    | _, [_, Some id] -> Duraml.Id.to_string id
+    | _ -> Alcotest.fail "job not submitted" in
+  let state = Taposaur_web.create ~audit ~storage ~jobs ~archive:a
+    ~catalog:read () in
   let request ?headers ?(meth = Httpz.Method.Get) target =
     W.request ?headers ~on_error:(fun ex -> raise ex) Taposaur_web.site state meth target in
   let code r = Proffer.Status.code (W.status r) in
   count "home" 200 (code (request "/"));
+  let jobs_page = request "/jobs" in
+  count "jobs page" 200 (code jobs_page);
+  check "jobs page lists the queue" true
+    (includes (W.body jobs_page) "acquire.elsevier");
+  check "jobs page links the paper" true
+    (includes (W.body jobs_page) "/paper?uid=");
+  check "jobs page links the review snapshot" true
+    (includes (W.body jobs_page) "soil &#183; snapshot 7" ||
+     includes (W.body jobs_page) "soil · snapshot 7");
+  count "jobs filtered by state" 200 (code (request "/jobs?state=queued"));
+  count "bad job state" 400 (code (request "/jobs?state=bogus"));
+  count "bad job cursor" 400 (code (request "/jobs?after=x"));
+  Taposaur_audit.with_operation ~session ~action:"jobs.acquire"
+    ~subject:(Uid.to_string id) ~details:["job",job;"attempt","1"]
+    ~result_details:(fun () -> ["outcome","retry";"note","busy:elsevier:429"])
+    (fun scoped -> Taposaur_audit.record (Option.get scoped)
+      ~action:"fetch.transfer.result" ~subject:(Uid.to_string id)
+      ~details:["outcome","http_error";"http_status","429"] ());
+  Taposaur_audit.record session ~action:"queue.event" ~subject:(Uid.to_string id)
+    ~details:["job",job;"attempt","1";"kind","retry_scheduled";
+      "detail","busy:elsevier:429"] ();
+  let job_page = request ("/job?id=" ^ job) in
+  count "job page" 200 (code job_page);
+  check "job page nests the transfer result" true
+    (includes (W.body job_page) "fetch.transfer.result" &&
+     includes (W.body job_page) "http_status");
+  check "job page explains the retry" true
+    (includes (W.body job_page) "busy:elsevier:429");
+  check "job page shows the queue timeline" true
+    (includes (W.body job_page) "retry_scheduled");
+  check "job page escapes payload" true
+    (includes (W.body job_page) "Elsevier &lt;b&gt;");
+  check "job page shows key" true (includes (W.body job_page)
+    ("acquire:" ^ Uid.to_string id ^ ":elsevier:v1"));
+  count "missing job" 404 (code (request "/job?id=999"));
+  count "bad job id" 400 (code (request "/job?id=abc"));
+  count "jobs still queued" 1 (List.length (Duraml.list jobs
+    (Duraml.query ~state:Duraml.Queued ())));
+  count "activity page" 200 (code (request "/activity"));
+  let feed = request "/activity?format=json&snapshot=1" in
+  count "activity snapshot" 200 (code feed);
+  let body = W.body feed in
+  check "feed records the jobs page" true (includes body {|"event":"jobs 200"|});
+  check "feed summarises jobs" true (includes body {|"queue":"acquire.elsevier"|}
+    && includes body {|"timeline":"enqueued |} && includes body {|"attempts":[]|}
+    && includes body {|"review":"soil #7"|});
+  check "feed names the paper" true (includes body
+    ({|"uid":"|} ^ Uid.to_string id ^ {|"|}));
+  check "feed counts queued work" true (includes body {|"counts":{"queued":1,"running":0}|});
+  let wc, jc, bc = Scanf.sscanf body
+    {|{"cursors":{"web":%d,"jobs":%Ld,"before":%Ld}|} (fun w j b -> w, j, b) in
+  check "cursors advance" true (wc > 0 && jc > 0L && bc > 0L);
+  let again = W.body (request (Printf.sprintf
+    "/activity?format=json&web=%d&jobs=%Ld" wc jc)) in
+  check "feed requests are not recorded" true (includes again {|"web":[]|});
+  check "nothing new after cursors" true (includes again {|"jobs":[],"web":[]|});
+  let old = W.body (request (Printf.sprintf
+    "/activity?format=json&before=%Ld&web=%d" bc wc)) in
+  check "older page ends the walk" true
+    (includes old {|"jobs":[]|} && not (includes old {|"before"|}));
+  count "bad activity cursor" 400 (code (request "/activity?format=json&web=x"));
   let audit_page = request "/audit?actor=system" in
   count "audit query page" 200 (code audit_page);
   check "audit subject escaped" true (includes (W.body audit_page) "&lt;script&gt;");
@@ -980,7 +1131,8 @@ let () = Alcotest.run "taposaur" [
   "document", [Alcotest.test_case "TEI parsing and rendering" `Quick documents;
     Alcotest.test_case "TEI regeneration evidence" `Quick tei_audit;
     Alcotest.test_case "publisher metadata" `Quick publisher_metadata;
-    Alcotest.test_case "TEI bibliography and S2ORC" `Quick extended_metadata];
+    Alcotest.test_case "TEI bibliography and S2ORC" `Quick extended_metadata;
+    Alcotest.test_case "abstracts left in TEI bodies" `Quick body_abstracts];
   "paper", [Alcotest.test_case "field evidence and multiple TEIs"
     `Quick resolution];
   "catalogue", [

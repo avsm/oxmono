@@ -237,6 +237,26 @@ module Failure = struct
     |> Jsont.Object.finish
 end
 
+module Refusal = struct
+  type t = {
+    strategy : string; at : string; attempts : int; status : int option;
+    reason : string; permanent : bool;
+  }
+  let jsont =
+    Jsont.Object.map ~kind:"Refusal"
+      (fun strategy at attempts status reason permanent ->
+        { strategy; at; attempts; status; reason; permanent })
+    |> Jsont.Object.mem "strategy" Jsont.string ~enc:(fun r -> r.strategy)
+    |> Jsont.Object.mem "at" Jsont.string ~enc:(fun r -> r.at)
+    |> Jsont.Object.mem "attempts" Jsont.int ~dec_absent:(fun () -> 1)
+         ~enc:(fun r -> r.attempts)
+    |> Jsont.Object.opt_mem "status" Jsont.int ~enc:(fun r -> r.status)
+    |> Jsont.Object.mem "reason" Jsont.string ~enc:(fun r -> r.reason)
+    |> Jsont.Object.mem "permanent" Jsont.bool ~dec_absent:(fun () -> false)
+         ~enc:(fun r -> r.permanent)
+    |> Jsont.Object.finish
+end
+
 type t = {
   v : int;
   id : id;
@@ -249,15 +269,16 @@ type t = {
   corrections : Correction.t list;
   artifacts : Artifact.t list;
   conversions_failed : Failure.t list;
+  acquisitions_failed : Refusal.t list;
   updated : string;
 }
 
 let jsont =
   Jsont.Object.map ~kind:"Paper"
     (fun v id doi pmcid pmid title publisher year corrections artifacts
-         conversions_failed updated ->
+         conversions_failed acquisitions_failed updated ->
       { v; id; doi; pmcid; pmid; title; publisher; year; corrections; artifacts;
-        conversions_failed; updated })
+        conversions_failed; acquisitions_failed; updated })
   |> Jsont.Object.mem "v" Json.version ~enc:(fun m -> m.v)
   |> Jsont.Object.mem "id" Uid.jsont ~enc:(fun m -> m.id)
   |> Jsont.Object.opt_mem "doi" Jsont.string ~enc:(fun m -> m.doi)
@@ -281,6 +302,11 @@ let jsont =
   |> Jsont.Object.mem "conversions_failed" (Jsont.list Failure.jsont)
        ~dec_absent:(fun () -> []) ~enc:(fun m -> m.conversions_failed)
        ~enc_omit:(fun l -> l = [])
+  (* Present only while a strategy has refused the paper and nothing has
+     since been acquired through it, so a sweep can skip the source. *)
+  |> Jsont.Object.mem "acquisitions_failed" (Jsont.list Refusal.jsont)
+       ~dec_absent:(fun () -> []) ~enc:(fun m -> m.acquisitions_failed)
+       ~enc_omit:(fun l -> l = [])
   |> Jsont.Object.mem "updated" Jsont.string ~enc:(fun m -> m.updated)
   |> Jsont.Object.finish
 
@@ -291,3 +317,10 @@ let to_string = Jsont_bytesrw.encode_string jsont
 let correction m field =
   List.fold_left (fun found (c : Correction.t) ->
     if c.field = field then Some c.value else found) None m.corrections
+
+let empty id = {
+  v = 1; id; doi = Option.map Doi.to_string (Uid.doi id);
+  pmcid = Uid.pmcid id; pmid = None; title = None; publisher = None;
+  year = None; corrections = []; artifacts = []; conversions_failed = [];
+  acquisitions_failed = []; updated = "1970-01-01T00:00:00.000Z";
+}

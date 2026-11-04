@@ -9,6 +9,8 @@ val phase_of_string : string -> phase
 val open_read : sw:Eio.Switch.t -> _ Eio.Path.t -> read t
 val open_write : sw:Eio.Switch.t -> _ Eio.Path.t -> write t
 val session : ?actor:string -> component:string -> write t -> session
+val store : session -> write t
+(** [store s] is the database [s] appends to, for correlated queries. *)
 val run_id : session -> string
 val actor : session -> string
 val record : session -> action:string -> subject:string ->

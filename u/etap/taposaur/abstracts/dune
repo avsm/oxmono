@@ -1,0 +1,16 @@
+(library
+ (name taposaur_abstracts)
+ (public_name taposaur.abstracts)
+ (libraries
+  taposaur
+  taposaur.audit
+  sqlite3
+  sqlite3-eio
+  fetch
+  eio
+  unix
+  jsont
+  jsont.bytesrw
+  digestif
+  uri
+  uriz))

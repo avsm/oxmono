@@ -8,4 +8,6 @@ val record_error : Db.write Db.t -> shard:string -> string -> unit
 val set_discovered : Db.write Db.t -> int -> unit
 val errors : 'a Db.t -> (string * string) list
 
+val upsert : Db.write Db.t -> shard:string -> stamp -> Taposaur.Index.t ->
+  [ `Inserted | `Updated | `Unchanged ]
 val retire : Db.write Db.t -> shard:string -> unit

@@ -240,11 +240,13 @@ let evidence_codec =
   |> Jsont.Object.mem "source" Jsont.string ~enc:(fun e -> e.source)
   |> Jsont.Object.finish
 let holdings_codec =
-  Jsont.Object.map (fun pdf xml tei s2orc -> {Summary.pdf; xml; tei; s2orc})
+  Jsont.Object.map (fun pdf xml tei s2orc text ->
+    {Summary.pdf; xml; tei; s2orc; text})
   |> Jsont.Object.mem "pdf" Jsont.bool ~enc:(fun h -> h.Summary.pdf)
   |> Jsont.Object.mem "xml" Jsont.bool ~enc:(fun h -> h.Summary.xml)
   |> Jsont.Object.mem "tei" Jsont.bool ~enc:(fun h -> h.Summary.tei)
   |> Jsont.Object.mem "s2orc" Jsont.bool ~enc:(fun h -> h.Summary.s2orc)
+  |> Jsont.Object.opt_mem "text" Jsont.bool ~enc:(fun h -> h.Summary.text)
   |> Jsont.Object.finish
 let observation_jsont =
   Jsont.Object.map (fun doi bibliography holdings in_catalogue origins evidence
@@ -298,7 +300,8 @@ let freeze (member : member) ~summary ~catalogue_stamp ~stale ~error
     pmcid=text "pmcid" (fun b -> b.Bibliography.pmcid);
     pmid=text "pmid" (fun b -> b.Bibliography.pmid)} in
   let holdings = match summary with Some s -> s.Summary.holdings
-    | None -> {Summary.pdf=false;xml=false;tei=false;s2orc=false} in
+    | None -> {Summary.pdf=false;xml=false;tei=false;s2orc=false;text=None}
+  in
   {doi=member.doi; bibliography; holdings;
     in_catalogue=Option.is_some summary; origins=member.origins;
     evidence=List.rev !evidence; catalogue_stamp; stale; error; diagnostics}
@@ -339,7 +342,7 @@ module Statistics = struct
     let b = Taposaur.Bibliography.presence o.bibliography in
     let h = o.holdings in
     List.combine fields [b.title;b.abstract;o.in_catalogue;
-      h.pdf || h.xml || h.tei || h.s2orc;h.pdf;h.xml;h.tei;h.s2orc;
+      Summary.full_text h;h.pdf;h.xml;h.tei;h.s2orc;
       publisher o <> "";o.stale;o.error <> None]
   type coverage = { total : int; present : (string * int) list }
   type t = { overall : coverage; publishers : (string * coverage) list }

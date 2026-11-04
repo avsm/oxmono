@@ -111,3 +111,50 @@ let retire t ~shard = run t (fun db -> transaction db (fun () ->
      (if table = "papers" then "shard" else "path") ^ "=?")
     (fun s -> bind s [text shard]; done_ s))
     ["papers"; "shards"; "import_errors"]))
+
+(* One paper's row changes without touching the rest of its shard, so a
+   publication costs a short transaction instead of a whole-shard reload.
+   The row's generation changes, which invalidates only its own pending
+   metadata snapshot, and the stored stamp follows the rewritten file. *)
+let upsert t ~shard {size; mtime} (e : Index.t) =
+  if Layout.index e.Index.uid <> shard then
+    invalid_arg (Uid.to_string e.uid ^ " belongs in another shard");
+  let row = data shard e in
+  let json = match List.rev row with
+    | S.Data.TEXT json :: _ -> json | _ -> assert false in
+  let flags = List.map (fun i -> match List.nth row i with
+    | S.Data.INT n -> Int64.to_int n | _ -> 0) [9; 10; 11; 12] in
+  run t (fun db -> transaction db (fun () ->
+    let imported = with_stmt db "SELECT 1 FROM shards WHERE path=?" (fun s ->
+      bind s [text shard]; S.step s = S.Rc.ROW) in
+    if not imported then
+      invalid_arg ("Shard is not imported into the catalogue: " ^ shard);
+    let existing = with_stmt db
+      "SELECT json,pdf,xml,tei,s2orc FROM papers WHERE uid=?" (fun s ->
+        bind s [text (Uid.to_string e.uid)];
+        if S.step s = S.Rc.ROW then Some (S.column_text s 0,
+          List.init 4 (fun i -> Int64.to_int (S.column_int64 s (i + 1))))
+        else None) in
+    let stamp () = with_stmt db
+      "UPDATE shards SET size=?,mtime=?,synced=? WHERE path=?" (fun s ->
+        bind s [S.Data.INT size; S.Data.FLOAT mtime;
+          S.Data.FLOAT (Unix.gettimeofday ()); text shard]; done_ s) in
+    match existing with
+    | Some (old, _) when old = json -> stamp (); `Unchanged
+    | _ ->
+        let before = match existing with Some (_, f) -> f | None -> [0;0;0;0] in
+        with_stmt db "DELETE FROM papers WHERE uid=?" (fun s ->
+          bind s [text (Uid.to_string e.uid)]; done_ s);
+        exec db "UPDATE settings SET value=value+1 WHERE key='generation'";
+        with_stmt db ("INSERT INTO papers(" ^ columns ^ ",generation) VALUES(" ^
+          "?,?,?,?,?,?,?,?,?,?,?,?,?,?," ^
+          "(SELECT value FROM settings WHERE key='generation'))")
+          (fun s -> bind s row; done_ s);
+        let delta a b = int (b - a) in
+        with_stmt db
+          "UPDATE shards SET rows=rows+?,pdf=pdf+?,xml=xml+?,tei=tei+?,\
+           s2orc=s2orc+? WHERE path=?" (fun s ->
+            bind s ([int (if existing = None then 1 else 0)] @
+              List.map2 delta before flags @ [text shard]); done_ s);
+        stamp ();
+        if existing = None then `Inserted else `Updated))

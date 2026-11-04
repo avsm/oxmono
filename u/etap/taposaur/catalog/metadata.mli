@@ -14,7 +14,7 @@ val pending :
 limit:int -> version:int -> 'a Db.t -> candidate list
 val publish :
   ?source_stamp:string -> ?detail_cache:string -> ?diagnostics:string list ->
-Db.write Db.t -> candidate -> version:int ->
+  ?text:bool -> Db.write Db.t -> candidate -> version:int ->
 (Taposaur.Bibliography.t, string) result -> bool
 val errors : 'a Db.t -> (Taposaur.Uid.t * string) list
 
@@ -25,6 +25,12 @@ type detail = {
 val detail : 'a Db.t -> Taposaur.Uid.t -> detail option
 val detail_count : 'a Db.t -> int
 
+val fill_abstract : Db.write Db.t -> uid:Taposaur.Uid.t -> abstract:string ->
+  update_detail:(Taposaur.Index.t -> string -> string) -> bool
+(** [fill_abstract t ~uid ~abstract ~update_detail] is {!fill_publisher}
+    for a missing abstract: the row, its search index and its cached
+    resolution are updated in one transaction, and nothing changes when
+    the paper already has an abstract. *)
 val fill_publisher : Db.write Db.t -> uid:Taposaur.Uid.t -> publisher:string ->
   update_detail:(Taposaur.Index.t -> string -> string) -> bool
 (** [fill_publisher t ~uid ~publisher ~update_detail] atomically fills a

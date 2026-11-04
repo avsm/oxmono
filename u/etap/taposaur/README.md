@@ -163,7 +163,7 @@ archive changes or retries failures. Reimporting a shard invalidates its
 cached metadata. Failed refreshes retain the previous search projection.
 Up to eight papers are read concurrently by default, configurable with
 `--jobs`. Cancellation leaves completed papers available. Catalogues using
-schema versions 1 through 5 migrate when opened for writing,
+schema versions 1 through 6 migrate when opened for writing,
 preserving existing cached metadata. `taposaur enrich --limit 0` upgrades
 a catalogue without scheduling any metadata reads.
 
@@ -179,6 +179,11 @@ The pure resolver reconstructs complete paper details, preserving alternatives,
 corrections and diagnostics. Existing enriched rows without this cache are
 automatically backfilled. Failed refreshes preserve the previous details and
 their saved timestamp. Reimporting a shard invalidates its details.
+
+Use `--uid-file FILE` to resolve only the identifiers listed one per line, in
+that order, skipping any that are already current; list them grouped by
+archive directory so filesystem metadata is reused, as a review-scoped pass
+ahead of a full sweep.
 
 Use `--progress-file /local/path/progress.json` to write atomic progress updates
 from the OCaml enrichment process, including scan order and the last shard.
@@ -269,11 +274,23 @@ the highest-ranked TEI with a successfully parsed header. Every version
 remains accessible in the file table.
 
 Current parsers cover TEI headers and front matter, Elsevier retrieval
-XML's `coredata`, and S2ORC JSON's bibliographic fields. XML headers are
+XML's `coredata`, and S2ORC JSON's bibliographic fields. When a TEI header
+carries no abstract, the reader scans the first four body sections for one
+GROBID left there, headed "Abstract" or "Summary", or as the unheaded
+block before the first headed section: the whole block when it is 200 to
+3000 characters, otherwise its first paragraph of 200 to 6000 characters,
+since GROBID sometimes runs the abstract into the introduction; a headed
+introduction is never promoted. The same bounded scan reports whether the
+body holds any prose outside figures, notes, tables and formulae, which
+the catalogue records as the paper's `text` holding. XML headers are
 bounded at 1 MiB and JSON at 16 MiB. Unsupported XML dialects and malformed
 documents remain visible as metadata errors. PDFs are previewed, not
 parsed for metadata. The format readers are `Document.Tei`,
-`Document.Elsevier` and `Document.S2orc`. All return `Bibliography.t`. Raw events remain accessible through history and
+`Document.Elsevier` and `Document.S2orc`. All return `Bibliography.t`;
+`Document.Tei.inspect` adds the body observations. Changing a reader
+raises `Taposaur_paper.version`, which marks every catalogue row for
+re-resolution so search, exports and later snapshots follow the readers;
+existing snapshots stay frozen until a new one is taken. Raw events remain accessible through history and
 are not replayed by the metadata resolver.
 
 ## Check coverage
@@ -419,7 +436,11 @@ taposaur review export SNAPSHOT --format manifest --reviews-db reviews.db
 ```
 
 Snapshots freeze selected bibliographic values, holdings, source references,
-catalogue revisions, diagnostics and request context. Nonblank catalogue
+catalogue revisions, diagnostics and request context. The "Full text"
+statistic counts a PDF or S2ORC document, or a converted document whose
+body the catalogue has seen to hold prose; a TEI or publisher XML without
+body text does not count once the paper has been resolved, and counts
+until then. Nonblank catalogue
 values precede supplied metadata. Supplied metadata follows input declaration
 order and original row order. Missing catalogue records remain members.
 The snapshot never calls the paper resolver when opened or exported.
@@ -589,11 +610,25 @@ taposaur fetch '10.1000/example' --staging /local/staging/batch-1 \
 Automatic discovery uses `GLUTTON_SERVER_URL`, with `DATACITE_SERVER_URL`
 optional for missing DOI records. Supported publisher routes are Elsevier,
 Springer, Wiley, Taylor & Francis, PLOS and Cambridge University Press.
-Configure `ELSEVIER_API_KEY`,
-optional `ELSEVIER_INST_TOKEN`, `SPRINGER_API_KEY`, and comma-separated
-`WILEY_TOKENS` as needed. `CORE_API_TOKEN` enables the CORE fallback.
-Environment loading belongs to the CLI. Library callers supply configured
-service capabilities. No credentials are read from dotenv files implicitly.
+Credentials live in the user's encrypted [Sekrit](../../../wip/sekrit/README.md)
+keychain under these names, written with `sekrit put NAME --file FILE`:
+
+| Credential | Keychain name | Environment fallback |
+| --- | --- | --- |
+| Elsevier API key | `taposaur/elsevier/api-key` | `ELSEVIER_API_KEY` |
+| Elsevier institution token | `taposaur/elsevier/inst-token` | `ELSEVIER_INST_TOKEN` |
+| Springer API key | `taposaur/springer/api-key` | `SPRINGER_API_KEY` |
+| Wiley tokens, comma-separated | `taposaur/wiley/tokens` | `WILEY_TOKENS` |
+| CORE API token | `taposaur/core/token` | `CORE_API_TOKEN` |
+
+`taposaur jobs credentials` reports which are present and from where,
+without printing values. Taylor & Francis admits only a whitelisted
+address: set `TANDF_PROXY` to a proxy URL such as
+`socks5h://127.0.0.1:1080`, with an SSH tunnel (`ssh -N -D 127.0.0.1:1080
+HOST`) to that address, and its requests travel through it. The keychain overrides the environment. `sekrit
+init` creates the vault and master key once per user. Library callers
+supply configured service capabilities through `Taposaur_secrets` or
+directly. No credentials are read from dotenv files implicitly.
 
 Publisher clients space requests two seconds apart, or thirty seconds for
 Cambridge, independently of metadata lookups. Busy publisher responses
@@ -655,6 +690,136 @@ writers must be stopped during the batch. Read-only servers and indexing can
 continue. Index JSONL shards and existing review snapshots remain unchanged.
 Create a new review snapshot after the run to capture the refreshed metadata.
 
+## Acquire and convert review papers with durable jobs
+
+`taposaur jobs` plans work from a frozen review snapshot, records it in a
+local [Duraml](../../../wip/duraml/README.md) SQLite queue and serves that
+queue with explicit worker processes. The library is `Taposaur_jobs`, the
+archive writer is `Taposaur_accept` and the shared lock is `Taposaur_lock`.
+No review membership or snapshot changes. The web UI shows jobs read-only.
+
+```sh
+taposaur jobs init --queue-db /local/taposaur-jobs.db
+taposaur jobs plan 2 --reviews-db reviews.db --root /data/papers/taposaur
+taposaur jobs submit 2 --reviews-db reviews.db --root /data/papers/taposaur \
+  --queue-db /local/taposaur-jobs.db --by avsm2 --doi 10.1000/pilot
+taposaur jobs work --queue-db /local/taposaur-jobs.db \
+  --staging /local/taposaur-staging --root /data/papers/taposaur \
+  --db catalog.db --acquire elsevier --convert pub2tei --convert grobid \
+  --refresh --sync
+taposaur jobs inspect --queue-db /local/taposaur-jobs.db --counts
+```
+
+Planning reads every snapshot row in DOI order and decides each member from
+the catalogue's cached holdings, or the frozen snapshot for unindexed
+members, reading archive manifests only without a catalogue or for TEI
+input digests: already held, acquire through an implemented
+publisher strategy, convert a held PDF or XML, unsupported publisher,
+unconfigured credentials or invalid identifier. A member whose observation
+names no publisher, typically one the archive does not hold, is routed by
+the owner of its DOI prefix (10.1016 Elsevier, 10.1007 and 10.1023
+Springer, 10.1371 PLOS, 10.1002, 10.1111 and 10.1046 Wiley, 10.1080
+Taylor & Francis, 10.1017 Cambridge); the strategy still resolves the DOI
+itself, so a prefix whose journal has moved publisher fails safely as a
+404. Pass `--db` so planning
+avoids reading thousands of manifests from the archive filesystem.
+`--strategy NAME`, repeatable, restricts a submission to some strategies.
+Every submission names a Duraml dispatch lane, `snapshot:N` for a sweep
+and `doi` for `--doi` requests unless `--lane` says otherwise; successors
+inherit it. Duraml dispatches oldest-first within a lane and takes turns
+across lanes, so a paper requested during a sweep runs after at most one
+job of the sweep rather than behind all of it, and a retry keeps its age.
+`taposaur jobs cancel --queue NAME` revokes every queued job of one queue,
+leaving running attempts to finish. The counts are printed and
+each decision is one JSONL line. Publishers without a
+strategy are queued on the `oa` strategy, which uses the Glutton
+open-access link and CORE fallbacks, when `GLUTTON_SERVER_URL` is set.
+`--target tei` plans conversions instead of downloads. Credentials come from the same keychain as
+`taposaur fetch`. `GROBID_SERVER_URL` and `PUB2TEI_SERVER_URL`, or `--grobid`
+and `--pub2tei`, decide which conversion routes are configured.
+
+Keys are semantic: `acquire:UID:STRATEGY:vREVISION`,
+`convert:UID:ROUTE:INPUT_SHA256:CONVERTER` and
+`refresh:UID:MANIFEST_SHA256`. Submitting the same work again returns the
+existing job. The same acquisition requested by another review or actor is
+reported as a conflict and the existing job is reused. Change `--revision`
+to repeat acquisitions deliberately and `--converter-revision` on the worker
+to repeat conversions. Acquisition payloads name the paper, strategy,
+revision, publisher evidence, requester and review snapshot. Conversion and
+refresh payloads are exactly their keys, because that work is shared between
+reviews. Credentials and service clients are worker inputs only.
+
+`work` serves one queue per `--acquire STRATEGY`, `--convert ROUTE` and
+`--refresh`, with `--concurrency` handlers each. It holds a lock file beside
+the queue database for every served queue, so a second process for the same
+publisher is refused rather than doubling the request rate. Publisher
+pacing is the same as `taposaur fetch`, which the queue lock does not
+exclude, and shared services such as Glutton, CORE and open-access hosts are
+paced per process. Busy responses return the job to the queue with the
+server's `Retry-After`, clamped between thirty seconds and one day, instead
+of sleeping on a leased worker. Downloads go through the staging writer, are
+validated, accepted into the archive and followed atomically by conversion
+and catalogue refresh jobs. A replayed acquisition whose paper already holds
+a PDF or XML succeeds without fetching, and a replayed conversion reuses the
+recorded TEI, because publisher and converter bytes are not stable across
+runs. Conversions reduce a Springer Nature API envelope to its JATS article
+before Pub2TEI, validate well-formed TEI with the paper's DOI before
+acceptance, retry HTTP 429, 502, 503 and 504, timeouts and transport
+failures, and record other refusals in the manifest as permanent. Once a
+publisher's own source has refused a paper, a transient failure on the
+open-access or CORE fallbacks no longer retries the whole acquisition. A
+permanent acquisition failure, other than missing credentials, is likewise
+recorded in the paper's archive manifest as an `acquisitions_failed` entry
+with the strategy, HTTP status and reason, creating an artifact-free paper
+directory when the paper is new. The paper page lists these refusals, and
+`taposaur jobs plan --skip-refused` reads manifests to leave such members
+out of the next batch. A later success through that strategy clears it. Refreshes
+rewrite the paper's index row, import its shard and resolve its metadata.
+The first interrupt drains active handlers, the second aborts.
+
+Acceptance holds `papers/.../.lock` with `flock` and writes PID, host and
+component metadata into it for diagnosis. The metadata is never the
+authority, and a symbolic link at the lock path is refused. The lock is
+coherent across hosts that mount the same CephFS archive. Existing
+artifacts are never overwritten: identical content is reported as existing,
+different content receives a numbered filename, and final names are linked
+into place so even a writer outside this protocol cannot be replaced. Only
+missing title, publisher, year, PMID and PMCID values are filled. Every
+publication writes a durable intent first, so reopening the paper completes
+an interrupted copy, append or manifest replacement without duplicates; a
+publication that never made anything visible is abandoned and retried.
+`taposaur-consolidate` and the staging writer take the same lock, and
+consolidation refuses a paper with a pending acceptance intent.
+
+`--sync` or `taposaur jobs audit-sync` copies durable queue events into the
+audit database as `queue.event` notices, keyed by store identity and
+sequence, with a locked cursor file beside the queue. Repeating a delivery
+into the same audit database adds no duplicates; the cursor is not bound to
+an audit database, so keep one audit database per queue. `taposaur-web --jobs-db FILE` opens the queue read-only for
+`/jobs` and `/job?id=N`, which link jobs to papers and review snapshots.
+`/activity` is a live tab. It opens on a snapshot of the jobs still
+running and the most recently touched ones, read from the tail of the
+queue's event log, then polls every two seconds for new events only, so
+its cost does not grow with the size of the queue. A button loads older
+pages back through the log. The status strip shows queued and running
+totals. Each top-level job is a pipeline card titled by its paper and
+review snapshot.
+Jobs staged by another nest beneath it, using the parent that Duraml
+records on every successor, and each job row shows its queue, state and
+one chip per attempt with its outcome and duration, updating in place.
+Website requests sit in a collapsed section; the audit trail has its own
+page at `/audit`. `/job?id=N` lists what staged a job and what it staged, its
+queue timeline from the bridged events, and every audited operation its
+handlers ran, nested as it happened: handler records carry the job and
+attempt plus a note with the retry reason or failure code, and transfer
+and conversion results carry HTTP statuses, so a retry can be traced to
+its cause. Job state icons mark the activity rows and job tables. Website requests are held in memory by
+the running server, so they start empty on restart. Submission and
+cancellation remain CLI operations with audit records.
+
+Create a new review snapshot after a run to capture refreshed holdings.
+Use a local disk for the queue and staging, not Ceph or NFS.
+
 ## Catalogue measurement
 
 The synthetic benchmark requires a new database filename:
@@ -692,3 +857,15 @@ for JSONL or start the website with `--audit-db FILE` for `/audit`.
 queries to configured Crossref and DataCite mirrors, with an original CSV
 fallback. It retains raw evidence, logs operations and publishes a new
 immutable snapshot. See [configuration, CLI and OCaml API](mirrors/README.md).
+
+## Recover missing abstracts
+
+`taposaur abstracts fetch DOIS` looks up abstracts in OpenAlex for the listed
+DOIs, batching up to 100 per request and falling back to free single-work
+reads when the daily budget refuses a batch, and retains every response in
+`taposaur-abstracts.db` (or `TAPOSAUR_ABSTRACTS_DB`). The resolver applies
+that evidence only when no archive document or index row has an abstract;
+enrichment, refresh workers and the website consult the store, `taposaur
+abstracts fill` updates catalogue rows that lack one without re-reading the
+archive, and `taposaur review snapshot` carries it to members the archive does
+not hold. See [costs, keys and the OCaml API](abstracts/README.md).

@@ -1,0 +1,4 @@
+(library
+ (name duraml)
+ (public_name duraml)
+ (libraries eio cstruct ptime))

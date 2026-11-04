@@ -16,7 +16,12 @@ libraries. Neither is an implementation dependency of another library.
 | `taposaur.indexing` | Import, enrichment and audit workflows | SQL implementation or HTML |
 | `taposaur.mirrors` | Exact DOI publisher lookups, retained responses and audit | Paper fetching, archive mutation or catalogue writes |
 | `taposaur.services` | Publisher and metadata HTTP clients | Environment loading or filesystem writes |
+| `taposaur.lock` | Advisory directory locks with diagnostic owner metadata | Lease management or NFS coordination |
+| `taposaur.files` | Durable fsync, atomic replacement and digest helpers | Paths, formats or publication policy |
+| `taposaur.secrets` | Named credentials from the Sekrit keychain with environment fallbacks | Service addresses or HTTP clients |
 | `taposaur.store` | Staging locks, events and recoverable publication | Accepted archive mutation or acquisition policy |
+| `taposaur.accept` | Locked, recoverable publication into `papers/` and index shards | Downloads, conversion or catalogue imports |
+| `taposaur.jobs` | Typed Duraml queues, planning, workers, inspection and audit bridging | Queue storage, credentials or HTTP pacing policy |
 | `taposaur.download` | Source selection, transfer and validation | Credentials from the environment or bulk scheduling |
 | `taposaur.review` | Query definitions, DOI sets and frozen metadata | I/O or database handles |
 | `taposaur.review-store` | Durable requests, revisions, runs and snapshots | Catalogue or archive access |
@@ -30,7 +35,18 @@ flowchart TD
   services --> core[taposaur]
   mirrors --> services
   mirrors --> core
+  lock
+  files
+  store --> lock
+  store --> files
   store --> core
+  accept --> lock
+  accept --> files
+  accept --> core
+  jobs --> accept
+  jobs --> download
+  jobs --> indexing
+  jobs --> review_store[review-store]
   download --> services
   download --> store
   paper --> core
@@ -49,6 +65,7 @@ flowchart TD
   web --> archive
   web --> document
   web --> paper
+  web --> jobs
 ```
 
 Separate Dune libraries enforce these boundaries. In particular, linking
@@ -63,7 +80,10 @@ indexing workflows.
 - `Manifest.t`, `Index.t` and `Event.t` describe the corpus wire formats.
   They do not decide which document to read.
 - `Bibliography.t` contains plain metadata values, independent of format.
-  TEI, Elsevier XML and S2ORC readers return this same type.
+  TEI, Elsevier XML and S2ORC readers return this same type. The TEI
+  reader also reports whether the body holds prose, and recovers an
+  abstract GROBID left in the body; the reader records that observation
+  per document and the resolver summarises it for the catalogue.
 - `Taposaur_paper.t` preserves the manifest, optional original index,
   document observations, selected values and alternatives. Its resolved
   records are private, so callers construct them through `resolve`.
@@ -138,6 +158,33 @@ complete details separately, retaining the initial bibliography on failure.
 An external script adds journal autocomplete and cached TEI/history panels.
 The same reading routes serve fragments or standalone pages. Paper details
 remain visible while switching panels, including on narrow screens.
+
+## Durable work and archive acceptance
+
+`taposaur.jobs` binds typed Duraml queues: one acquisition queue per
+publisher strategy, one conversion queue per route and one catalogue refresh
+queue. Payloads are versioned JSON naming the paper, strategy or route,
+configuration revision, input digest and review attribution. Keys derive
+from that identity, so repeated submission reconciles instead of duplicating.
+Workers receive credentials, clients, staging and archive capabilities as
+records. Handlers return typed completions: busy or transport failures become
+scheduled retries, refusals become permanent failures with stable codes, and
+successes publish successors atomically with the outcome.
+
+`taposaur.accept` and the consolidation regeneration are the writers
+beneath an archive root. Acceptance holds the paper directory's
+`taposaur.lock` during each update, never overwrites an existing file,
+refuses reserved names, fills only allowlisted missing metadata, appends
+events before replacing the manifest and records a durable intent first so
+an interrupted publication completes on reopening. Conversion and refresh
+payloads carry no review attribution, so successors staged by different
+acquisitions reconcile rather than conflict. Index shard rows are
+rewritten under a shard lock. The same lock protocol is used by the staging
+writer and the consolidation CLI. Execution is at least once, so acceptance
+reports content already held rather than relying on queue leases as fences.
+
+The website opens the queue read-only through Duraml's SQLite backend and
+renders counts, jobs and outcomes. It submits and cancels nothing.
 
 New publisher formats belong in `document` and return `Bibliography.t`.
 Acquisition uses the separate services, download and store libraries. Store

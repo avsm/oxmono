@@ -1,0 +1,4 @@
+(library
+ (name duraml_client)
+ (public_name duraml.client)
+ (libraries duraml duraml.worker eio))

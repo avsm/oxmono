@@ -1,13 +1,38 @@
 (** TEI metadata extraction and constrained HTML rendering. *)
 
+type inspection = {
+  bibliography : Taposaur.Bibliography.t;
+  text : bool;  (** The body holds prose outside figures, notes, tables
+                    and formulae. *)
+  derived_abstract : bool;
+      (** The abstract came from the body, not the header or front
+          matter. *)
+}
+
+val inspect_string : string -> (inspection, string) result
+(** [inspect_string xml] reads the header, the front matter and the start
+    of the body from [xml]. *)
+val inspect :
+  ?max_bytes:int -> _ Eio.Flow.source -> (inspection, string) result
+(** [inspect flow] reads the header and front matter, then scans the body
+    only as far as needed: when the header carries no abstract, the first
+    four top-level sections are examined for one headed "Abstract" or
+    "Summary", or failing that the unheaded block before the first headed
+    section, as GROBID emits when its header model misses the abstract:
+    the whole block when it is 200 to 3000 characters, otherwise its first
+    paragraph when that is 200 to 6000 characters, since GROBID sometimes
+    runs the abstract and the introduction together. Sentence and
+    paragraph breaks become spaces. The scan stops once the abstract is settled and body text
+    has been seen, so references are never read. The default input bound
+    is 1 MiB and nesting is capped at 256 elements; a body beyond the
+    byte bound still yields the header. XML and limit errors are
+    returned. I/O errors and cancellation propagate. *)
 val metadata_string : string -> (Taposaur.Bibliography.t, string) result
-(** [metadata_string xml] reads the header and front matter from [xml]. *)
+(** [metadata_string xml] is the bibliography of {!inspect_string}. *)
 val metadata :
   ?max_bytes:int -> _ Eio.Flow.source ->
   (Taposaur.Bibliography.t, string) result
-(** [metadata flow] stops before the body. The default input bound is
-    1 MiB and nesting is capped at 256 elements. XML and limit errors are
-    returned. I/O errors and cancellation propagate. *)
+(** [metadata flow] is the bibliography of {!inspect}. *)
 
 val validate_string : ?max_bytes:int -> string -> (unit, string) result
 (** [validate_string xml] checks the entire document for well-formed XML

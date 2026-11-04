@@ -1,0 +1,7 @@
+(library
+ (name taposaur_lock)
+ (public_name taposaur.lock)
+ (libraries unix jsont jsont.bytesrw)
+ (foreign_stubs
+  (language c)
+  (names lock_stubs)))

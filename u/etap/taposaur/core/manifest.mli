@@ -113,6 +113,24 @@ module Failure : sig
   val jsont : t Jsont.t @@ portable
 end
 
+(** {1 Acquisition refusals} *)
+
+module Refusal : sig
+  type t = {
+    strategy : string;  (** The acquisition strategy that was tried. *)
+    at : string;  (** When the last attempt failed. *)
+    attempts : int;  (** How many have failed, over the whole log. *)
+    status : int option;  (** The HTTP status the source answered, if any. *)
+    reason : string;  (** The source and failure, such as [elsevier: HTTP 403]. *)
+    permanent : bool;
+        (** Whether the source refused or lacked the paper rather than
+            failing transiently. A permanent refusal tells a later sweep
+            not to spend the publisher again for the same strategy
+            configuration. *)
+  }
+  val jsont : t Jsont.t @@ portable
+end
+
 (** {1 Paper manifests} *)
 
 
@@ -128,13 +146,21 @@ type t = {
   corrections : Correction.t list;
   artifacts : Artifact.t list;
   conversions_failed : Failure.t list;
+  acquisitions_failed : Refusal.t list;
+      (** Permanent acquisition refusals by strategy, present only while
+          no artifact has since been acquired through that strategy. *)
   updated : string;
 }
 
 val jsont : t Jsont.t @@ portable
+val empty : Uid.t -> t
+(** [empty uid] is a version 1 manifest for [uid] with its DOI or PMCID
+    filled from the identity, no artifacts, no corrections, no failures
+    and the epoch as [updated]. Writers start new papers from it. *)
 val of_string : string -> (t, string) result
 (** [of_string s] decodes a version 1 manifest. Optional arrays default to
-    empty. A missing failure [permanent] defaults to false. Unknown
+    empty, including [acquisitions_failed], which older writers never
+    emit. A missing failure [permanent] defaults to false. Unknown
     members are ignored. Timestamps are retained verbatim. No record is
     written or reconstructed. *)
 

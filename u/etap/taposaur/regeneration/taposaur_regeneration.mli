@@ -9,4 +9,10 @@ val publish : ?audit:Taposaur_audit.session -> root:string -> work:string -> Tap
     manifest and event log in [work], then publishes the validated TEI,
     conversion events and manifest. Repeating an interrupted publication
     completes its durable intent. Unexpected source changes are refused.
-    [work] must be a dedicated, private directory for this paper. *)
+    [work] must be a dedicated, private directory for this paper. The
+    publication holds the paper directory's {!Taposaur_lock} throughout,
+    which excludes other lock-aware archive writers such as acceptance
+    and staging. Writers that do not take that lock must still be stopped
+    for the whole batch. Raises [Taposaur_lock.Busy] when another writer
+    holds the paper and [Failure] while an interrupted acceptance awaits
+    recovery by its own writer. *)

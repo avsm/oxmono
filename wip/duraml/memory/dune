@@ -1,0 +1,4 @@
+(library
+ (name duraml_memory)
+ (public_name duraml.memory)
+ (libraries duraml eio))

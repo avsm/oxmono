@@ -1,5 +1,44 @@
 # Changes
 
+- Recover missing abstracts from OpenAlex: `taposaur abstracts fetch` batches
+  exact-DOI lookups, retains every response, and falls back to free
+  single-work reads when the daily budget refuses a batch; the resolver
+  applies the evidence only when the archive has no abstract, enrichment,
+  refresh workers and the website consult the store, `abstracts fill`
+  updates catalogue rows in place, and review snapshots carry the evidence
+  to members the archive does not hold.
+- Plan acquisitions for members with no publisher evidence by the owner of
+  their DOI prefix, so unindexed Wiley, Elsevier, Springer, PLOS, Taylor &
+  Francis and Cambridge members become acquirable; the strategy still
+  resolves the DOI itself.
+- `taposaur enrich --uid-file` resolves a listed selection in order, for a
+  review-scoped pass ahead of a full catalogue sweep.
+- Add durable acquisition, conversion and catalogue refresh jobs on Duraml
+  with planning from review snapshots, per-publisher worker ownership,
+  Retry-After scheduling, no-clobber archive acceptance with PID-bearing
+  locks and recoverable intents, an audit bridge and read-only job pages.
+  Shared durable file helpers back both the staging and archive writers.
+  Publisher credentials come from the Sekrit keychain, with environment
+  variables as fallbacks and a `credentials` report that prints no values.
+  A live activity page follows website requests, audit records and jobs as
+  they happen, with jobs nested beneath the job that staged them, state
+  icons, and a job page that traces each attempt to its audited operations.
+  Submissions name a Duraml fair-share lane per snapshot or ad hoc request,
+  and `jobs cancel --queue` revokes a queue's queued work in bulk.
+- Recover abstracts that GROBID leaves in the TEI body, record whether a
+  converted document holds any prose, refuse empty conversions, and count
+  only documents with prose as full text once a paper is resolved. The
+  resolver version rises to 2 so every catalogue row is resolved again.
+  Taylor & Francis requests can travel through a SOCKS proxy to a
+  whitelisted address, and Pub2TEI output without a header DOI is accepted.
+  Catalogue refreshes publish one row per paper instead of reloading its
+  shard, keeping catalogue transactions short beside other writers.
+  The activity page seeds from the event log's tail and pages older events
+  on demand, so it stays fast as the queue grows.
+  Permanent acquisition refusals are recorded in archive manifests so later
+  sweeps can skip them, Springer envelopes are unwrapped before Pub2TEI, and
+  fallback hiccups no longer retry a publisher that already refused.
+
 - Show publisher download strategies, access requirements and existing full
   text in snapshot paper lists using the acquisition router.
 

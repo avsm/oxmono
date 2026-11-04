@@ -41,7 +41,8 @@ let publication () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
     converter=Some "grobid"} in
   let m = {Manifest.v=1;id=uid;doi=Some "10.1002/agj2.21016";
     pmcid=None;pmid=None;title=None;publisher=None;year=None;
-    corrections=[];artifacts=[a;tei];conversions_failed=[];updated="old"} in
+    corrections=[];artifacts=[a;tei];conversions_failed=[];
+    acquisitions_failed=[];updated="old"} in
   let old = get (Manifest.to_string m) in
   write (dir ^ "/paper.json") old;
   write (dir ^ "/tei.xml") "original";

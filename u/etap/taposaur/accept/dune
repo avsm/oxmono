@@ -1,0 +1,17 @@
+(library
+ (name taposaur_accept)
+ (public_name taposaur.accept)
+ (libraries
+  taposaur.audit
+  taposaur.lock
+  taposaur.files
+  taposaur
+  eio
+  eio.unix
+  unix
+  digestif
+  cstruct
+  optint
+  jsont
+  jsont.bytesrw
+  ptime))

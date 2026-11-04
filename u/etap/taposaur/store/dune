@@ -3,6 +3,8 @@
  (public_name taposaur.store)
  (libraries
   taposaur.audit
+  taposaur.lock
+  taposaur.files
   taposaur
   eio
   eio.unix
@@ -10,7 +12,4 @@
   cstruct
   optint
   jsont
-  jsont.bytesrw)
- (foreign_stubs
-  (language c)
-  (names lock_stubs)))
+  jsont.bytesrw))

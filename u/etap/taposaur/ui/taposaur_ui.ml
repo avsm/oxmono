@@ -46,3 +46,29 @@ let coverage ~present ~total =
       Printf.sprintf "%d present (%.1f%%), %d missing (%.1f%%)"
         present pct (total-present) (100.-.pct));
     "style",Printf.sprintf "--present:%.4f%%" pct] []
+
+(* One sprite per page keeps the icons out of every row. Paths use a 24 unit
+   grid with round strokes in the current colour, so CSS sets the size and
+   the tone. *)
+let symbol id children = node "symbol" ["id","state-" ^ id;
+  "viewBox","0 0 24 24"] children
+let circle = node "circle" ["cx","12";"cy","12";"r","9"] []
+let path d = node "path" ["d",d] []
+let state_sprite = node "svg" ["class","state-sprite";"aria-hidden","true";
+  "focusable","false"] [
+  symbol "queued" [circle; path "M12 7.5v4.5l3 2"];
+  symbol "running" [node "path" ["d","M12 3a9 9 0 1 1-6.4 2.6";
+    "class","state-arc"] []; path "M5.6 2.5v3.1h3.1"];
+  symbol "done" [circle; path "M8 12.5l2.6 2.6L16 9.5"];
+  symbol "failed" [circle; path "M9 9l6 6M15 9l-6 6"];
+  symbol "cancelled" [circle; path "M7.5 16.5l9-9"];
+  symbol "notice" [circle; path "M12 11v5.5M12 7.8v.1"];
+  symbol "unknown" [node "circle" ["cx","12";"cy","12";"r","9";
+    "stroke-dasharray","3 3"] []; path "M12 16.5v.1M10 9.8a2 2 0 1 1 3 1.8c-.7.4-1 .9-1 1.7"]]
+let known = ["queued";"running";"done";"failed";"cancelled";"notice"]
+let state_icon ?label state =
+  let id = if List.mem state known then state else "unknown" in
+  let label = Option.value label ~default:state in
+  node "svg" ["class","state-icon state-" ^ id;"role","img";
+    "aria-label",label] [node "title" [] [txt label];
+    node "use" ["href","#state-" ^ id] []]

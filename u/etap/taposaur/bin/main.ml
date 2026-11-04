@@ -14,6 +14,7 @@ let execute f =
     Ok ()
   with
   | Taposaur_store.Busy -> Error "Another writer owns this staged paper"
+  | Taposaur_lock.Busy _ as e -> Error (Printexc.to_string e)
   | A.Parse_error e -> Error (A.error_to_string e)
   | Failure e | Invalid_argument e -> Error e
   | Eio.Io _ as e -> Error (Printexc.to_string e)
@@ -89,10 +90,16 @@ let describe root id = execute (fun env sw ->
     | Error e -> Printf.printf "Metadata error (%s): %s\n" d.artifact.file e)
     p.documents)
 
-let enrich root db force retry_errors limit uid jobs order progress_file =
+let enrich root db force retry_errors limit uid uid_file jobs order progress_file =
   mutate ~details:["archive_root",root;"force",string_of_bool force;
-    "jobs",string_of_int jobs;"uid",Option.value ~default:"" uid]
+    "jobs",string_of_int jobs;"uid",Option.value ~default:"" uid;
+    "uid_file",Option.value ~default:"" uid_file]
     "catalog.enrich" db (fun env sw audit ->
+  let uids = Option.map (fun file ->
+    let lines = String.split_on_char '\n' (Eio.Path.load (env#fs / file)) in
+    List.filter_map (fun line -> match String.trim line with
+      | "" -> None | s when s.[0] = '#' -> None | s -> Some (identify s))
+      lines) uid_file in
   let a = archive env sw root in
   let c = C.open_write ~sw (env#fs / db) in
   let count = ref 0 in
@@ -127,8 +134,10 @@ let enrich root db force retry_errors limit uid jobs order progress_file =
   save_progress "running";
   let mirrors = Taposaur_mirrors.open_configured ~sw ~fs:env#fs in
   let publisher_lookup doi = Option.bind mirrors (fun s -> Taposaur_mirrors.find s doi) in
-  let result = try E.run ~publisher_lookup ~audit ~force ~retry_errors ~order ?limit
-    ?uid:(Option.map identify uid) ~jobs ~progress c a
+  let abstracts = Taposaur_abstracts.open_configured ~sw ~fs:env#fs in
+  let abstract_lookup doi = Option.bind abstracts (fun s -> Taposaur_abstracts.find s doi) in
+  let result = try E.run ~publisher_lookup ~abstract_lookup ~audit ~force ~retry_errors ~order ?limit
+    ?uid:(Option.map identify uid) ?uids ~jobs ~progress c a
     with ex -> save_progress "failed"; raise ex in
   save_progress (if result.unavailable > 0 then "finished_with_errors"
     else "finished");
@@ -197,40 +206,8 @@ let fetch staging timeout max_bytes url format publisher_pdf id =
   mutate ~details:["staging",staging;"format",format;
     "explicit_url",string_of_bool (Option.is_some url)]
     "cli.fetch" (Uid.to_string (identify id)) (fun env sw audit ->
-  let module S = Taposaur_services in
-  let getenv name = match Sys.getenv_opt name with
-    | None | Some "" -> None | Some value -> Some value in
-  let http = Fetch_main.std ~sw ~user_agent:"u/etap/taposaur/0.1"
-    ~max_concurrent:6
-    ~retry:(Fetch.Retry.v ~max_retries:0 ()) env in
-  let paced seconds = Fetch.with_limits ~clock:env#mono_clock
-    ~max_concurrent:1 ~min_interval:(Duration.of_sec seconds) http in
-  let glutton = Option.map (fun server -> S.Glutton.client ~server http)
-    (getenv "GLUTTON_SERVER_URL") in
-  let datacite = Option.map (fun server -> S.Datacite.client ~server http)
-    (getenv "DATACITE_SERVER_URL") in
-  let elsevier = Option.map (fun key ->
-    let inst_token = Option.map (fun s () -> s) (getenv "ELSEVIER_INST_TOKEN") in
-    S.Elsevier.client ~api_key:(fun () -> key) ?inst_token (paced 2))
-    (getenv "ELSEVIER_API_KEY") in
-  let springer = Option.map (fun api_key -> S.Springer.client ~api_key (paced 2))
-    (getenv "SPRINGER_API_KEY") in
-  let wiley = Option.bind (getenv "WILEY_TOKENS") (fun values ->
-    let tokens = String.split_on_char ',' values |> List.map String.trim
-      |> List.filter ((<>) "") in
-    if tokens = [] then None else Some (S.Wiley.client ~tokens (paced 2))) in
-  let core = Option.map (fun token -> S.Core.client ~token:(fun () -> token) (paced 2))
-    (getenv "CORE_API_TOKEN") in
-  let cup = S.Cup.client (paced 30) in
-  let plos = S.Plos.client (paced 2) and tandf = S.Tandf.client (paced 2) in
-  let springer_pdf = if publisher_pdf then
-    Some (S.Springer.pdf_client (paced 2)) else None in
-  let repositories = Fetch.with_headers Fetch.Header.[
-    user_agent, "Mozilla/5.0 (compatible; u/etap/taposaur/1.0; +mailto:avsm2@cam.ac.uk)"
-  ] (paced 2) in
-  let downloader = Taposaur_download.create ~audit ~timeout ~max_bytes
-    ?glutton ?datacite ?elsevier ?springer ?wiley ?core
-    ~cup ~plos ~tandf ?springer_pdf ~clock:env#clock repositories in
+  let downloader = Clients.downloader ~publisher_pdf ~timeout ~max_bytes
+    ~sw ~audit ~secrets:(Clients.secrets ~sw env) env in
   let uid = identify id in
   let format = match format with
     | "pdf" -> Manifest.Format.Pdf | "xml" -> Xml
@@ -277,6 +254,8 @@ let command name doc term = Cmd.v (Cmd.info name ~doc) term
 let commands = [
   Taposaur_audit_cli.command;
   Review_cmd.command;
+  Jobs_cmd.command;
+  Abstracts_cmd.command;
   command "audit-tei" "Validate TEI files and report regeneration evidence."
     Term.(const audit_tei $ root $
       Arg.(required & opt (some string) None & info ["work-list"]
@@ -316,6 +295,9 @@ let commands = [
         ~doc:"Maximum papers to resolve. Repeated runs resume.") $
       Arg.(value & opt (some string) None & info ["uid"]
         ~doc:"Resolve one imported identifier.") $
+      Arg.(value & opt (some string) None & info ["uid-file"]
+        ~doc:"Resolve the identifiers listed one per line in this file, in \
+              that order; blank lines and # comments are ignored.") $
       Arg.(value & opt int 8 & info ["jobs"]
         ~doc:"Concurrent paper reads, 1..64.") $
       Arg.(value & opt (enum ["directory", E.Directory; "uid", E.Uid])

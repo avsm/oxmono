@@ -1,0 +1,5 @@
+(library
+ (name duraml_sqlite)
+ (public_name duraml.sqlite)
+ (private_modules codec)
+ (libraries duraml eio sqlite3 sqlite3-eio jsont jsont.bytesrw))

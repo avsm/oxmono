@@ -5,7 +5,8 @@ under development live in `wip/`; user applications live in `u/<owner>/`.
 
 ## Repository layout
 
-- [`wip/`](wip/) contains shared projects, including Httpz, Proffer, Fetch and ox.
+- [`wip/`](wip/) contains shared projects, including Httpz, Proffer, Fetch, ox
+  and [Duraml job queues](wip/duraml/README.md).
 - [`u/avsm/`](u/avsm/) contains applications such as Sortal, Bushel and Arod.
 - [`vendor/`](vendor) contains dependency sources with OxCaml adaptations.
 - [`examples/`](examples/README.md) contains the HTTP server and client examples.

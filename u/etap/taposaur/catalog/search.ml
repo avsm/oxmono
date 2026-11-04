@@ -15,7 +15,9 @@ let summary s =
     | _ -> match S.column s 1 with
       | S.Data.TEXT json -> Bibliography.of_index (decode json)
       | _ -> base.bibliography in
-  { base with bibliography }
+  let text = match S.column s 3 with
+    | S.Data.INT n -> Some (n <> 0L) | _ -> None in
+  { base with bibliography; holdings = { base.holdings with text } }
 
 let identity s = Result.to_option (Uid.of_input s)
 
@@ -54,7 +56,7 @@ let search_db db (q : Query.t) =
       | Title -> "title" | Abstract -> "abstract" | Publisher -> "publisher" in
     clauses := (column ^ (match availability with
       | Present -> "<>''" | Missing -> "=''")) :: !clauses) q.metadata;
-  let sql = "SELECT json,resolved_json,bibliography_json FROM papers WHERE " ^
+  let sql = "SELECT json,resolved_json,bibliography_json,text FROM papers WHERE " ^
     String.concat " AND " (holding :: List.rev !clauses) ^
     " ORDER BY uid LIMIT ?" in
   let rows = with_stmt db sql (fun s ->
@@ -81,7 +83,7 @@ let find_index t uid =
       | S.Rc.DONE -> None | rc -> check rc; assert false))
 
 let find_db db uid = with_stmt db
-  "SELECT json,resolved_json,bibliography_json FROM papers WHERE uid=?"
+  "SELECT json,resolved_json,bibliography_json,text FROM papers WHERE uid=?"
   (fun s -> bind s [text (Uid.to_string uid)];
     match S.step s with S.Rc.ROW -> Some (summary s)
     | S.Rc.DONE -> None | rc -> check rc; assert false)

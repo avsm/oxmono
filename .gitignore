@@ -5,6 +5,7 @@ _opam/
 
 .DS_Store
 /u/etap/taposaur/.local/
+/taposaur/.local/
 
 /taposaur-audit.db
 /taposaur-audit.db-wal

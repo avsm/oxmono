@@ -41,10 +41,12 @@
       try { localStorage.setItem('taposaur.abstracts', abstracts.checked ? 'show' : 'hide'); } catch (_) {}
     });
   }
+  const section = location.pathname.startsWith('/review') ? '/reviews'
+    : location.pathname.startsWith('/job') ? '/jobs'
+    : location.pathname.startsWith('/activity') ? '/activity'
+    : location.pathname.startsWith('/audit') ? null : '/search';
   document.querySelectorAll('.site-nav a').forEach(link => {
-    if (location.pathname.startsWith('/review') && link.pathname === '/reviews' ||
-        !location.pathname.startsWith('/review') && link.pathname === '/search')
-      link.setAttribute('aria-current', 'page');
+    if (link.pathname === section) link.setAttribute('aria-current', 'page');
   });
   const renderMath = root => {
     root.querySelectorAll('[data-tex]').forEach(element => {
@@ -385,4 +387,172 @@
   addEventListener('popstate', restore);
   addEventListener('hashchange', restore);
   restore();
+})();
+
+(() => {
+  const root = document.querySelector('#activity[data-activity-url]');
+  if (!root) return;
+  const tree = root.querySelector('#activity-jobs');
+  const older = root.querySelector('#activity-older');
+  const web = root.querySelector('#activity-web tbody');
+  const state = root.querySelector('#activity-state');
+  const updated = root.querySelector('#activity-updated');
+  const metric = name => root.querySelector(`[data-metric="${name}"]`);
+  const counter = name => root.querySelector(`[data-count-for="${name}"]`);
+  const cursors = {web: 0, jobs: null, before: null};
+  const jobs = new Map();
+  let timer = null, webLines = 0, loading = false;
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const linked = (text, href, cls) => {
+    const a = el('a', cls, text); a.href = href; return a;
+  };
+  const clock = iso => iso.replace(/^.*T/, '').replace(/Z$/, '');
+  const line = e => {
+    const tr = el('tr', 'activity-web');
+    tr.append(el('td', 'activity-time', clock(e.time)), el('td', '', e.event), el('td', '', e.detail));
+    web.prepend(tr);
+    while (web.children.length > 300) web.lastElementChild.remove();
+    counter('web').textContent = ++webLines;
+  };
+  const known = ['queued', 'running', 'done', 'failed', 'cancelled'];
+  const icon = state => {
+    const id = known.includes(state) ? state : 'unknown';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', `state-icon state-${id}`);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', state);
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = state;
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', `#state-${id}`);
+    svg.append(title, use);
+    return svg;
+  };
+  const chip = a => {
+    const kind = a.kind || 'running';
+    const c = el('span', `attempt-chip ${kind === 'succeeded' ? 'ok' : kind === 'failed' ? 'bad' : kind === 'running' ? 'live' : 'retry'}`);
+    c.append(el('b', '', `#${a.attempt}`), ' ', kind.replace('_', ' '));
+    if (a.seconds !== undefined) c.append(el('span', 'attempt-time', `${a.seconds} s`));
+    if (a.detail) c.title = a.detail;
+    if (a.started) c.title = `${c.title ? c.title + '\n' : ''}claimed ${clock(a.started)}${a.ended ? ' → ' + clock(a.ended) : ''}`;
+    return c;
+  };
+  const describe = (row, job) => {
+    row.dataset.state = job.state;
+    const head = el('div', 'job-head');
+    head.append(linked(job.queue, job.href, 'job-queue'), el('span', 'job-state-text', job.state),
+      el('span', 'job-id', `job ${job.id}`));
+    const chips = el('div', 'job-attempts');
+    (job.attempts || []).forEach(a => chips.append(chip(a)));
+    if (job.state === 'running' && !(job.attempts || []).some(a => !a.kind)) chips.append(el('span', 'attempt-chip live', 'running'));
+    if (job.enqueued) row.dataset.enqueued = job.enqueued;
+    const start = row.dataset.enqueued;
+    const settled = /done|failed|cancelled/.test(job.state);
+    const when = el('span', 'job-when');
+    const stamp = (iso, text) => { const t = el('time', '', text || clock(iso)); t.dateTime = iso; return t; };
+    if (start && settled) {
+      const seconds = Math.max(0, Math.round((Date.parse(job.updated) - Date.parse(start)) / 1000));
+      when.append(stamp(start), ' → ', stamp(job.updated), el('span', 'job-elapsed', `${seconds} s`));
+      when.title = `queued ${start}, settled ${job.updated}`;
+    } else if (start) {
+      when.append(stamp(start, `queued ${clock(start)}`), ' → ', el('span', 'job-pending', job.state));
+      when.title = `queued ${start}`;
+    } else {
+      when.append(stamp(job.updated));
+      when.title = `last event ${job.updated}`;
+    }
+    row.replaceChildren(icon(job.state), head, chips, when);
+  };
+  const pipeline = job => {
+    const card = el('li', 'pipeline');
+    card.dataset.job = job.id;
+    const title = el('div', 'pipeline-title');
+    title.append(job.uid ? linked(job.uid, job.paper || job.href, 'pipeline-paper') : el('span', 'pipeline-paper', 'Unattributed work'));
+    if (job.review) title.append(el('span', 'pipeline-review', ' · '), linked(job.review, job.review_href, 'pipeline-review'));
+    card.append(title, el('ul', 'job-list'));
+    return card;
+  };
+  // Live updates go on top; older pages go underneath.
+  const place = (job, atEnd) => {
+    let row = jobs.get(job.id);
+    if (!row) {
+      const item = el('li', 'job');
+      row = el('div', 'job-row');
+      item.append(row, el('ul', 'job-list'));
+      const parent = job.parent && jobs.get(job.parent);
+      if (parent) parent.parentElement.lastElementChild.append(item);
+      else { const card = pipeline(job); card.lastElementChild.append(item); atEnd ? tree.append(card) : tree.prepend(card); }
+      jobs.set(job.id, row);
+    }
+    describe(row, job);
+  };
+  const trim = () => {
+    while (tree.children.length > 400) {
+      const old = tree.lastElementChild;
+      old.querySelectorAll('.job-row').forEach(r => { for (const [k, v] of jobs) if (v === r) jobs.delete(k); });
+      old.remove();
+    }
+  };
+  const summarise = feed => {
+    const rows = [...tree.querySelectorAll('.job-row')];
+    metric('queued').textContent = feed.counts.queued;
+    metric('running').textContent = feed.counts.running;
+    metric('failed').textContent = rows.filter(r => /failed|cancelled/.test(r.dataset.state)).length;
+    metric('papers').textContent = tree.children.length;
+    counter('jobs').textContent = rows.length;
+  };
+  const fetchFeed = async params => {
+    const url = new URL(root.dataset.activityUrl, location.origin);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const response = await fetch(url, {cache: 'no-store'});
+    if (!response.ok) throw new Error(`Server answered ${response.status}`);
+    return response.json();
+  };
+  const apply = (feed, atEnd) => {
+    if (tree) { feed.jobs.forEach(j => place(j, atEnd)); if (!atEnd) trim(); summarise(feed); }
+    feed.web.forEach(line);
+    cursors.web = feed.cursors.web;
+    root.dataset.live = 'ok';
+    state.textContent = 'Live';
+    updated.textContent = `updated ${new Date().toLocaleTimeString()}`;
+  };
+  const poll = async () => {
+    if (document.hidden || loading) return;
+    loading = true;
+    try {
+      if (cursors.jobs === null) {
+        const feed = await fetchFeed({snapshot: 1, web: cursors.web});
+        cursors.jobs = feed.cursors.jobs;
+        cursors.before = feed.cursors.before ?? null;
+        apply(feed, false);
+      } else {
+        const feed = await fetchFeed({jobs: cursors.jobs, web: cursors.web});
+        cursors.jobs = feed.cursors.jobs;
+        apply(feed, false);
+      }
+    } catch (e) { state.textContent = e.message.startsWith('Server') ? e.message : 'Reconnecting'; root.dataset.live = 'error'; }
+    finally { loading = false; }
+  };
+  const loadOlder = async () => {
+    if (cursors.before === null || loading) return;
+    loading = true;
+    older.disabled = true;
+    try {
+      const feed = await fetchFeed({before: cursors.before, web: cursors.web});
+      cursors.before = feed.cursors.before ?? null;
+      apply(feed, true);
+      if (cursors.before === null) older.textContent = 'No older events';
+    } catch (_) { /* The button can be tried again. */ }
+    finally { loading = false; older.disabled = cursors.before === null; }
+  };
+  if (older) older.addEventListener('click', loadOlder);
+  const start = () => { if (!timer) { poll(); timer = setInterval(poll, 2000); } };
+  const stop = () => { if (timer) { clearInterval(timer); timer = null; state.textContent = 'Paused'; root.dataset.live = 'paused'; } };
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  start();
 })();

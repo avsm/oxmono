@@ -12,7 +12,10 @@ val with_paper : t -> Taposaur.Uid.t -> (paper -> 'a) -> 'a
 (** [with_paper store uid f] holds an advisory per-paper lock while [f]
     runs. [Busy] means another writer owns the paper. It recovers an
     interrupted publication before calling [f]. Existing papers not created
-    by this writer are refused. Locks are released on cancellation. *)
+    by this writer are refused. Locks are released on cancellation. The
+    paper's [.lock] file carries diagnostic PID, host and component owner
+    metadata written by {!Taposaur_lock}. The [flock], not the metadata,
+    is the authority. *)
 val manifest : paper -> Taposaur.Manifest.t
 (** [manifest paper] is the current projection of its committed events. *)
 val identify : paper -> at:string -> Taposaur.Bibliography.t -> unit

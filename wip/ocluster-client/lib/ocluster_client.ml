@@ -49,6 +49,13 @@ let job t =
   let request = Capability.Request.create_no_args () in
   Capability.call_for_caps t method_id request Results.job_get_pipelined
 
+(* The scheduler answers [Ticket.job] with the job a worker made when it
+   took the ticket from the pool's queue, so the promise settles then. *)
+let started job =
+  match Capability.await_settled job with
+  | Ok () -> Ok ()
+  | Error e -> Error (Fmt.str "%a" Capnp_rpc.Exception.pp e)
+
 let cancel_ticket t =
   let open Raw.Client.Ticket.Cancel in
   fail

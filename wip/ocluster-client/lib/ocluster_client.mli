@@ -45,6 +45,11 @@ val job : ticket -> job
 (** [job ticket] is the job of [ticket]. Calls on it wait until a worker takes
     it. *)
 
+val started : job -> (unit, string) result
+(** [started job] waits until a worker takes [job] from its pool's queue and
+    starts it, or until the scheduler gives up on it, when it is [Error]. The
+    scheduler tells a submitter no more about its place in the queue. *)
+
 val cancel_ticket : ticket -> unit
 (** [cancel_ticket ticket] removes a queued job, or cancels a started one. *)
 

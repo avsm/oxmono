@@ -218,6 +218,19 @@ let pages () =
          ~current:"/" ~title:"t" [])
       {|data-theme="light"|})
 
+let post_forms () =
+  let html =
+    Htmlit.El.to_string ~doctype:false
+      (S.post_form
+         ~action:(S.Url.path [ "login" ])
+         ~hidden:[ ("_csrf", "a\"b<c") ]
+         ~submit:"Log in"
+         [ S.input ~name:"handle" ~label:"Handle" ~value:"<x>" () ])
+  in
+  assert (has html {|method="post"|} && has html {|action="/login"|});
+  assert (has html "a&quot;b&lt;c" && not (has html "a\"b"));
+  assert (has html "&lt;x&gt;" && has html "Log in")
+
 let formatting () =
   assert (S.count 1234567 = "1,234,567");
   assert (S.count (-1234) = "-1,234");
@@ -231,6 +244,7 @@ let () =
   no_inline_style ();
   headers ();
   pages ();
+  post_forms ();
   formatting ();
   print_endline
     "sitekit: URLs, escaping, no inline styles, security headers, assets and \

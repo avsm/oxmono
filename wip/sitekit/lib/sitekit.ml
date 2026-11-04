@@ -570,6 +570,19 @@ let get_form ~action ?(submit = "Show") fields =
       ]
     (fields @ [ el "button" ~at:[ ("type", "submit") ] [ text submit ] ])
 
+let post_form ~action ~hidden ?(submit = "Submit") fields =
+  el "form"
+    ~at:
+      [
+        ("class", "sk-form"); ("method", "post"); ("action", Url.to_string action);
+      ]
+    (List.map
+       (fun (n, v) ->
+         el "input" ~at:[ ("type", "hidden"); ("name", n); ("value", v) ] [])
+       hidden
+    @ fields
+    @ [ el "button" ~at:[ ("type", "submit") ] [ text submit ] ])
+
 let log s = el "pre" ~at:[ ("class", "sk-log") ] [ text s ]
 let sr_only s = el "span" ~at:[ ("class", "sk-sr") ] [ text s ]
 

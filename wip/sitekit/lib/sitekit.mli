@@ -267,6 +267,16 @@ val get_form : action:Url.t -> ?submit:string -> html list -> html
 (** [get_form ~action fields] is a form of [fields] that requests [action]
     with them as its query, with a [submit] button, ["Show"] by default. *)
 
+val post_form :
+  action:Url.t ->
+  hidden:(string * string) list ->
+  ?submit:string ->
+  html list ->
+  html
+(** [post_form ~action ~hidden fields] is a form posting [fields] and the
+    [hidden] fields, such as a CSRF token, to [action], with a [submit]
+    button, ["Submit"] by default. *)
+
 val post_button :
   action:Url.t -> hidden:(string * string) list -> label:string -> html
 (** [post_button ~action ~hidden ~label] is a form posting the [hidden] fields

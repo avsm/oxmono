@@ -40,8 +40,14 @@ let origin ~allow_http value =
 
 let v ~allow_http ~plc system =
   let plc = origin ~allow_http plc in
+  (* Identity documents, knots and PDSes are named by the records of the
+     accounts and repositories asked about, so on a public network only public
+     addresses are reached. *)
   let fetch =
     Fetch_httpz.v system#net ~clock:system#mono_clock ~https:Httpz_tls.system
+      ?connect:
+        (if allow_http then None
+         else Some (Xrpc_auth_web.Public_net.connect system#net))
       ~max_response:(16 * 1024 * 1024)
       ()
   in

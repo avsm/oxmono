@@ -31,55 +31,13 @@ type t = {
 (* A host's deliveries in flight and waiting. *)
 and host = { slots : Eio.Semaphore.t; mutable waiting : int }
 
-(* Addresses a webhook may reach, unless private ones are allowed for a
-   development network. *)
-let public_v4 b =
-  let o i = Char.code b.[i] in
-  not
-    (o 0 = 0
-    || o 0 = 10
-    || o 0 = 127
-    || (o 0 = 100 && o 1 land 0xc0 = 64)
-    || (o 0 = 169 && o 1 = 254)
-    || (o 0 = 172 && o 1 land 0xf0 = 16)
-    || (o 0 = 192 && o 1 = 0 && o 2 = 0)
-    || (o 0 = 192 && o 1 = 168)
-    || (o 0 = 198 && o 1 land 0xfe = 18)
-    || o 0 >= 224)
-
-let public_v6 b =
-  let o i = Char.code b.[i] in
-  let zero n = String.for_all (( = ) '\000') (String.sub b 0 n) in
-  if zero 10 && o 10 = 0xff && o 11 = 0xff then public_v4 (String.sub b 12 4)
-  else
-    not
-      (zero 15
-      || o 0 land 0xfe = 0xfc
-      || (o 0 = 0xfe && o 1 land 0xc0 = 0x80)
-      || o 0 = 0xff)
-
-let public (addr : Eio.Net.Ipaddr.v4v6) =
-  Eio.Net.Ipaddr.fold
-    ~v4:(fun (a : [ `V4 ] Eio.Net.Ipaddr.t) -> public_v4 (a :> string))
-    ~v6:(fun (a : [ `V6 ] Eio.Net.Ipaddr.t) -> public_v6 (a :> string))
-    addr
-
-let connect ~allow_private net ~sw ~host ~port : Fetch_httpz.conn =
-  let addrs =
-    Eio.Net.getaddrinfo_stream ~service:(string_of_int port) net host
-    |> List.filter (function
-      | `Tcp (ip, _) -> allow_private || public ip
-      | _ -> false)
-  in
-  match addrs with
-  | [] -> failwith ("no public address for " ^ host)
-  | addr :: _ -> (Eio.Net.connect ~sw net addr :> Fetch_httpz.conn)
-
 let v ~sw ~store ~settings ~allow_private system =
   let net = system#net in
   let fetch =
     Fetch_httpz.v ~clock:system#mono_clock
-      ~connect:(connect ~allow_private net)
+      ?connect:
+        (if allow_private then None
+         else Some (Xrpc_auth_web.Public_net.connect net))
       ~https:Httpz_tls.system ~max_response:(1024 * 1024)
       ~connect_timeout:(Duration.of_sec 10) net ()
   in
@@ -125,7 +83,11 @@ let check_url t url =
      match Unix.inet_addr_of_string literal with
      | exception Failure _ -> ()
      | ip ->
-         if not (public (Eio_unix.Net.Ipaddr.of_unix ip)) then
+         if
+           not
+             (Xrpc_auth_web.Public_net.is_public
+                (Eio_unix.Net.Ipaddr.of_unix ip))
+         then
            fail S.Bad_request "Generic"
              "URL host is a reserved or private address");
   url

@@ -44,7 +44,7 @@ let () =
       ()
   in
   let job = Job.v "push-only" [] ~accepts:(fun c -> c.kind = Job.Push) in
-  let awaited = ref None in
+  let awaited = ref None and watched = ref [] in
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:"spindle.test"
       ~jobs:[ Job.inspect; job ]
@@ -53,6 +53,18 @@ let () =
         match List.assoc_opt "TANGLED_INPUT_SPAWN" r.variables with
         | Some name when r.workflow = "inspect" ->
             ctx.spawn name [ Job.step "child step" "true" ];
+            (* Progress is watched until every descendant has ended. *)
+            let rec follow since =
+              let now = ctx.spawned ?since () in
+              watched := now :: !watched;
+              if
+                List.exists
+                  (fun (p : Spindle.Executor.progress) ->
+                    p.status = `Pending || p.status = `Running)
+                  now
+              then follow (Some now)
+            in
+            follow None;
             awaited := Some (ctx.await_spawned ())
         | Some _ when r.workflow = "child" ->
             ctx.spawn "grandchild" [ Job.step "grandchild step" "true" ]
@@ -307,6 +319,22 @@ let () =
       assert (grandchild.workflow = "grandchild");
       assert (grandchild.log = "## say\nhello\n")
   | _ -> failwith "the spawned workflows were not awaited");
+  (* Each observation after the first differs from the one before, and the
+     last shows both descendants ended. *)
+  let rec distinct = function
+    | a :: (b :: _ as rest) -> a <> b && distinct rest
+    | _ -> true
+  in
+  assert (distinct !watched);
+  (match !watched with
+  | last :: _ ->
+      assert (
+        List.map
+          (fun (p : Spindle.Executor.progress) ->
+            (p.workflow, p.status, p.step))
+          last
+        = [ ("child", `Success, None); ("grandchild", `Success, None) ])
+  | [] -> failwith "no progress was watched");
   let again =
     Engine.retry engine ~principal:owner ~actor:owner ~repo ~id
       ~names:[ "child" ]

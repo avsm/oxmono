@@ -126,6 +126,11 @@ repository's and owner's workflow limits, and the wait is not charged as CI
 minutes, so waiting planners cannot starve their own builds. The workflow's
 time limit still covers the wait.
 
+`spawned ~since ()` is how far each of those workflows has got: pending,
+running and in which step, or ended. Given the progress it last saw, it
+waits for the next change, on the same terms as `await_spawned`. A planner
+can use it to log its builds' progress as it happens.
+
 `spindle --executor=solve` uses `Spindle.Executor.solve`, which simulates
 this: its `solve` workflow pretends to solve for `ocaml-4.14`, `ocaml-5.5`
 and `oxcaml-5.2minus39`, then spawns a workflow for each that logs made-up

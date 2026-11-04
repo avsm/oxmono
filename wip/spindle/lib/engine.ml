@@ -245,6 +245,17 @@ let await_spawned t p (workflow : Runner.t) =
       let ds = descendants p workflow.job.name in
       if List.for_all Runner.terminal ds then Some ds else None)
 
+(* [watch t p workflow ~since] is the progress of [workflow]'s descendants,
+   once it differs from [since]. *)
+let watch t p (workflow : Runner.t) ~since =
+  let now () = List.map Runner.progress (descendants p workflow.job.name) in
+  match since with
+  | None -> now ()
+  | Some since ->
+      Eio.Condition.loop_no_mutex t.changed (fun () ->
+          let now = now () in
+          if now <> since then Some now else None)
+
 (* [start_one t p workflow] runs a pending workflow of [p] in its own fiber,
    and [spawn] adds one while [p] runs. *)
 let rec start_one t p (workflow : Runner.t) =
@@ -285,15 +296,20 @@ let rec start_one t p (workflow : Runner.t) =
             (* Waiting for spawned workflows gives up the workflow's place in
                its repository's and owner's limits, and is not charged. *)
             let held = ref true and waited = ref 0. in
-            let await () =
+            let released f =
               held := false;
               release t p;
               let start = seconds () in
-              let outcomes = await_spawned t p workflow in
+              let x = f () in
               waited := !waited +. (seconds () -. start);
               acquire t p workflow;
               held := true;
-              outcomes
+              x
+            in
+            let await () = released (fun () -> await_spawned t p workflow) in
+            let watch = function
+              | None -> watch t p workflow ~since:None
+              | since -> released (fun () -> watch t p workflow ~since)
             in
             Fun.protect ~finally:(fun () ->
                 if !held then release t p;
@@ -309,7 +325,7 @@ let rec start_one t p (workflow : Runner.t) =
               ~persist:(fun () -> persist t p)
               ~spawn:(fun ~env name steps ->
                 spawn t p ~parent:workflow.job.name ~env name steps)
-              ~await workflow
+              ~await ~watch workflow
       with exn ->
         Eio.Cancel.protect (fun () ->
             workflow.status <- "failed";

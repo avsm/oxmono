@@ -27,11 +27,19 @@ type outcome = {
   log : string;
 }
 
+type progress = {
+  workflow : string;
+  status : [ `Pending | `Running | `Success | `Failed | `Cancelled | `Timeout ];
+  step : string option;
+  error : string option;
+}
+
 type context = {
   step : ?kind:kind -> ?command:string -> string -> (unit -> unit) -> unit;
   log : [ `Stdout | `Stderr ] -> string -> unit;
   spawn : ?env:(string * string) list -> string -> Job.step list -> unit;
   await_spawned : unit -> outcome list;
+  spawned : ?since:progress list -> unit -> progress list;
 }
 
 type t = context -> request -> unit

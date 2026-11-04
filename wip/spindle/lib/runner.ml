@@ -282,7 +282,7 @@ let flush record p ~step s =
 (* [context record persist p ~secrets] numbers the executor's steps from 0 and
    masks [secrets] in each stream of a step. Text held back by a mask or an
    unterminated line at the end of a step is flushed into that step. *)
-let context record persist p ~secrets ~spawn ~await : Executor.context =
+let context record persist p ~secrets ~spawn ~await ~watch : Executor.context =
   let values = List.map snd secrets in
   let next = ref 0 in
   let current = ref None in
@@ -314,7 +314,8 @@ let context record persist p ~secrets ~spawn ~await : Executor.context =
         frame record p ~step s (Mask.feed s.mask content)
   in
   let spawn ?(env = []) name steps = spawn ~env name steps in
-  { step; log; spawn; await_spawned = await }
+  let spawned ?since () = watch since in
+  { step; log; spawn; await_spawned = await; spawned }
 
 (* [text p] is [p]'s log as a person reads it. *)
 let text p =
@@ -333,17 +334,40 @@ let text p =
     (List.rev p.events);
   Buffer.contents b
 
+let ended p =
+  match p.status with
+  | "success" -> `Success
+  | "cancelled" -> `Cancelled
+  | "timeout" -> `Timeout
+  | _ -> `Failed
+
 let outcome p : Executor.outcome =
+  { workflow = p.job.name; status = ended p; error = p.error; log = text p }
+
+(* The newest control event says whether a step is open. *)
+let current_step p =
+  List.find_map
+    (fun event ->
+      let field k = Option.map string (Json.field k event) in
+      match (field "type", field "status") with
+      | Some "control", Some "start" -> Some (field "content")
+      | Some "control", _ -> Some None
+      | _ -> None)
+    p.events
+  |> Option.join
+
+let progress p : Executor.progress =
+  let status =
+    match p.status with
+    | "pending" | "blocked" -> `Pending
+    | "running" -> `Running
+    | _ -> ended p
+  in
   {
     workflow = p.job.name;
-    status =
-      (match p.status with
-      | "success" -> `Success
-      | "cancelled" -> `Cancelled
-      | "timeout" -> `Timeout
-      | _ -> `Failed);
+    status;
+    step = (if status = `Running then current_step p else None);
     error = p.error;
-    log = text p;
   }
 
 (* [message exn] is what a viewer is shown for a failed workflow. *)
@@ -351,7 +375,8 @@ let message = function
   | Failure m | Invalid_argument m -> m
   | exn -> Printexc.to_string exn
 
-let execute state input ~record ~persist ~spawn ?(await = fun () -> []) p =
+let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
+    ?(watch = fun _ -> []) p =
   Eio.Semaphore.acquire state.slots;
   (* The slot is given up while the workflow waits for those it spawned, so
      that waiting workflows cannot occupy every slot their children need. *)
@@ -359,13 +384,18 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> []) p =
   Fun.protect ~finally:(fun () ->
       if !held then Eio.Semaphore.release state.slots)
   @@ fun () ->
-  let await () =
+  let released f =
     held := false;
     Eio.Semaphore.release state.slots;
-    let outcomes = await () in
+    let x = f () in
     Eio.Semaphore.acquire state.slots;
     held := true;
-    List.map outcome outcomes
+    x
+  in
+  let await () = List.map outcome (released await) in
+  let watch = function
+    | None -> watch None
+    | since -> released (fun () -> watch since)
   in
   if (not p.cancelled) && p.status = "pending" then (
     p.status <- "running";
@@ -378,7 +408,7 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> []) p =
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
         state.executor
-          (context record persist p ~secrets:input.secrets ~spawn ~await)
+          (context record persist p ~secrets:input.secrets ~spawn ~await ~watch)
           (request input p.job);
         Ok ()
       with exn -> Error exn

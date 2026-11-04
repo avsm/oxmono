@@ -50,6 +50,16 @@ type outcome = {
 }
 (** How a finished workflow ended. *)
 
+type progress = {
+  workflow : string;  (** The workflow's name. *)
+  status : [ `Pending | `Running | `Success | `Failed | `Cancelled | `Timeout ];
+      (** [`Pending] until it has a worker slot, then [`Running] until it ends.
+      *)
+  step : string option;  (** The name of the step it is running, if any. *)
+  error : string option;  (** Why it failed, when known. *)
+}
+(** How far a spawned workflow has got. *)
+
 type context = {
   step : ?kind:kind -> ?command:string -> string -> (unit -> unit) -> unit;
       (** [step ~kind ~command name f] runs [f] as the next step of the log,
@@ -72,6 +82,12 @@ type context = {
           the order they were spawned. The workflow gives up its worker slot
           while it waits, and the wait does not count towards its minutes. Its
           time limit still applies. *)
+  spawned : ?since:progress list -> unit -> progress list;
+      (** [spawned ~since ()] is the progress of the workflows {!await_spawned}
+          waits for, in the order they were spawned. With [since], it first
+          waits until that progress differs from [since], giving up the worker
+          slot as {!await_spawned} does. Without it, it does not wait. A step
+          that starts or ends is a change. *)
 }
 
 type t = context -> request -> unit

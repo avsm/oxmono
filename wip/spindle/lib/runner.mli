@@ -51,6 +51,9 @@ val restore : Jsont.json -> t
 val outcome : t -> Executor.outcome
 (** [outcome t] is how finished workflow [t] ended, with its log as text. *)
 
+val progress : t -> Executor.progress
+(** [progress t] is how far [t] has got, with the step it is in. *)
+
 val message : exn -> string
 (** [message exn] is the error shown for a workflow that failed with [exn]: the
     text of a [Failure] or [Invalid_argument], or else the exception. *)
@@ -62,12 +65,14 @@ val execute :
   persist:(unit -> unit) ->
   spawn:(env:(string * string) list -> string -> Job.step list -> unit) ->
   ?await:(unit -> t list) ->
+  ?watch:(Executor.progress list option -> Executor.progress list) ->
   t ->
   unit
 (** [execute env input ~record ~persist ~spawn workflow] waits for a worker slot
     and hands [workflow] to the executor of [env]. The executor's [spawn] calls
     [spawn], and its [await_spawned] calls [await], with the worker slot given
-    up meanwhile. [await] is [fun () -> []] by default. Each transition calls
+    up meanwhile. Its [spawned] calls [watch], with the slot given up when it
+    waits. [await] and [watch] return [[]] by default. Each transition calls
     [persist]. Each JSON-encoded event calls [record] before becoming visible to
     log subscribers. [record] returns the durable journal sequence for snapshot
     compaction. A cancelled workflow's error is ["User canceled the workflow"],

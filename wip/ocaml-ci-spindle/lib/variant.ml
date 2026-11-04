@@ -69,8 +69,7 @@ let v ?(platform = Debian X86_64) version =
   match platform with
   | Debian arch ->
       {
-        name =
-          Printf.sprintf "OCaml %s on Debian 13 (%s)" version (arch_name arch);
+        name = Printf.sprintf "%s:%s:Debian-13" version (arch_name arch);
         image = "ocaml/opam:debian-13-ocaml-" ^ minor;
         pool = "linux-" ^ opam_arch arch;
         os = Linux;
@@ -81,7 +80,7 @@ let v ?(platform = Debian X86_64) version =
       }
   | Windows ->
       {
-        name = Printf.sprintf "OCaml %s on Windows, mingw-w64 (x86_64)" version;
+        name = version ^ ":x86_64:Windows-mingw";
         image = "ocaml/opam:windows-server-mingw-ltsc2025-ocaml-" ^ minor;
         pool = "windows-x86_64";
         os = Windows;
@@ -93,7 +92,7 @@ let v ?(platform = Debian X86_64) version =
 
 let oxcaml =
   {
-    name = "OxCaml 5.2.0minus39 on Debian 13 (x86_64)";
+    name = "5.2.0+ox:x86_64:Debian-13";
     image = "ocaml/opam:debian-13-ocaml-5.2";
     pool = "linux-x86_64";
     os = Linux;

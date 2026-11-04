@@ -109,10 +109,10 @@ let has s sub =
   in
   at 0
 
-let x86 = "OCaml 5.4.1 on Debian 13 (x86_64)"
-and old = "OCaml 4.14.2 on Debian 13 (x86_64)"
-and arm = "OCaml 5.4.1 on Debian 13 (arm64)"
-and win = "OCaml 5.4.1 on Windows, mingw-w64 (x86_64)"
+let x86 = "5.4.1:x86_64:Debian-13"
+and old = "4.14.2:x86_64:Debian-13"
+and arm = "5.4.1:arm64:Debian-13"
+and win = "5.4.1:x86_64:Windows-mingw"
 
 let () =
   Eio_main.run @@ fun env ->

@@ -39,7 +39,7 @@ Every push, pull request or manual run starts an `ocaml-ci` workflow:
    dependencies, for each compiler using opam-0install. The OxCaml build
    solves against the OxCaml repository layered over opam-repository.
 3. A workflow is spawned for every compiler with a solution, such as
-   `OCaml 5.4.1 on Debian 13 (x86_64)`. Its first step carries the OBuilder
+   `5.4.1:x86_64:Debian-13`. Its first step carries the OBuilder
    spec as its command.
 4. **summary** waits for every build, including those added later, and
    lists how each ended, with those never started because the newest
@@ -47,8 +47,8 @@ Every push, pull request or manual run starts an `ocaml-ci` workflow:
    workflow shows the result of the whole pipeline.
 
 The newest compiler's build is also solved for each of `--platforms`, such
-as `OCaml 5.5.1 on Debian 13 (riscv64)` or
-`OCaml 5.5.1 on Windows, mingw-w64 (x86_64)`. Those builds are further steps
+as `5.5.1:riscv64:Debian-13` or
+`5.5.1:x86_64:Windows-mingw`. Those builds are further steps
 of its workflow, which spawns them once it passes, so a project that fails on
 x86_64 does not occupy the smaller pools. Each platform builds on its own
 pool: `linux-arm64`, `linux-ppc64`, `linux-riscv64` or `windows-x86_64`.

@@ -50,12 +50,12 @@ let () =
   assert (
     names (Variant.choose ~packages [ "auto" ])
     = [
-        ("OCaml 5.4.1 on Debian 13 (x86_64)", "5.4.1");
-        ("OCaml 4.14.2 on Debian 13 (x86_64)", "4.14.2");
+        ("5.4.1:x86_64:Debian-13", "5.4.1");
+        ("4.14.2:x86_64:Debian-13", "4.14.2");
       ]);
   assert (
     names (Variant.choose ~packages [ "5.4" ])
-    = [ ("OCaml 5.4.1 on Debian 13 (x86_64)", "5.4.1") ]);
+    = [ ("5.4.1:x86_64:Debian-13", "5.4.1") ]);
   (* Each platform has its pool, image and opam variables, and every name is
      a workflow name a spindle accepts. *)
   let arm = Variant.v ~platform:(Debian Arm64) "5.4.1" in
@@ -63,7 +63,7 @@ let () =
   assert (arm.image = "ocaml/opam:debian-13-ocaml-5.4");
   let ppc = Variant.v ~platform:(Debian Ppc64le) "5.4.1" in
   assert (ppc.pool = "linux-ppc64" && ppc.vars.arch = "ppc64");
-  assert (ppc.name = "OCaml 5.4.1 on Debian 13 (ppc64le)");
+  assert (ppc.name = "5.4.1:ppc64le:Debian-13");
   let win = Variant.v ~platform:Windows "5.4.1" in
   assert (win.pool = "windows-x86_64" && win.vars.os = "win32");
   assert (win.image = "ocaml/opam:windows-server-mingw-ltsc2025-ocaml-5.4");
@@ -73,6 +73,8 @@ let () =
   List.iter
     (fun (_, platform) -> assert (valid (Variant.v ~platform "5.4.1").name))
     Variant.platforms;
+  assert (Variant.oxcaml.name = "5.2.0+ox:x86_64:Debian-13");
+  assert (win.name = "5.4.1:x86_64:Windows-mingw");
   assert (valid Variant.oxcaml.name);
   (* The project is solved per compiler, with its test dependencies, and an
      avoided version loses to a released one. *)

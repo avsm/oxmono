@@ -9,8 +9,7 @@ type platform =
 type os = Linux | Windows
 
 type t = {
-  name : string;
-      (** The workflow's name, such as [OCaml 5.4.1 on Debian 13 (x86_64)]. *)
+  name : string;  (** The workflow's name, such as [5.4.1:x86_64:Debian-13]. *)
   image : string;  (** The Docker image the build starts from. *)
   pool : string;  (** The OCluster pool the build runs on. *)
   os : os;

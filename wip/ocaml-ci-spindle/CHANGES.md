@@ -9,8 +9,10 @@
   OpenAI-compatible API such as OpenRouter's.
 - Default `--workflow-timeout` to six hours, since the summary waits for
   every platform's build.
-- Name workflows after their compiler, distribution and architecture, such
-  as `OCaml 5.4.1 on Debian 13 (x86_64)`.
+- Name workflows briefly as compiler, architecture and distribution, such
+  as `5.4.1:x86_64:Debian-13`, or `5.2.0+ox:x86_64:Debian-13` for OxCaml.
+  Tangled's workflow pages take the name as one path segment, so it holds
+  no `/`.
 - Build on Debian 13 with opam 2.6, as OCaml-CI does.
 - Build the newest compiler on arm64, ppc64le, riscv64 and Windows once its
   x86_64 build passes, chosen with `--platforms`. `--pool` is removed.

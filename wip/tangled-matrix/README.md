@@ -104,6 +104,9 @@ their owner. Run the bot as its own user.
 - Spindles publish no stream of pipeline changes, so a change shows up
   within `--interval` seconds.
 - Bindings made by collaborators are read only from `--account` accounts.
+- A repository whose spindle refuses it, such as one naming a spindle that
+  does not serve it, is polled only every ten minutes, and the refusal is
+  logged once.
 - Messages waiting for a room are held in memory, so a restart before the
   room is ready sends the pipeline's state from then on.
 

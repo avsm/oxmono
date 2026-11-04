@@ -15,6 +15,18 @@ let run ~sw ~clock ~api ~bot ~messages ~accounts ?(rooms = []) ?(interval = 15.)
     ?(edit_interval = 10.) ?(bindings_interval = 60.) ?appview () =
   let clock = (clock :> float Eio.Time.clock_ty Eio.Resource.t) in
   let bindings = ref [] in
+  (* Resolving a repository takes a few requests, and an account may have
+     dozens, so each is kept for half an hour. *)
+  let resolved = Hashtbl.create 64 in
+  let resolve did =
+    let now = Eio.Time.now clock in
+    match Hashtbl.find_opt resolved did with
+    | Some (at, r) when now -. at < 1800. -> r
+    | _ ->
+        let r = Api.resolve_repo api did in
+        Hashtbl.replace resolved did (now, r);
+        r
+  in
   let refresh () =
     let everything =
       List.filter_map
@@ -27,7 +39,7 @@ let run ~sw ~clock ~api ~bot ~messages ~accounts ?(rooms = []) ?(interval = 15.)
         rooms
     in
     bindings :=
-      Bindings.read api ~accounts ~bot:(Bot.user_id bot) ~everything ();
+      Bindings.read api ~accounts ~bot:(Bot.user_id bot) ~everything ~resolve ();
     Logs.info (fun m -> m "Reporting %d repositories" (List.length !bindings))
   in
   refresh ();
@@ -148,11 +160,25 @@ let run ~sw ~clock ~api ~bot ~messages ~accounts ?(rooms = []) ?(interval = 15.)
         flush ()
       done;
       `Stop_daemon);
+  (* A repository whose spindle refuses it, such as one that does not serve
+     it, is polled only every ten minutes, and its refusal is logged once. *)
+  let failing = Hashtbl.create 16 in
+  let repos () =
+    let now = Eio.Time.now clock in
+    List.filter_map
+      (fun (b : Bindings.t) ->
+        match Hashtbl.find_opt failing b.repo.did with
+        | Some until when now < until -> None
+        | _ -> Some b.repo)
+      !bindings
+  in
   let watcher = W.v ~interval ~clock api in
-  W.run watcher
-    ~repos:(fun () -> List.map (fun (b : Bindings.t) -> b.repo) !bindings)
+  W.run watcher ~repos
     ~resume:(Messages.unfinished messages)
     ~on_error:(fun r e ->
-      Logs.warn (fun m ->
-          m "Could not poll %s: %s" (name r) (Printexc.to_string e)))
+      if not (Hashtbl.mem failing r.did) then
+        Logs.warn (fun m ->
+            m "Could not poll %s, so trying it again every ten minutes: %s"
+              (name r) (Printexc.to_string e));
+      Hashtbl.replace failing r.did (Eio.Time.now clock +. 600.))
     (function W.Started p | W.Changed (p, _) | W.Finished p -> update p)

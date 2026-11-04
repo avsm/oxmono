@@ -18,7 +18,9 @@ let rooms ~repo ~owner ~collaborators wanted =
     wanted
   |> List.sort_uniq String.compare
 
-let read api ~accounts ~bot ?(everything = []) ?(on_error = log_error) () =
+let read api ~accounts ~bot ?(everything = [])
+    ?(resolve = fun did -> Api.resolve_repo api did) ?(on_error = log_error) ()
+    =
   let guard what f =
     try f () with
     | Eio.Cancel.Cancelled _ as e -> raise e
@@ -53,17 +55,20 @@ let read api ~accounts ~bot ?(everything = []) ?(on_error = log_error) () =
           (List.sort_uniq String.compare accounts)
   in
   let repos = List.sort_uniq String.compare (List.map fst wanted) in
-  List.concat_map
-    (fun did ->
-      guard did (fun () ->
-          let repo = Api.resolve_repo api did in
-          if repo.manifest.spindle = None then []
-          else
-            (* Collaborators are read once per repository, and only when an
+  (* An account may have many repositories, each a few requests to resolve,
+     so several are resolved at once. *)
+  List.concat
+  @@ Eio.Fiber.List.map ~max_fibers:8
+       (fun did ->
+         guard did (fun () ->
+             let repo = resolve did in
+             if repo.manifest.spindle = None then []
+             else
+               (* Collaborators are read once per repository, and only when an
                author is not its owner. *)
-            let collaborators = lazy (Api.collaborators api repo) in
-            let rooms =
-              rooms ~repo:did ~owner:repo.owner ~collaborators wanted
-            in
-            if rooms = [] then [] else [ { repo; rooms } ]))
-    repos
+               let collaborators = lazy (Api.collaborators api repo) in
+               let rooms =
+                 rooms ~repo:did ~owner:repo.owner ~collaborators wanted
+               in
+               if rooms = [] then [] else [ { repo; rooms } ]))
+       repos

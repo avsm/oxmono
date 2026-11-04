@@ -10,6 +10,7 @@ val read :
   accounts:string list ->
   bot:string ->
   ?everything:string list ->
+  ?resolve:(string -> Tangled.Api.repository) ->
   ?on_error:(string -> exn -> unit) ->
   unit ->
   t list
@@ -19,8 +20,10 @@ val read :
     the repository or the repository's knot records them as a collaborator, and
     the repository names a spindle. Every repository that one of [accounts] owns
     and that names a spindle is also reported in each of the rooms [everything],
-    as a firehose. An account or binding that cannot be read is passed to
-    [on_error], which logs it by default, and left out. *)
+    as a firehose. Repositories are found by DID with [resolve],
+    {!Tangled.Api.resolve_repo} by default, several at once. An account or
+    binding that cannot be read is passed to [on_error], which logs it by
+    default, and left out. *)
 
 (**/**)
 

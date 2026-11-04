@@ -168,7 +168,7 @@ let pages () =
     S.page site ~current:"/repos" ~title:"All <repos>"
       ~account:
         (S.account ~name:"@alice.example" ~logout:(S.Url.path [ "logout" ])
-           ~csrf:("csrf", "t0k\"en"))
+           ~csrf:("csrf", "t0k\"en") ())
       [ S.text "body" ]
   in
   assert (has page "<title>All &lt;repos&gt; · Example &lt;Site&gt;</title>");
@@ -260,6 +260,17 @@ let terminal () =
   (* The stylesheet holds the palette. *)
   assert (has (S.Asset.content S.Asset.stylesheet) ".sk-fg208{color:#ff8700}")
 
+let avatars () =
+  let html =
+    Htmlit.El.to_string ~doctype:false
+      (S.person
+         ~avatar:(S.Url.path [ "a" ] ~query:[ ("did", "x\"y") ])
+         "@alice")
+  in
+  assert (has html {|<img src="/a?did=x%22y"|} && has html {|class="sk-avatar"|});
+  assert (
+    has html {|width="20"|} && has html "@alice" && not (has html "style="))
+
 let formatting () =
   assert (S.count 1234567 = "1,234,567");
   assert (S.count (-1234) = "-1,234");
@@ -275,6 +286,7 @@ let () =
   pages ();
   post_forms ();
   terminal ();
+  avatars ();
   formatting ();
   print_endline
     "sitekit: URLs, escaping, no inline styles, security headers, assets and \

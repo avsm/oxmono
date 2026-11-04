@@ -224,7 +224,9 @@ let link u label = el "a" ~at:[ href u ] [ text label ]
 let link_to u children = el "a" ~at:[ href u ] children
 
 let follow u label =
-  el "a" ~at:[ href u; ("class", "sk-button"); ("data-sk-follow", "") ] [ text label ]
+  el "a"
+    ~at:[ href u; ("class", "sk-button"); ("data-sk-follow", "") ]
+    [ text label ]
 
 let page site ~current ?(account = []) ?kind ~title body =
   let kind =
@@ -319,11 +321,32 @@ let post_button ~action ~hidden ~label =
        hidden
     @ [ el "button" ~at:[ ("type", "submit") ] [ text label ] ])
 
-let account ~name ~logout ~csrf =
+let avatar ?(size = 20) u ~alt =
+  let n = string_of_int (max 8 (min 128 size)) in
+  El.v "img"
+    ~at:
+      [
+        At.v "src" (Url.to_string u);
+        At.v "alt" alt;
+        At.v "class" "sk-avatar";
+        At.v "width" n;
+        At.v "height" n;
+        At.v "loading" "lazy";
+        At.v "decoding" "async";
+      ]
+    []
+
+let person ?avatar:a name =
+  el "span"
+    ~at:[ ("class", "sk-person") ]
+    ((match a with Some u -> [ avatar u ~alt:"" ] | None -> [])
+    @ [ text name ])
+
+let account ?avatar:a ~name ~logout ~csrf () =
   [
     el "span"
       ~at:[ ("class", "sk-who") ]
-      [ text "Signed in as "; el "strong" [ text name ] ];
+      [ text "Signed in as "; el "strong" [ person ?avatar:a name ] ];
     post_button ~action:logout ~hidden:[ csrf ] ~label:"Log out";
   ]
 
@@ -577,7 +600,9 @@ let post_form ~action ~hidden ?(submit = "Submit") fields =
   el "form"
     ~at:
       [
-        ("class", "sk-form"); ("method", "post"); ("action", Url.to_string action);
+        ("class", "sk-form");
+        ("method", "post");
+        ("action", Url.to_string action);
       ]
     (List.map
        (fun (n, v) ->
@@ -595,8 +620,10 @@ let terminal s =
        (fun (st, piece) ->
          match Terminal.classes st with
          | [] -> text piece
-         | cs -> el "span" ~at:[ ("class", String.concat " " cs) ] [ text piece ])
+         | cs ->
+             el "span" ~at:[ ("class", String.concat " " cs) ] [ text piece ])
        (Terminal.runs s))
+
 let sr_only s = el "span" ~at:[ ("class", "sk-sr") ] [ text s ]
 
 let count n =

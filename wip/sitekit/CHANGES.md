@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `avatar` and `person`, an account's picture and its name after it, and
+  give `account` an optional picture. `account` now takes a final unit.
+
 - Add `terminal`, which renders a program's terminal output as HTML with
   its colours and attributes as classes, after `Console_text.strip` has
   removed every other escape code.

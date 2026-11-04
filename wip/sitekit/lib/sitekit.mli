@@ -191,10 +191,19 @@ val page :
     is marked [aria-current="page"]. [kind], a class name of letters, digits
     and dashes, is set on [<main>]. *)
 
+val avatar : ?size:int -> Url.t -> alt:string -> html
+(** [avatar ~size url ~alt] is a round picture of an account from the site's
+    own [url], [size] pixels square, 20 by default, loaded lazily. *)
+
+val person : ?avatar:Url.t -> string -> html
+(** [person ~avatar name] is [name] after its {!avatar}, if it has one. *)
+
 val account :
+  ?avatar:Url.t ->
   name:string ->
   logout:Url.t ->
   csrf:string * string ->
+  unit ->
   html list
 (** [account ~name ~logout ~csrf] is ["Signed in as NAME"] with a button that
     posts a form to [logout], holding the hidden field [csrf] as

@@ -44,6 +44,7 @@ type state = {
   settings : Settings.t;
   hooks : Hooks.t;
   web : Web.t option;
+  streams : Eio.Semaphore.t;  (** Log streams that may be open at once. *)
 }
 
 exception Not_ready of Jsont.json
@@ -136,7 +137,7 @@ let frame event =
   Bytes.of_string
     (cbor (obj [ ("op", int 1); ("t", str ("#" ^ kind)) ]) ^ cbor body)
 
-let logs state workflows socket =
+let logs state (p : Engine.pipeline) names socket =
   let module W = Httpz_websocket in
   let mutex = Eio.Mutex.create () in
   let with_write_lock f =
@@ -171,8 +172,15 @@ let logs state workflows socket =
             W.ping ws empty ~off:0 ~len:0
           done))
     (fun () ->
-      let subscriptions = List.map (fun p -> (p, ref [])) workflows in
+      (* Workflows spawned while the stream is open join it. *)
+      let subscriptions = ref [] in
       let rec send () =
+        List.iter
+          (fun (r : Runner.t) ->
+            if not (List.exists (fun (q, _) -> q == r) !subscriptions) then
+              subscriptions := !subscriptions @ [ (r, ref []) ])
+          (Engine.select_workflows p names);
+        let subscriptions = !subscriptions in
         List.iter
           (fun ((p : Runner.t), sent) ->
             let snapshot = p.events in
@@ -232,7 +240,9 @@ let upgrade state req respond =
   let names = query_list req "workflows" in
   if List.length names > 100 then
     invalid "a stream follows at most 100 workflows, ask for fewer";
-  let workflows = Engine.select_workflows p names in
+  if Eio.Semaphore.get_value state.streams = 0 then
+    reject Status.Service_unavailable "Unavailable"
+      "too many log streams are open, try again later";
   let fields = ref [] in
   Headers.iter
     (fun _ name value ->
@@ -255,8 +265,16 @@ let upgrade state req respond =
              (fun (name, _) -> name <> "Connection" && name <> "Upgrade")
              fields)
       in
+      (* A stream lasts at most twelve hours. *)
       Resp.upgrade respond ~protocol:"websocket" ~headers (fun socket ->
-          try logs state workflows socket with
+          try
+            Eio.Semaphore.acquire state.streams;
+            Fun.protect
+              ~finally:(fun () -> Eio.Semaphore.release state.streams)
+              (fun () ->
+                Eio.Time.with_timeout_exn state.system#clock 43200. (fun () ->
+                    logs state p names socket))
+          with
           | Eio.Cancel.Cancelled _ as exn -> raise exn
           | exn ->
               (* The upgrade has already committed the HTTP response. *)
@@ -321,27 +339,28 @@ let workflows state =
 
 (* [static config repo] is the local clone of the static repository [repo].
    It is read with Git, since it has no knot. *)
-let static config repo =
+let static ~process config repo =
   match config.repo with
   | Some (did, source)
     when did = repo
          && (not (Filename.is_relative source))
          && Sys.file_exists source ->
+      (* Git's output, at most 4 MiB, or nothing when it fails. *)
       Some
         (fun args ->
-          let p =
-            Unix.open_process_args_in "git"
-              (Array.of_list ("git" :: "-C" :: source :: args))
-          in
-          let out = In_channel.input_all p in
-          ignore (Unix.close_process_in p);
-          out)
+          try
+            Eio.Process.parse_out process Eio.Buf_read.take_all
+              ~stderr:(Eio.Flow.buffer_sink (Buffer.create 64))
+              ("git" :: "-C" :: source :: args)
+          with
+          | Eio.Cancel.Cancelled _ as e -> raise e
+          | _ -> "")
   | _ -> None
 
 (* A repository is read through its knot, or a static repository through its
    clone, at one commit. Nothing is checked out. *)
-let tree config catalog network ~did:repo ~commit : Executor.files =
-  match (config.repo, static config repo) with
+let tree ~process config catalog network ~did:repo ~commit : Executor.files =
+  match (config.repo, static ~process config repo) with
   | Some (did, _), None when did = repo ->
       { list = (fun _ -> []); read = (fun _ -> None) }
   | _, Some git ->
@@ -407,8 +426,8 @@ let tree config catalog network ~did:repo ~commit : Executor.files =
       }
 
 (* Repository workflows are the files of [.tangled/workflows]. *)
-let read_files config catalog network ~did ~commit =
-  let files = tree config catalog network ~did ~commit in
+let read_files ~process config catalog network ~did ~commit =
+  let files = tree ~process config catalog network ~did ~commit in
   let dir = Workflows.directory in
   let names = files.list dir in
   if List.length names > 32 then
@@ -428,7 +447,7 @@ let resolve_commit state repo ref_ =
          ref_
   then Some ref_
   else
-    match static state.config repo with
+    match static ~process:state.system#process_mgr state.config repo with
     | Some git -> (
         match
           String.trim
@@ -455,14 +474,17 @@ let resolve_commit state repo ref_ =
         | Some (Jsont.Array (c :: _, _)) -> Some (get "hash" c)
         | _ -> None)
 
+(* A spindle that runs only its own workflows lists none of a repository's. *)
 let repository_definitions state repo ref_ =
   if String.length ref_ > 256 then invalid "ref must be at most 256 bytes";
-  match resolve_commit state repo ref_ with
-  | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
-  | Some commit ->
-      Workflows.definitions ~repo ~commit
-        (read_files state.config state.engine.catalog state.network ~did:repo
-           ~commit)
+  if not state.config.repository_workflows then []
+  else
+    match resolve_commit state repo ref_ with
+    | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
+    | Some commit ->
+        Workflows.definitions ~repo ~commit
+          (read_files ~process:state.system#process_mgr state.config
+             state.engine.catalog state.network ~did:repo ~commit)
 
 let ci_output ids =
   obj [ ("ci", obj [ ("pipelines", arr (List.map str ids)) ]) ]
@@ -1161,9 +1183,9 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       ~executor:config.executor
       ?read_workflows:
         (if config.repository_workflows then
-           Some (read_files config catalog network)
+           Some (read_files ~process:system#process_mgr config catalog network)
          else None)
-      ~tree:(tree config catalog network)
+      ~tree:(tree ~process:system#process_mgr config catalog network)
       ~concurrency:config.concurrency ~durable:jobs ~system ~directory ~sw ()
   in
   Engine.migrate engine config.repo;
@@ -1178,7 +1200,17 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
     else None
   in
   let state =
-    { config; engine; network; system; health; settings; hooks; web }
+    {
+      config;
+      engine;
+      network;
+      system;
+      health;
+      settings;
+      hooks;
+      web;
+      streams = Eio.Semaphore.make 256;
+    }
   in
   Eio.Fiber.fork ~sw (fun () ->
       while true do
@@ -1205,7 +1237,9 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
                  (obj
                     [
                       ("lastFailureAt", Jsont.Json.number now);
-                      ("error", str (Printexc.to_string exn));
+                      (* The report is public, so the details stay in the
+                         log. *)
+                      ("error", str "maintenance failed, see the spindle's log");
                     ])));
         Eio.Time.sleep system#clock
           (float_of_int operations.maintenance_seconds)
@@ -1223,7 +1257,11 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   let handler name env req respond =
     let name = Req.globalize name in
     env
-      (if String.starts_with ~prefix:"web:" name then "invalid" else name)
+      (if
+         String.starts_with ~prefix:"web:" name
+         || String.starts_with ~prefix:"_" name
+       then "invalid"
+       else name)
       req respond
   in
   let site =

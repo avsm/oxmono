@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Run Git for a static repository without blocking the scheduler, refuse the
+  internal health and DID names through `/xrpc/`, keep maintenance errors out
+  of the public health report, list no repository workflows when they do not
+  run, and allow at most 256 log streams of at most twelve hours each, which
+  now follow workflows spawned after they open.
+
 - Pass over a malformed Jetstream frame instead of reconnecting to it
   forever, back off reconnections up to a minute, and keep handling events
   after a store error. Wipe an inactive owner's repositories only for a

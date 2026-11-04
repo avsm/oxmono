@@ -1,7 +1,5 @@
 (* SPDX-License-Identifier: ISC *)
 
-let base64 s = Base64.encode_string s
-
 let patterns values =
   List.concat_map
     (fun value ->

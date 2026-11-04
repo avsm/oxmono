@@ -17,11 +17,6 @@ exception Unavailable of string
     limit, or did not answer in time. Callers answer 503 so that the knot
     retries. *)
 
-val read : ?limit:int -> t -> string -> string
-(** [read t url] is at most [limit] bytes, 1 MiB by default, of the body of
-    [GET url]. A client error's body is returned, since XRPC errors are JSON. It
-    raises {!Unavailable} for a 5xx or 429 answer or a timeout. *)
-
 val json : t -> string -> Jsont.json
 
 val fetch_status : ?limit:int -> t -> string -> int * string

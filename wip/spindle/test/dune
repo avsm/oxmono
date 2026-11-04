@@ -27,7 +27,7 @@
 (test
  (name test_runner)
  (modules test_runner)
- (libraries spindle eio_main))
+ (libraries spindle base64 eio_main))
 
 (test
  (name test_operations)
@@ -42,7 +42,7 @@
 (test
  (name test_workflows)
  (modules test_workflows)
- (libraries spindle unix))
+ (libraries spindle base64 unix))
 
 (test
  (name test_observer)

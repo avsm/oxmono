@@ -84,7 +84,6 @@ val pull_request : string
 val manual : string
 (** The trigger NSIDs. *)
 
-val kind : Jsont.json -> Job.kind
 
 val definition : string -> string -> Jsont.json
 (** [definition hostname name] is the [org.tangled.ci.defs#workflow] of the

@@ -15,10 +15,6 @@ val matches : string -> string list -> bool
 (** [matches name patterns] holds if a doublestar glob in [patterns] matches
     [name]. *)
 
-val workflow_matches : Jsont.json -> Jsont.json -> bool
-(** [workflow_matches trigger workflow] applies [workflow]'s [when] to
-    [trigger]. A manual trigger always matches. *)
-
 val definitions :
   repo:string -> commit:string -> (string * string) list -> Jsont.json list
 (** [definitions ~repo ~commit files] is the [org.tangled.ci.defs#workflow] of

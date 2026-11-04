@@ -3,7 +3,6 @@ type t
 
 val v : store:Store.t -> enabled:bool -> t
 val require : t -> string -> unit
-val remove : t -> string -> unit
 val starting : t -> string -> now:float -> unit
 val connected : t -> string -> now:float -> unit
 val activity : t -> string -> now:float -> unit

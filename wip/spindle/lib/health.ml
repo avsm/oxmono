@@ -50,10 +50,6 @@ let require t name =
         persisted = 0.;
       }
 
-let remove t name =
-  Hashtbl.remove t.sources name;
-  Store.delete t.store "observer" name
-
 let starting t name ~now =
   require t name;
   let source = Hashtbl.find t.sources name in

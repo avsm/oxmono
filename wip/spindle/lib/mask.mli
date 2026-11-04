@@ -5,9 +5,6 @@ val patterns : string list -> string list
     non-empty lines, and its base64 encoding with and without padding, as the
     reference spindle hides them. *)
 
-val base64 : string -> string
-(** [base64 s] is [s] in standard, padded base64. *)
-
 type t
 
 val v : string list -> t

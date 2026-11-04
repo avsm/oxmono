@@ -17,9 +17,6 @@ val v :
     [sw]. Unless [allow_private], webhook URLs may not reach loopback, private
     or link-local addresses. *)
 
-val events : string list
-(** The event names a webhook may subscribe to. *)
-
 (** {1 Methods} *)
 
 val list : t -> repo:string -> Jsont.json

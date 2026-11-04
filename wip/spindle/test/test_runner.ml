@@ -196,7 +196,7 @@ let () =
       (fun ctx _ ->
         ctx.step "s" (fun () ->
             List.iter (ctx.log `Stdout)
-              [ "pass=hun"; "ter2 "; Mask.base64 "hunter2"; " hunt" ]))
+              [ "pass=hun"; "ter2 "; Base64.encode_string "hunter2"; " hunt" ]))
   in
   assert (output w = "pass=*** *** hunt");
   (* Secrets are hidden in step names, commands and errors too. *)

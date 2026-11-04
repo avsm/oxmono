@@ -78,8 +78,5 @@ val add_minutes : t -> string list -> int -> unit
 val minutes : t -> string -> int
 (** [minutes t did] is the CI minutes [did] has used this calendar month. *)
 
-val month : t -> string
-(** [month t] is the current UTC month, as [YYYY-MM]. *)
-
 val wipe : t -> string -> unit
 (** [wipe t repo] removes [repo]'s secrets, quota overrides and minutes. *)

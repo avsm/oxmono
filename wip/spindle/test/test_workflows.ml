@@ -111,7 +111,7 @@ steps:
     List.fold_left
       (fun acc chunk -> acc ^ Mask.feed mask chunk)
       ""
-      [ "pass=hun"; "ter2 and "; Mask.base64 "hunter2"; " line two "; "hunt" ]
+      [ "pass=hun"; "ter2 and "; Base64.encode_string "hunter2"; " line two "; "hunt" ]
   in
   let out = out ^ Mask.finish mask in
   assert (out = "pass=*** and *** *** hunt");

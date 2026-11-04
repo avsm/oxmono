@@ -343,6 +343,20 @@ let () =
   (match (Option.get (Engine.find engine again)).workflows with
   | (first : Spindle__Runner.t) :: _ -> assert (first.job.name = "inspect")
   | [] -> assert false);
+  (* A workflow spawned by a spawned one is retried through the planned
+     workflow it descends from, and only that one runs. *)
+  let deeper =
+    Engine.retry engine ~principal:owner ~actor:owner ~repo ~id
+      ~names:[ "grandchild" ]
+    |> Option.get
+  in
+  assert (
+    List.map
+      (fun (r : Spindle__Runner.t) -> r.job.name)
+      (List.filter
+         (fun (r : Spindle__Runner.t) -> not r.job.spawned)
+         (Option.get (Engine.find engine deeper)).workflows)
+    = [ "inspect" ]);
   print_endline
     "events: durable dispatch deduplication, OCaml selection, approval, retry, \
      cancellation, spawning and awaiting passed"

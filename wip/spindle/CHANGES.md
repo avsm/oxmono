@@ -6,6 +6,19 @@
 
 ## Unreleased
 
+- Keep pipelines waiting for approval when pruning history, and report a
+  failed SQLite statement's own error.
+- Let a workflow waiting for its repository's or owner's limit be cancelled,
+  and wake it when its repository is wiped. Cancel the workflows a cancelled
+  workflow spawned. Start a new pipeline's workflows after releasing the
+  engine's lock, which could deadlock, and approve a pipeline once when two
+  approvals race. Retry a spawned workflow through the planned workflow it
+  descends from, with the original changed files and default-ref flag. Count
+  only pipelines with work to do against the limit of 32, and refuse more
+  than 50 workflows in a pipeline.
+- Do not run a durable workflow again when an earlier run finished it while
+  the new one waited.
+
 - Show accounts in the web pages by their verified handles, kept across
   restarts, and their Bluesky profile pictures, served from the spindle.
 - Send a browser asking for `/` to the web pages.

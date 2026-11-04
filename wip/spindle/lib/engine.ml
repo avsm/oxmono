@@ -174,27 +174,29 @@ let persist t p =
    [workflows] limit, and fails at once if their monthly CI minutes are used
    up. Its minutes are charged when it ends, rounded up. *)
 
-let counted t p = List.sort_uniq compare [ p.repo; p.owner ]
+let counted p = List.sort_uniq compare [ p.repo; p.owner ]
+
+let running_unlocked t did =
+  Option.value ~default:0 (Hashtbl.find_opt t.running did)
 
 let fits t p =
   let room scope did =
     match Settings.limit t.settings scope did "workflows" with
     | None -> true
-    | Some limit ->
-        Option.value ~default:0 (Hashtbl.find_opt t.running did) < limit
+    | Some limit -> running_unlocked t did < limit
   in
   room Settings.Repo p.repo && room Settings.User p.owner
 
+(* Waiting for room is cancellable, so a cancelled or wiped workflow, or the
+   spindle stopping, ends the wait. *)
 let acquire t p (workflow : Runner.t) =
-  Lock.protect t.lock (fun () ->
+  Lock.protect ~cancellable:true t.lock (fun () ->
       while (not (fits t p)) && not workflow.cancelled do
         Eio.Condition.await t.quota_changed t.lock
       done;
       List.iter
-        (fun did ->
-          Hashtbl.replace t.running did
-            (1 + Option.value ~default:0 (Hashtbl.find_opt t.running did)))
-        (counted t p))
+        (fun did -> Hashtbl.replace t.running did (1 + running_unlocked t did))
+        (counted p))
 
 let release t p =
   Lock.protect t.lock (fun () ->
@@ -203,7 +205,7 @@ let release t p =
           match Hashtbl.find_opt t.running did with
           | Some n when n > 1 -> Hashtbl.replace t.running did (n - 1)
           | _ -> Hashtbl.remove t.running did)
-        (counted t p));
+        (counted p));
   Eio.Condition.broadcast t.quota_changed
 
 let minutes_left t p =
@@ -218,7 +220,7 @@ let minutes_left t p =
       | _ -> None)
     [ (Settings.Repo, p.repo, "repo"); (Settings.User, p.owner, "owner") ]
 
-let running t did = Option.value ~default:0 (Hashtbl.find_opt t.running did)
+let running = running_unlocked
 
 (* [descendants p name] is every workflow of [p] spawned by [name], or by a
    workflow it spawned, in the order they were added. *)
@@ -350,8 +352,10 @@ and run t p (workflow : Runner.t) =
           held := false;
           release t p;
           let start = seconds () in
-          let x = f () in
-          waited := !waited +. (seconds () -. start);
+          let x =
+            Fun.protect f ~finally:(fun () ->
+                waited := !waited +. (seconds () -. start))
+          in
           acquire t p workflow;
           held := true;
           x
@@ -365,7 +369,7 @@ and run t p (workflow : Runner.t) =
             if !held then release t p;
             let spent = seconds () -. began -. !waited in
             if workflow.started <> None then
-              Settings.add_minutes t.settings (counted t p)
+              Settings.add_minutes t.settings (counted p)
                 (int_of_float (Float.ceil (spent /. 60.))))
         @@ fun () ->
         Runner.execute t.runner (input ())
@@ -651,7 +655,9 @@ let serve ?(lease = 60.) t =
                       (match Hashtbl.find_opt t.active key with
                       | Some earlier -> Eio.Promise.await earlier
                       | None -> ());
-                      if attempt > max_restarts + 1 then
+                      (* The earlier run may have finished it meanwhile. *)
+                      if Runner.terminal w then ()
+                      else if attempt > max_restarts + 1 then
                         lost t p w
                           (Printf.sprintf
                              "the spindle stopped %d times while this workflow \
@@ -925,79 +931,98 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false)
       t.jobs
     @ from_repository
   in
+  if List.length jobs > 50 then invalid "a pipeline holds at most 50 workflows";
   Settings.note_owner t.settings ~repo:repo.did ~owner:repo.owner;
   let default_branch =
     try Catalog.default_branch t.catalog repo
     with Eio.Io _ | Network.Unavailable _ | Failure _ | Invalid _ -> None
   in
-  Lock.protect t.lock @@ fun () ->
+  (* The knot is asked before the lock is taken, which every persist needs.
+     Workflows start once it is released, since starting one may persist. *)
   if not (Catalog.current t.catalog repo) then
     invalid "repository assignment changed during dispatch";
-  match Option.bind dedup (Store.get t.store "dispatch") with
-  | Some id -> Some id
-  | None when jobs = [] -> None
-  | None ->
-      let active =
-        Hashtbl.fold
-          (fun _ p n -> if terminal p then n else n + 1)
-          t.pipelines 0
-      in
-      if active >= 32 then raise Capacity;
-      let timestamp =
-        Int64.of_float (Eio.Time.now t.runner.system#clock *. 1e6)
-      in
-      let timestamp = Int64.max timestamp (Int64.succ t.last_tid) in
-      t.last_tid <- timestamp;
-      let id =
-        Atp.Tid.to_string (Atp.Tid.of_timestamp_us ~clockid:0 timestamp)
-      in
-      let created = Runner.now () in
-      let metadata =
-        obj
+  let created =
+    Lock.protect t.lock @@ fun () ->
+    match Option.bind dedup (Store.get t.store "dispatch") with
+    | Some id -> `Existing id
+    | None when jobs = [] -> `None
+    | None ->
+        (* A pipeline waiting for approval uses nothing until approved. *)
+        let occupying p =
+          List.exists
+            (fun (r : Runner.t) -> r.status = "pending" || r.status = "running")
+            p.workflows
+        in
+        let active =
+          Hashtbl.fold
+            (fun _ p n -> if occupying p then n + 1 else n)
+            t.pipelines 0
+        in
+        if active >= 32 then raise Capacity;
+        let timestamp =
+          Int64.of_float (Eio.Time.now t.runner.system#clock *. 1e6)
+        in
+        let timestamp = Int64.max timestamp (Int64.succ t.last_tid) in
+        t.last_tid <- timestamp;
+        let id =
+          Atp.Tid.to_string (Atp.Tid.of_timestamp_us ~clockid:0 timestamp)
+        in
+        let created = Runner.now () in
+        let metadata =
+          obj
+            [
+              ("pipeline", str id);
+              ("actor", str actor);
+              ("spindle", str t.hostname);
+              ("receivedAt", str created);
+              ("changedFiles", arr (List.map str changed_files));
+              ("isDefaultRef", bool default_ref);
+              ("request", request);
+            ]
+        in
+        let p =
+          {
+            id;
+            repo = repo.did;
+            owner = repo.owner;
+            source;
+            request;
+            metadata;
+            commit;
+            created;
+            trusted;
+            variables =
+              variables repo ~default_branch ~id ~kind ~trigger ~source_did
+                ~commit;
+            workflows =
+              List.map
+                (fun job ->
+                  let run = Runner.v job in
+                  if blocked then run.status <- "blocked";
+                  run)
+                jobs;
+          }
+        in
+        let puts =
           [
-            ("pipeline", str id);
-            ("actor", str actor);
-            ("spindle", str t.hostname);
-            ("receivedAt", str created);
-            ("changedFiles", arr (List.map str changed_files));
-            ("isDefaultRef", bool default_ref);
-            ("request", request);
+            ("pipeline", id, snapshot t p);
+            ("pipeline-view", id, encode (view t p));
           ]
-      in
-      let p =
-        {
-          id;
-          repo = repo.did;
-          owner = repo.owner;
-          source;
-          request;
-          metadata;
-          commit;
-          created;
-          trusted;
-          variables =
-            variables repo ~default_branch ~id ~kind ~trigger ~source_did
-              ~commit;
-          workflows =
-            List.map
-              (fun job ->
-                let run = Runner.v job in
-                if blocked then run.status <- "blocked";
-                run)
-              jobs;
-        }
-      in
-      let puts =
-        [
-          ("pipeline", id, snapshot t p);
-          ("pipeline-view", id, encode (view t p));
-        ]
-        @ match dedup with None -> [] | Some key -> [ ("dispatch", key, id) ]
-      in
-      Store.batch t.store ~puts ~deletes:[];
-      Hashtbl.add t.pipelines id p;
+          @
+          match dedup with
+          | None -> []
+          | Some key -> [ ("dispatch", key, id) ]
+        in
+        Store.batch t.store ~puts ~deletes:[];
+        Hashtbl.add t.pipelines id p;
+        `Created p
+  in
+  match created with
+  | `Existing id -> Some id
+  | `None -> None
+  | `Created p ->
       start t p;
-      Some id
+      Some p.id
 
 let cancel t ~actor ~repo ~id ~names =
   let canonical = managed t repo in
@@ -1008,9 +1033,16 @@ let cancel t ~actor ~repo ~id ~names =
   | None -> not_found ()
   | Some p ->
       if p.repo <> repo then not_found ();
+      (* A cancelled workflow's spawned workflows go with it. *)
+      let chosen = select_workflows p names in
       List.iter
         (Runner.cancel ~persist:(fun () -> persist t p))
-        (select_workflows p names);
+        (List.sort_uniq
+           (fun (a : Runner.t) (b : Runner.t) -> compare a.job.name b.job.name)
+           (chosen
+           @ List.concat_map
+               (fun (r : Runner.t) -> descendants p r.job.name)
+               chosen));
       (* A workflow waiting for quota room notices its cancellation. *)
       Eio.Condition.broadcast t.quota_changed
 
@@ -1021,14 +1053,16 @@ let approve t ~actor ~repo ~id =
   | None -> not_found ()
   | Some p ->
       if p.repo <> repo then not_found ();
-      let blocked =
-        List.filter (fun (r : Runner.t) -> r.status = "blocked") p.workflows
-      in
-      if blocked = [] then invalid "pipeline is not blocked";
+      (* Approval is decided under the lock, so two approvals start the
+         workflows once. *)
       Lock.protect t.lock (fun () ->
+          let blocked =
+            List.filter (fun (r : Runner.t) -> r.status = "blocked") p.workflows
+          in
+          if blocked = [] then invalid "pipeline is not blocked";
           if not (Hashtbl.mem t.pipelines p.id) then
-            Hashtbl.add t.pipelines p.id p);
-      List.iter (fun (r : Runner.t) -> r.status <- "pending") blocked;
+            Hashtbl.add t.pipelines p.id p;
+          List.iter (fun (r : Runner.t) -> r.status <- "pending") blocked);
       persist t p;
       start t p
 
@@ -1039,22 +1073,30 @@ let retry t ~principal ~actor ~repo ~id ~names =
   | None -> not_found ()
   | Some p ->
       if p.repo <> repo then not_found ();
-      (* A spawned workflow is retried by rerunning the workflows that
-         spawned it, which spawn it afresh. *)
-      let planned =
-        List.filter (fun (r : Runner.t) -> not r.job.spawned) p.workflows
+      (* A spawned workflow is retried by rerunning the planned workflow it
+         descends from, which spawns it afresh. *)
+      let rec root (r : Runner.t) =
+        match r.parent with
+        | None -> r
+        | Some parent -> (
+            match
+              List.find_opt
+                (fun (q : Runner.t) -> q.job.name = parent)
+                p.workflows
+            with
+            | Some q when q != r -> root q
+            | _ -> r)
+      in
+      let chosen =
+        if names = [] then
+          List.filter (fun (r : Runner.t) -> not r.job.spawned) p.workflows
+        else List.map root (select_workflows p names)
       in
       let names =
-        match
-          List.filter
-            (fun (r : Runner.t) -> not r.job.spawned)
-            (select_workflows p names)
-        with
-        | _ when names = [] -> planned
-        | [] -> planned
-        | chosen -> chosen
+        List.filter (fun (r : Runner.t) -> not r.job.spawned) chosen
+        |> List.map (fun (r : Runner.t) -> r.job.name)
+        |> List.sort_uniq String.compare
       in
-      let names = List.map (fun (r : Runner.t) -> r.job.name) names in
       let request =
         obj
           [
@@ -1066,9 +1108,18 @@ let retry t ~principal ~actor ~repo ~id ~names =
       (* The actor's push access was checked above. The original trigger may be
          a push, which only a verified event may otherwise create. A retried
          untrusted pipeline stays untrusted. *)
-      create t ~untrusted:(not p.trusted) ~automatic:true ~actor request
+      let changed_files =
+        Option.fold ~none:[] ~some:(List.map string)
+          (Option.map list (field "changedFiles" p.metadata))
+      in
+      let default_ref =
+        match field "isDefaultRef" p.metadata with
+        | Some (Jsont.Bool (b, _)) -> b
+        | _ -> false
+      in
+      create t ~untrusted:(not p.trusted) ~changed_files ~default_ref
+        ~automatic:true ~actor request
 
-(* [wipe t repo] cancels and deletes every pipeline of [repo]. *)
 let wipe t repo =
   let ids =
     Store.fold t.store "pipeline-view" ~init:[]
@@ -1085,4 +1136,5 @@ let wipe t repo =
       Store.batch t.store ~puts:[]
         ~deletes:[ ("pipeline", id); ("pipeline-view", id) ])
     ids;
+  Eio.Condition.broadcast t.quota_changed;
   Catalog.forget t.catalog repo

@@ -276,7 +276,7 @@ val check_alignment : t @ local -> int -> bool @@ portable
     boundary.
     @raise Invalid_argument if [alignment] is not a positive integer. *)
 
-val get_char: t @ local -> int -> char @ local @@ portable
+val get_char: t @ local -> int -> char @@ portable
 (** [get_char t off] returns the character contained in the cstruct
     at offset [off].
     @raise Invalid_argument if the offset exceeds cstruct length. *)
@@ -655,7 +655,7 @@ v}
    indices.
 *)
 
-val[@zero_alloc] get : t @ local -> int -> char @ local @@ portable
+val[@zero_alloc] get : t @ local -> int -> char @@ portable
 (** [get cs zidx] is the byte of [cs] at its zero-based index [zidx].
     It's an alias of {!get_char}.
 

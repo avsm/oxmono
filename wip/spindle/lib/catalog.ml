@@ -162,17 +162,21 @@ let managed t id =
       | Some (expires, repo) when expires > now -> repo
       | _ ->
           let repo = lookup t id in
+          (* Anyone may ask about any DID, so the cache is bounded. *)
+          if Hashtbl.length t.cache >= 10_000 then Hashtbl.reset t.cache;
           Hashtbl.replace t.cache id (now +. t.ttl, repo);
           Option.iter
             (fun (r : repo) ->
               match Store.get t.store "repo-name" id with
               | Some old when old = r.name -> ()
               | old ->
-                  Store.put t.store "repo-name" id r.name;
+                  (* The new name is kept once the rename is handled, so a
+                     failure is noticed again. *)
                   Option.iter
                     (fun old_name ->
                       if old_name <> "" then t.on_rename r ~old_name)
-                    old)
+                    old;
+                  Store.put t.store "repo-name" id r.name)
             repo;
           repo)
 
@@ -285,9 +289,9 @@ let versions t (repo : repo) uri =
           (list (required "versions" page))
     in
     match Option.map string (field "cursor" page) with
+    | Some "" | None -> acc
     | Some c when n < 4 -> pages (Some c) (n + 1) acc
     | Some _ -> failwith (uri ^ " has too many versions")
-    | None -> acc
   in
   pages None 0 []
 
@@ -297,24 +301,33 @@ let pull_labels t (repo : repo) ~pull =
     try
       let versions = versions t repo pull in
       let cids = List.sort_uniq String.compare (List.filter_map snd versions) in
+      (* Blocks are asked for 50 at a time, so that a URL stays short. *)
+      let rec chunks = function
+        | [] -> []
+        | l ->
+            let first = List.filteri (fun i _ -> i < 50) l
+            and rest = List.filteri (fun i _ -> i >= 50) l in
+            first :: chunks rest
+      in
       let blocks =
-        if cids = [] then []
-        else
-          let status, body =
-            Network.fetch_status
-              ~limit:(16 * 1024 * 1024)
-              t.network
-              (Network.query
-                 (repo.knot ^ "/xrpc/com.atproto.sync.getBlocks")
-                 (("did", repo.did) :: List.map (fun c -> ("cids", c)) cids))
-          in
-          if status <> 200 then failwith "the knot served no versions";
-          snd (Atp.Car.of_string body)
-          |> List.map (fun (cid, data) ->
-              (* A block counts only if it is what its content id names. *)
-              if not (Atp.Cid.equal cid (Atp.Cid.create `Dag_cbor data)) then
-                failwith "the knot served a block that does not match its id";
-              (Atp.Cid.to_string cid, data))
+        List.concat_map
+          (fun cids ->
+            let status, body =
+              Network.fetch_status
+                ~limit:(16 * 1024 * 1024)
+                t.network
+                (Network.query
+                   (repo.knot ^ "/xrpc/com.atproto.sync.getBlocks")
+                   (("did", repo.did) :: List.map (fun c -> ("cids", c)) cids))
+            in
+            if status <> 200 then failwith "the knot served no versions";
+            snd (Atp.Car.of_string body)
+            |> List.map (fun (cid, data) ->
+                (* A block counts only if it is what its content id names. *)
+                if not (Atp.Cid.equal cid (Atp.Cid.create `Dag_cbor data)) then
+                  failwith "the knot served a block that does not match its id";
+                (Atp.Cid.to_string cid, data)))
+          (chunks cids)
       in
       let labels = function
         | None -> []

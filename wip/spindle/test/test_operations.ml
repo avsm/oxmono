@@ -38,6 +38,8 @@ let () =
       pipeline "a" "success" "small";
       pipeline "b" "failed" "small";
       pipeline "pending" "pending" (String.make (2 * 1024 * 1024) 'p');
+      (* A pipeline waiting for approval is not finished. *)
+      pipeline "blocked" "blocked" (String.make (2 * 1024 * 1024) 'b');
       let p, _ = Store.prune store ~now policy in
       assert (p = 1 && Store.get store "pipeline" "a" = None);
       assert (Store.get store "pipeline" "b" <> None);
@@ -45,6 +47,7 @@ let () =
       ignore (Store.prune store ~now policy);
       assert (Store.get store "pipeline" "large" = None);
       assert (Store.get store "pipeline" "pending" <> None);
+      assert (Store.get store "pipeline" "blocked" <> None);
       let completed key cursor =
         Store.enqueue store ~source:"knot" ~key ~cursor ~value:"{}";
         Store.batch store
@@ -113,5 +116,5 @@ let () =
       assert (Store.get store "replay-floor" "knot" = Some "500");
       assert (Store.ref_state store ~repo:"repo" ~ref_:"refs/heads/main" <> None));
   print_endline
-    "operations: retention, backpressure, replay floors and observer \
-     readiness passed"
+    "operations: retention, backpressure, replay floors and observer readiness \
+     passed"

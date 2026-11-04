@@ -11,10 +11,12 @@ exception Inbox_full
 
 let check = Sqlite3.Rc.check
 
+(* Finalizing a statement whose step failed repeats that step's error, which
+   is already raised, so its code is ignored. *)
 let statement t sql args f =
   let stmt = Sqlite3_eio.prepare t.db sql in
   Fun.protect
-    ~finally:(fun () -> check (Sqlite3_eio.finalize t.db stmt))
+    ~finally:(fun () -> ignore (Sqlite3_eio.finalize t.db stmt : Sqlite3.Rc.t))
     (fun () ->
       check (Sqlite3.bind_values stmt args);
       f stmt)
@@ -458,7 +460,7 @@ let prune t ~now (policy : Operations.t) =
          LEFT JOIN kv p ON p.namespace='pipeline' AND p.key=v.key
          WHERE v.namespace='pipeline-view' AND json_valid(v.value)
          AND NOT EXISTS (SELECT 1 FROM json_each(v.value,'$.workflows') w
-           WHERE json_extract(w.value,'$.status') IN ('pending','running')) |}
+           WHERE json_extract(w.value,'$.status') IN ('pending','running','blocked')) |}
       in
       let size =
         "length(CAST(v.value AS BLOB))+COALESCE(length(CAST(p.value AS \
@@ -532,14 +534,13 @@ let prune t ~now (policy : Operations.t) =
                 ON CONFLICT(namespace,key) DO UPDATE SET value=excluded.value
                 WHERE CAST(excluded.value AS INTEGER)>CAST(kv.value AS INTEGER)|}
                       [ text key ];
-                    (* Legacy receipts have no position metadata. Protect open
-                       streams using their durable cursors, and record a
-                       wall-clock floor for disconnected sources. *)
+                    (* Legacy receipts have no position metadata, so open
+                       streams are protected by their durable cursors. *)
                     if
                       rows t "SELECT 1 FROM event_position WHERE key=?"
                         [ text key ]
                       = []
-                    then (
+                    then
                       execute t
                         {|INSERT INTO kv(namespace,key,value)
                           SELECT 'replay-floor',key,value FROM kv
@@ -549,10 +550,6 @@ let prune t ~now (policy : Operations.t) =
                           WHERE CAST(excluded.value AS INTEGER)>
                             CAST(kv.value AS INTEGER)|}
                         [];
-                      execute t
-                        "INSERT OR REPLACE INTO kv \
-                         VALUES('replay-floor','legacy-seconds',?)"
-                        [ text (Printf.sprintf "%.6f" now) ]);
                     remove_unlocked t "done" key;
                     remove_unlocked t "rejected" key;
                     execute t "DELETE FROM event_position WHERE key=?"
@@ -573,7 +570,7 @@ let prune t ~now (policy : Operations.t) =
           AND NOT EXISTS (SELECT 1 FROM kv p WHERE p.namespace='pipeline-view'
             AND p.key=kv.value AND json_valid(p.value)
             AND EXISTS (SELECT 1 FROM json_each(p.value,'$.workflows') w
-              WHERE json_extract(w.value,'$.status') IN ('pending','running')))|}
+              WHERE json_extract(w.value,'$.status') IN ('pending','running','blocked')))|}
             [
               Sqlite3.Data.FLOAT
                 (now -. float_of_int (policy.receipt_days * 86400));
@@ -585,7 +582,7 @@ let prune t ~now (policy : Operations.t) =
             SELECT 1 FROM kv p WHERE p.namespace='pipeline-view' AND p.key=d.value
             AND json_valid(p.value) AND EXISTS (
               SELECT 1 FROM json_each(p.value,'$.workflows') w
-              WHERE json_extract(w.value,'$.status') IN ('pending','running')))
+              WHERE json_extract(w.value,'$.status') IN ('pending','running','blocked')))
           ORDER BY a.updated DESC,d.key DESC LIMIT -1 OFFSET ?)|}
             [ Sqlite3.Data.INT (Int64.of_int policy.receipt_limit) ];
           execute t "DELETE FROM ref_state WHERE updated<?"

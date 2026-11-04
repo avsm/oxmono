@@ -672,6 +672,30 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         run("api", "call", "org.tangled.event.notifyEvent", "--service", spindle,
             "--auth", "service", "--input", "-", stdin="{}", ok=False)
         assert len(calls) == before
+        # A watch reports only pipelines that are running or change while it
+        # watches, with the commands to run next.
+        assert run("pipeline", "watch", "--once") == ""
+        workflow = pipeline["workflows"][0]
+        workflow["status"] = "running"
+        started = json.loads(run("pipeline", "watch", "--once", "--json", "demo"))
+        assert started["event"] == "started" and started["status"] == "running", started
+        assert started["pipeline"] == PIPELINE and started["trigger"] == "manual", started
+        watch = subprocess.Popen(
+            [CLI, "pipeline", "watch", "--interval", "0.2", "--until-finished",
+             "--commit", SHA[:7]],
+            env=env, cwd=directory, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True)
+        time.sleep(1.5)
+        workflow["status"], workflow["error"] = "failed", "exit status 2"
+        out, err = watch.communicate(timeout=20)
+        assert watch.returncode != 0 and "finished failed" in err, (out, err)
+        lines = out.splitlines()
+        assert any("started manual" in l for l in lines), out
+        assert any("inspect running -> failed: exit status 2" in l for l in lines), out
+        assert f"  next: tangled pipeline logs -r {DID}/demo {PIPELINE} -w inspect" in lines, out
+        assert f"  next: tangled pipeline retry -r {DID}/demo {PIPELINE}" in lines, out
+        workflow["status"] = "success"
+        del workflow["error"]
         run("repo", "delete", "demo", "--force")
         assert calls[-1][1] == "org.tangled.repo.deleteRepo"
         assert (DID, "org.tangled.repo.declaration", "demo") not in records

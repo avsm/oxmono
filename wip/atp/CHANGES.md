@@ -9,6 +9,11 @@
 
 ## Unreleased
 
+- Add `tangled pipeline watch`, which reports pipelines as they start,
+  change and finish across a user's repositories, with the commands to run
+  next, and `Tangled.Watch`, the polling watcher behind it. Add the
+  `tangled-ci` agent skill.
+
 - Generate explicit CA extensions for Tangled CLI HTTPS test certificates on
   both LibreSSL and OpenSSL.
 

@@ -7,8 +7,9 @@
 
     A handle names an account and a DID identifies it. The DID document of an
     account lists the personal data server that stores its records, which is
-    where to read them from. These functions use HTTPS only, so a handle that is
-    published only as a DNS TXT record does not resolve.
+    where to read them from. A handle's DNS TXT record is read over HTTPS from
+    Cloudflare's DNS-over-HTTPS resolver for now, so these functions make only
+    HTTPS requests.
 
     Each function that makes a request returns [Error] for an answer it cannot
     use, such as a 404 or a body that is not a DID. A network failure raises
@@ -36,8 +37,11 @@ val document_url : ?plc:string -> string -> (string, string) result
     anything that is not a domain name, is an error. *)
 
 val did_of_handle : _ Fetch.t -> string -> (string, string) result
-(** [did_of_handle http handle] is the DID that [handle] publishes at
-    [https://<handle>/.well-known/atproto-did]. *)
+(** [did_of_handle http handle] is the DID that [handle] publishes in the DNS
+    TXT record [_atproto.<handle>], as [did=<DID>], or else at
+    [https://<handle>/.well-known/atproto-did]. The TXT record is read from
+    [https://cloudflare-dns.com/dns-query], and a handle with more than one
+    [did=] record has none there. *)
 
 val document : ?plc:string -> _ Fetch.t -> string -> (string, string) result
 (** [document ?plc http did] is the DID document of [did] as JSON text. *)
@@ -51,6 +55,7 @@ val service_of_did :
 (** [service_of_did ?plc http did ~id] is [service_of_document ~id] of the DID
     document of [did]. *)
 
-val pds_of_handle : ?plc:string -> _ Fetch.t -> string -> (string, string) result
+val pds_of_handle :
+  ?plc:string -> _ Fetch.t -> string -> (string, string) result
 (** [pds_of_handle ?plc http handle] is [pds_of_did] of [did_of_handle handle].
 *)

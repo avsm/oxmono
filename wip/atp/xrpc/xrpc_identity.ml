@@ -99,17 +99,89 @@ let document_url ?(plc = "https://plc.directory") did =
           | None -> Error (Printf.sprintf "%s: invalid did:web host" did))
       | _ -> Error (Printf.sprintf "%s: unsupported DID method" did))
 
+(* TODO: look TXT records up with a full DNS resolver. Asking Cloudflare
+   over HTTPS is a stopgap: it depends on one public resolver, which sees
+   every handle resolved. *)
+let dns_over_https = "https://cloudflare-dns.com/dns-query"
+
+(* A TXT record's data, as the JSON API gives it, is one or more quoted
+   strings, which together are its value. *)
+let txt_value data =
+  let b = Buffer.create (String.length data) in
+  let rec go i quoted =
+    if i < String.length data then
+      match data.[i] with
+      | '"' -> go (i + 1) (not quoted)
+      | '\\' when quoted && i + 1 < String.length data ->
+          Buffer.add_char b data.[i + 1];
+          go (i + 2) quoted
+      | c ->
+          if quoted then Buffer.add_char b c;
+          go (i + 1) quoted
+  in
+  go 0 false;
+  Buffer.contents b
+
+(* The DID that the TXT record [_atproto.HANDLE] names with [did=DID]. More
+   than one such record names none. *)
+let did_of_dns http handle =
+  let url =
+    dns_over_https ^ "?name="
+    ^ Uriz.pct_encode ~component:`Query_value ("_atproto." ^ handle)
+    ^ "&type=TXT"
+  in
+  let* body =
+    Fetch.with_response
+      ~headers:[ Fetch.Header.raw "Accept" "application/dns-json" ]
+      (Fetch.restrict http) `GET url
+      (fun response ->
+        if Fetch.status response <> 200 then
+          Error (Printf.sprintf "%s: HTTP %d" url (Fetch.status response))
+        else Ok (Fetch.decode ~limit Fetch.Media.octets response))
+  in
+  match Jsont_bytesrw.decode_string Jsont.json body with
+  | Error _ -> Error "the DNS answer is not JSON"
+  | Ok answer -> (
+      let dids =
+        match member "Answer" answer with
+        | Some (Jsont.Array (records, _)) ->
+            List.filter_map
+              (fun r ->
+                match (member "type" r, str (member "data" r)) with
+                | Some (Jsont.Number (16., _)), Some data ->
+                    let v = txt_value data in
+                    if String.starts_with ~prefix:"did=" v then
+                      Some (String.sub v 4 (String.length v - 4))
+                    else None
+                | _ -> None)
+              records
+        | _ -> []
+      in
+      match dids with
+      | [ did ] when Atp.Did.is_valid did -> Ok did
+      | [] -> Error (Printf.sprintf "%s has no _atproto TXT record" handle)
+      | _ ->
+          Error (Printf.sprintf "%s has an unusable _atproto TXT record" handle)
+      )
+
+let did_of_https http handle =
+  let* body =
+    get http (Printf.sprintf "https://%s/.well-known/atproto-did" handle)
+  in
+  let did = String.trim body in
+  match Atp.Did.of_string did with
+  | Ok _ -> Ok did
+  | Error _ -> Error (Printf.sprintf "%s does not publish a DID" handle)
+
 let did_of_handle http handle =
   match Atp.Handle.of_string handle with
   | Error _ -> Error (Printf.sprintf "%S is not a handle" handle)
   | Ok _ -> (
-      let* body =
-        get http (Printf.sprintf "https://%s/.well-known/atproto-did" handle)
-      in
-      let did = String.trim body in
-      match Atp.Did.of_string did with
-      | Ok _ -> Ok did
-      | Error _ -> Error (Printf.sprintf "%s does not publish a DID" handle))
+      (* DNS first, then HTTPS, as the handle specification allows either. A
+         resolver that cannot be reached is no answer. *)
+      match did_of_dns http handle with
+      | Ok did -> Ok did
+      | Error _ | (exception Eio.Io _) -> did_of_https http handle)
 
 let document ?plc http did =
   let* url = document_url ?plc did in

@@ -8,6 +8,19 @@ let pds = "https://amanita.us-east.host.bsky.network"
 let did = "did:plc:nhyitepp3u4u6fcfboegzcjw"
 let well_known h = Printf.sprintf "https://%s/.well-known/atproto-did" h
 
+let doh h =
+  Printf.sprintf
+    "https://cloudflare-dns.com/dns-query?name=_atproto.%s&type=TXT" h
+
+let txt records =
+  Printf.sprintf {|{"Status":0,"Answer":[%s]}|}
+    (String.concat ","
+       (List.map
+          (fun d ->
+            Printf.sprintf
+              {|{"name":"_atproto.x","type":16,"TTL":300,"data":%S}|} d)
+          records))
+
 (* A client that answers each URL of [routes] with its body and everything else
    with a 404, recording every URL asked for. *)
 let serving routes seen =
@@ -45,8 +58,7 @@ let () =
         "serviceEndpoint":"https://knot.example:8443"}]}|}
   in
   check "a service by fragment"
-    (I.service_of_document ~id:"#atproto_pds" doc
-    = Some "https://knot.example");
+    (I.service_of_document ~id:"#atproto_pds" doc = Some "https://knot.example");
   check "a service by its full id"
     (I.service_of_document ~id:"#tangled_knot" doc
     = Some "https://knot.example:8443");
@@ -69,13 +81,32 @@ let () =
   in
   check "handle to did"
     (I.did_of_handle http "alice.example" = Ok "did:plc:abc123");
-  check "the well-known url was asked for"
-    (!seen = [ well_known "alice.example" ]);
+  check "DNS was asked first, then the well-known url"
+    (!seen = [ well_known "alice.example"; doh "alice.example" ]);
   seen := [];
   check "an invalid handle makes no request"
     (is_error (I.did_of_handle http "not a handle") && !seen = []);
   check "an unknown handle is an error"
     (is_error (I.did_of_handle http "bob.example"));
+  (* A DNS TXT record is enough, split into quoted strings or not. *)
+  let seen = ref [] in
+  let dns =
+    serving
+      [
+        (doh "carol.example", txt [ {|"did=did:plc:car"|} ]);
+        (doh "dave.example", txt [ {|"did=did:pl" "c:dave"|}; {|"v=spf1"|} ]);
+        (doh "eve.example", txt [ {|"did=did:plc:a"|}; {|"did=did:plc:b"|} ]);
+        (well_known "eve.example", "did:plc:eve");
+      ]
+      seen
+  in
+  check "a TXT record names the DID"
+    (I.did_of_handle dns "carol.example" = Ok "did:plc:car"
+    && !seen = [ doh "carol.example" ]);
+  check "a TXT record in several strings"
+    (I.did_of_handle dns "dave.example" = Ok "did:plc:dave");
+  check "two did= records name none, so HTTPS decides"
+    (I.did_of_handle dns "eve.example" = Ok "did:plc:eve");
   let bad = serving [ (well_known "alice.example", "garbage") ] (ref []) in
   check "a body that is not a did is an error"
     (is_error (I.did_of_handle bad "alice.example"));
@@ -89,7 +120,6 @@ let () =
       (ref [])
   in
   check "pds of a did" (I.pds_of_did http did = Ok pds);
-  check "pds of an unknown did"
-    (is_error (I.pds_of_did http "did:plc:unknown"));
+  check "pds of an unknown did" (is_error (I.pds_of_did http "did:plc:unknown"));
   check "pds of a handle" (I.pds_of_handle http "alice.example" = Ok pds);
   print_endline "ok"

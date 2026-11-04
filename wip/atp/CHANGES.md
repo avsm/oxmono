@@ -9,6 +9,13 @@
 
 ## Unreleased
 
+- `Xrpc.Identity.did_of_handle` reads a handle's `_atproto` DNS TXT record,
+  for now through Cloudflare's DNS-over-HTTPS resolver, before trying
+  `/.well-known/atproto-did`, so handles published only in DNS resolve.
+- atproto OAuth clients refuse an authorization server's answer without a
+  `DPoP-Nonce`, and a protected resource naming more than one authorization
+  server. Web clients no longer ask for the `refresh_token` grant, which a
+  login that revokes its tokens never uses.
 - `Xrpc_auth_web.Public_net` also refuses 6to4 and local NAT64 addresses of
   private IPv4 ones, Teredo, site-local and discard-only IPv6 addresses, and
   `start` refuses an authorization endpoint that is not plain HTTPS.

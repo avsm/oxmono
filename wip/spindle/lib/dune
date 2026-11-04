@@ -9,6 +9,7 @@
   sitekit
   proffer.session
   xrpc-auth.web
+  atp-xrpc
   xrpc-auth.protocol
   proffer
   proffer-httpz

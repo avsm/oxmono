@@ -328,7 +328,12 @@ With `--web`, the spindle serves pages at `/ui` for its users. Logs are
 shown with their terminal colours. Admins also get a jobs tab, at
 `/ui/jobs`, showing the Duraml queue: how many jobs are in each state, those
 running, the newest activity, and for each job its timeline and the
-workflow it runs. A visitor
+workflow it runs. A members tab, at `/ui/members`, lists the accounts
+whose repositories may run CI here, the allow-list that
+`tangled spindle member` also changes, and adds members by handle or DID or
+removes them. A handle is resolved to its DID when it is added. Each change
+is a POST from this site with the session's CSRF token, and is logged with
+the admin who made it. A visitor
 logs in with their atproto handle or DID. The spindle is a confidential
 OAuth client, at `https://HOSTNAME/oauth-client-metadata.json`, that signs
 its requests with a P-256 key kept in `web-client.key` in the state

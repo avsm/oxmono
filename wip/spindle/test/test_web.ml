@@ -196,6 +196,58 @@ let () =
     assert (has job "Timeline" && has job "enqueued");
     assert (code (as_bob "/ui/jobs") = 403 && code (as_bob "/ui/job?id=1") = 403);
     assert (code (as_owner "/ui/jobs?state=bogus") = 404);
+    (* Admins add and remove members, with the session's token from this
+     site. *)
+    let carol = "did:plc:cccccccccccccccccccccccc" in
+    let form ?(origin = "https://spindle.test") cookie body target =
+      post ~headers:[ ("Cookie", cookie); ("Origin", origin) ] ~body target
+    in
+    let token = Uriz.pct_encode ~component:`Query_value csrf in
+    assert (has (M.body (as_owner "/ui/members")) {|action="/ui/members/add"|});
+    assert (has (M.body (as_owner "/ui")) {|href="/ui/members"|});
+    assert (code (form cookie ("handle=" ^ carol) "/ui/members/add") = 403);
+    assert (
+      code
+        (form ~origin:"https://evil.test" cookie
+           ("_csrf=" ^ token ^ "&handle=" ^ carol)
+           "/ui/members/add")
+      = 403);
+    assert (
+      code
+        (form cookie ("_csrf=" ^ token ^ "&handle=" ^ carol) "/ui/members/add")
+      = 303);
+    assert (List.mem carol (Catalog.allowed catalog));
+    assert (has (M.body (as_owner "/ui/members")) carol);
+    assert (
+      has
+        (M.body
+           (form cookie
+              ("_csrf=" ^ token ^ "&handle=not%20a%20handle")
+              "/ui/members/add"))
+        "Could not add");
+    (* Others may neither see nor change them, even with their own token. *)
+    let bob_session, bob_csrf = Web.login_as web bob in
+    assert (code (as_bob "/ui/members") = 403);
+    assert (
+      code
+        (form bob_session
+           ("_csrf="
+           ^ Uriz.pct_encode ~component:`Query_value bob_csrf
+           ^ "&handle=" ^ bob)
+           "/ui/members/add")
+      = 403);
+    assert (not (List.mem bob (Catalog.allowed catalog)));
+    assert (
+      code
+        (get
+           ~headers:[ ("Cookie", cookie) ]
+           ("/ui/members/add?handle=" ^ carol))
+      <> 303);
+    assert (
+      code
+        (form cookie ("_csrf=" ^ token ^ "&did=" ^ carol) "/ui/members/remove")
+      = 303);
+    assert (not (List.mem carol (Catalog.allowed catalog)));
     (* Logging out by any method but POST does nothing, even with the token, as
      when a GET is routed to it by mistake. *)
     let stray_site =

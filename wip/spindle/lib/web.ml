@@ -200,6 +200,7 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
           [
             S.nav "Repositories" (S.Url.path [ "ui" ]);
             S.nav "Jobs" (S.Url.path [ "ui"; "jobs" ]);
+            S.nav "Members" (S.Url.path [ "ui"; "members" ]);
           ]
         ();
     jobs;
@@ -938,6 +939,120 @@ let job_page t s (req @ local) (respond @ local) =
               else S.table event_columns (event_rows events));
            ])
 
+(* {1 Members} *)
+
+(* Members are the accounts whose repositories may run CI here, the
+   allow-list that the spindle's XRPC methods also change. The handle a member
+   was added by is kept to show beside the DID, and is not checked again. *)
+
+let require_admin t s =
+  if not (admin t (Session.subject s)) then raise Forbidden
+
+(* A change from a form needs a POST from this site with the session's
+   token. *)
+let check_form t s (req @ local) =
+  if
+    Req.meth req <> Httpz.Method.Post
+    || Session.request_origin t.sessions req = `Cross
+    || not (Session.check_csrf s req)
+  then raise Forbidden
+
+let members_page ?error t s (respond @ local) =
+  require_admin t s;
+  let csrf = (Session.csrf_field, Session.csrf_token s) in
+  let rows =
+    List.map
+      (fun did ->
+        [
+          S.cell [ S.text did ];
+          S.cell
+            [
+              S.text
+                (Option.value ~default:"" (Store.get t.store "web-member" did));
+            ];
+          S.cell
+            [
+              S.post_button
+                ~action:(S.Url.path [ "ui"; "members"; "remove" ])
+                ~hidden:[ csrf; ("did", did) ]
+                ~label:"Remove";
+            ];
+        ])
+      (Catalog.allowed t.catalog)
+  in
+  html respond
+    (page t ~session:s ~current:"/ui/members" ~title:"Members"
+       ((match error with
+        | Some e ->
+            [ Htmlit.El.p [ S.badge ~tone:`Danger "Error"; S.text (" " ^ e) ] ]
+        | None -> [])
+       @ [
+           paragraph
+             "Members' repositories may run CI on this spindle, and members \
+              may log in here to see them.";
+           S.post_form
+             ~action:(S.Url.path [ "ui"; "members"; "add" ])
+             ~hidden:[ csrf ] ~submit:"Add member"
+             [ S.input ~name:"handle" ~label:"Handle or DID" ~value:"" () ];
+           (if rows = [] then paragraph "There are no members yet."
+            else
+              S.table
+                [ ("DID", `Text); ("Added as", `Text); ("", `Text) ]
+                rows);
+         ]))
+
+let add_member t s (req @ local) (respond @ local) =
+  require_admin t s;
+  check_form t s req;
+  let identifier =
+    match Req.form_param req "handle" with
+    | Some h ->
+        let h = String.trim h in
+        if String.length h > 0 && h.[0] = '@' then
+          String.sub h 1 (String.length h - 1)
+        else h
+    | None -> ""
+  in
+  let resolved =
+    if Atp.Did.is_valid identifier then Ok (identifier, None)
+    else if Atp.Handle.is_valid identifier then
+      match
+        Eio.Time.with_timeout t.clock 15. (fun () ->
+            Ok (Xrpc.Identity.did_of_handle t.http identifier))
+      with
+      | Ok (Ok did) -> Ok (did, Some (String.lowercase_ascii identifier))
+      | Ok (Error e) -> Error e
+      | Error `Timeout -> Error "resolving it took too long"
+      | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+      | exception e -> Error (Printexc.to_string e)
+    else Error "that is not a handle or a DID"
+  in
+  match resolved with
+  | Error e ->
+      Printf.eprintf "spindle web member %s: %s\n%!" identifier e;
+      members_page t s respond
+        ~error:("Could not add " ^ identifier ^ ": the handle does not resolve.")
+  | Ok (did, handle) ->
+      Catalog.allow t.catalog did;
+      (match handle with
+      | Some h -> Store.put t.store "web-member" did ("@" ^ h)
+      | None -> ());
+      Printf.eprintf "spindle web: %s added member %s\n%!" (Session.subject s)
+        did;
+      see_other respond "/ui/members"
+
+let remove_member t s (req @ local) (respond @ local) =
+  require_admin t s;
+  check_form t s req;
+  match Req.form_param req "did" with
+  | Some did when Atp.Did.is_valid did ->
+      Catalog.disallow t.catalog did;
+      Store.delete t.store "web-member" did;
+      Printf.eprintf "spindle web: %s removed member %s\n%!"
+        (Session.subject s) did;
+      see_other respond "/ui/members"
+  | _ -> raise Missing
+
 let handle t name (req @ local) (respond @ local) =
   try
     match name with
@@ -959,6 +1074,9 @@ let handle t name (req @ local) (respond @ local) =
             | "logout" -> logout t s req respond
             | "jobs" -> jobs_page t s req respond
             | "job" -> job_page t s req respond
+            | "members" -> members_page t s respond
+            | "member-add" -> add_member t s req respond
+            | "member-remove" -> remove_member t s req respond
             | _ -> raise Missing))
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
@@ -985,6 +1103,15 @@ let routes () =
       get (s "ui" / s "log") (fun env req respond -> env "web:log" req respond);
       get (s "ui" / s "jobs") (fun env req respond -> env "web:jobs" req respond);
       get (s "ui" / s "job") (fun env req respond -> env "web:job" req respond);
+      get
+        (s "ui" / s "members")
+        (fun env req respond -> env "web:members" req respond);
+      post
+        (s "ui" / s "members" / s "add")
+        (fun env req respond -> env "web:member-add" req respond);
+      post
+        (s "ui" / s "members" / s "remove")
+        (fun env req respond -> env "web:member-remove" req respond);
       post
         (s "ui" / s "login")
         (fun env req respond -> env "web:login" req respond);

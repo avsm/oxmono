@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Add a members tab to the web pages, where admins add the accounts whose
+  repositories may run CI by handle or DID, and remove them.
+
 - Give executors `queued`, which shows a workflow as pending while it waits
   in a remote builder's queue, starts it when it leaves, and does not charge
   the wait as minutes.

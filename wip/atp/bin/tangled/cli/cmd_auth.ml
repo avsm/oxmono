@@ -84,7 +84,8 @@ let no_browser_arg =
   Arg.(value & flag & info [ "no-browser" ] ~doc)
 
 (* Record collections the CLI may write, and the methods it needs service
-   tokens for. Legacy sh.tangled collections are read-only here. *)
+   tokens for. Legacy sh.tangled collections are read-only here. Matrix
+   bindings are this CLI's own collection, outside Tangled's lexicons. *)
 let records () =
   List.filter_map
     (fun (nsid, _) ->
@@ -94,6 +95,7 @@ let records () =
       then Some nsid
       else None)
     Tangled.Schema.documents
+  @ [ Tangled.Matrix.nsid ]
 
 (* A loopback client ID carries its scope, so keep it compact. *)
 let loopback_scope () =

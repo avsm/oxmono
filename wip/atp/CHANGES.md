@@ -15,7 +15,9 @@
   `tangled-ci` agent skill.
 - Add `tangled pipeline matrix set|show|remove`, which binds a repository's
   pipelines to a Matrix room for a `tangled-matrix` poster, resolving room
-  aliases, and `Tangled.Matrix`, the binding record's codec.
+  aliases, and `Tangled.Matrix`, the binding record's codec. The OAuth
+  client asks to write `org.recoil.tangled.matrix` records, so its metadata
+  must be uploaded again and sessions need a new login.
 
 - Generate explicit CA extensions for Tangled CLI HTTPS test certificates on
   both LibreSSL and OpenSSL.

@@ -128,7 +128,7 @@ let load_seen engine uri =
           {
             head = get "head" v;
             author = get "author" v;
-            rounds = int_of_float (number (required "rounds" v));
+            rounds = integer (required "rounds" v);
             state = get "state" v;
           }
       | _ | (exception Invalid _) ->

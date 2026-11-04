@@ -36,6 +36,10 @@ val string : Jsont.json -> string
 val number : Jsont.json -> float
 (** [number j] is [j], which must be a finite number. *)
 
+val integer : Jsont.json -> int
+(** [integer j] is [j], which must be a whole number of at most 2{^ 53} in
+    magnitude. *)
+
 val list : Jsont.json -> Jsont.json list
 
 val get : string -> Jsont.json -> string
@@ -51,7 +55,7 @@ val unpairs : Jsont.json -> (string * string) list
 
 val decode : string -> Jsont.json
 (** [decode s] is the JSON text [s], nested at most 32 deep and without
-    duplicate members. *)
+    duplicate members. It raises {!Invalid} otherwise. *)
 
 val encode : Jsont.json -> string
 
@@ -62,7 +66,7 @@ val sha : string -> string
     knots use SHA-1 and SHA-256. *)
 
 val zero_sha : string -> bool
-(** [zero_sha s] holds when [s] is all zeros, the ID of a missing ref. *)
+(** [zero_sha s] holds when [s] is 40 or 64 zeros, the ID of a missing ref. *)
 
 val did : string -> string
 (** [did s] is [s], which must be a valid DID. *)

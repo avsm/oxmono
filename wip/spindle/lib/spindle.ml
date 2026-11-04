@@ -1019,7 +1019,7 @@ and handle_xrpc state name req respond =
             let limit =
               match (field "limit" body, field "unlimited" body) with
               | Some n, (None | Some (Jsont.Bool (false, _))) ->
-                  Some (int_of_float (number n))
+                  Some (integer n)
               | None, Some (Jsont.Bool (true, _)) -> None
               | None, _ ->
                   reject Status.Bad_request "Generic"
@@ -1042,9 +1042,7 @@ and handle_xrpc state name req respond =
             require_admin state actor;
             let body = body () in
             let uses =
-              match field "useCount" body with
-              | Some n -> int_of_float (number n)
-              | None -> 1
+              match field "useCount" body with Some n -> integer n | None -> 1
             in
             Settings.invite state.settings ~by:actor ~uses
               ~for_account:(Option.map string (field "forAccount" body))

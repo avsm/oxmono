@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Refuse a fractional or out-of-range quota limit, invite use count or pull
+  request round instead of truncating it, and accept only 40 or 64 zeros as
+  a missing ref's ID.
+
 - Refuse an answer over its size limit from any knot or PDS read instead of
   using it cut short, so a repository file over 1 MiB is unreadable rather
   than truncated.

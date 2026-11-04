@@ -205,7 +205,7 @@ let redeem t code ~actor =
       (match field "forAccount" v with
       | Some d when string d <> actor -> unknown ()
       | _ -> ());
-      let uses = int_of_float (Json.number (required "uses" v)) - 1 in
+      let uses = Json.integer (required "uses" v) - 1 in
       let puts =
         ("allow", actor, "")
         ::

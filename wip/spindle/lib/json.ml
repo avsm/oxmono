@@ -26,6 +26,12 @@ let number = function
   | Jsont.Number (n, _) when Float.is_finite n -> n
   | _ -> invalid "expected a number"
 
+(* Integers within ±2^53, as JSON numbers hold them exactly. *)
+let integer j =
+  let n = number j in
+  if Float.is_integer n && Float.abs n <= 9007199254740992. then int_of_float n
+  else invalid "expected an integer"
+
 let list = function
   | Jsont.Array (xs, _) -> xs
   | _ -> invalid "expected an array"
@@ -83,10 +89,11 @@ let sha s =
   if (String.length s <> 40 && String.length s <> 64)
      || not (String.for_all (function
       | '0' .. '9' | 'a' .. 'f' -> true | _ -> false) s)
-  then invalid "commit must be a lowercase 40- or 64-digit object ID";
+  then invalid "expected a lowercase 40- or 64-digit Git object ID";
   s
 
-let zero_sha s = String.for_all (( = ) '0') s
+let zero_sha s =
+  (String.length s = 40 || String.length s = 64) && String.for_all (( = ) '0') s
 
 let did s =
   if not (Atp.Did.is_valid s) then invalid "invalid DID";

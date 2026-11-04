@@ -6,6 +6,10 @@
   duraml
   duraml.client
   duraml.sqlite
+  sitekit
+  proffer.session
+  xrpc-auth.web
+  xrpc-auth.protocol
   proffer
   proffer-httpz
   httpz.websocket

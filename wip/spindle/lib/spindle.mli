@@ -37,14 +37,18 @@ type config = {
   repository_workflows : bool;
       (** Whether each repository's [.tangled/workflows] also run. A spindle
           whose executor runs only its own [jobs] turns them off. *)
+  web : bool;
+      (** Whether to serve the web pages of {!Web} at [/ui], for the spindle's
+          users to log in to with atproto. They need the spindle to be reached
+          at [https://hostname]. *)
 }
 (** [config] serves repositories whose knot manifest names this spindle and
-    whose owner is admitted. [owner] and [admins] administer the spindle and
-    its allow-list. [admission] admits every owner when [Open]. [repo]
-    optionally maps a static repository DID to a Git source. [jetstream]
-    follows pull requests. [plc] selects the PLC directory. No live ATP
-    endpoints are implicit. [allow_http] permits cleartext HTTP and WS for
-    development networks. *)
+    whose owner is admitted. [owner] and [admins] administer the spindle and its
+    allow-list. [admission] admits every owner when [Open]. [repo] optionally
+    maps a static repository DID to a Git source. [jetstream] follows pull
+    requests. [plc] selects the PLC directory. No live ATP endpoints are
+    implicit. [allow_http] permits cleartext HTTP and WS for development
+    networks. *)
 
 val run :
   ?addr:string ->

@@ -7,10 +7,10 @@ type 'a make =
   'a ->
   Spindle.Job.t list * Spindle.Executor.t
 
-let serve ~repository_workflows make hostname owner admins admission repo source
-    plc state_dir port addr jetstream allow_http workflow_timeout quota_repo
-    quota_user private_webhooks cors_origins contact_email privacy_policy
-    terms_of_service concurrency extra operations =
+let serve ~repository_workflows make web hostname owner admins admission repo
+    source plc state_dir port addr jetstream allow_http workflow_timeout
+    quota_repo quota_user private_webhooks cors_origins contact_email
+    privacy_policy terms_of_service concurrency extra operations =
   let repo =
     match (repo, source) with
     | None, None -> None
@@ -43,6 +43,7 @@ let serve ~repository_workflows make hostname owner admins admission repo source
       terms_of_service;
       concurrency;
       repository_workflows;
+      web;
     }
 
 let required name doc =
@@ -129,6 +130,13 @@ let main ?(name = "spindle") ?(doc = "Run a Tangled spindle")
   let term =
     Term.(
       const (serve ~repository_workflows make)
+      $ Arg.(
+          value & flag
+          & info [ "web" ]
+              ~doc:
+                "Serve web pages at $(b,/ui), where the spindle's users log in \
+                 with atproto to see their repositories' pipelines. The \
+                 spindle must be reached at $(b,https://)$(i,HOSTNAME).")
       $ option "hostname" "spindle.tangled.test" "Spindle did:web hostname."
       $ required "owner" "Spindle owner DID."
       $ Arg.(

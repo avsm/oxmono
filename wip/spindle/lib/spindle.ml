@@ -32,6 +32,7 @@ type config = {
   terms_of_service : string option;
   concurrency : int;
   repository_workflows : bool;
+  web : bool;
 }
 
 type state = {
@@ -42,6 +43,7 @@ type state = {
   health : Health.t;
   settings : Settings.t;
   hooks : Hooks.t;
+  web : Web.t option;
 }
 
 exception Not_ready of Jsont.json
@@ -684,7 +686,15 @@ let procedures =
     "org.tangled.temp.server.redeemInviteCode";
   ]
 
-let handle state name req respond =
+let rec handle state name req respond =
+  if String.starts_with ~prefix:"web:" name then
+    match state.web with
+    | Some web ->
+        Web.handle web (String.sub name 4 (String.length name - 4)) req respond
+    | None -> Resp.empty respond ~status:Status.Not_found ()
+  else handle_xrpc state name req respond
+
+and handle_xrpc state name req respond =
   let post = List.mem name procedures in
   let cors =
     if name = "_did" then Headers.empty else Headers.of_list (cors state req)
@@ -1154,7 +1164,16 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   Engine.load engine;
   Engine.serve engine;
   let health = Health.v ~store ~enabled:(config.jetstream <> None) in
-  let state = { config; engine; network; system; health; settings; hooks } in
+  let web =
+    if config.web then
+      Some
+        (Web.v ~engine ~store ~catalog ~directory ~hostname:config.hostname
+           ~plc:config.plc system)
+    else None
+  in
+  let state =
+    { config; engine; network; system; health; settings; hooks; web }
+  in
   Eio.Fiber.fork ~sw (fun () ->
       while true do
         let now = Eio.Time.now system#clock in
@@ -1196,17 +1215,18 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   let handler name env req respond = env (Req.globalize name) req respond in
   let site =
     Site.of_routes
-      [
-        get (s "xrpc" / str) handler;
-        post (s "xrpc" / str) handler;
-        route Method.Options (s "xrpc" / str) handler;
-        get
-          (s ".well-known" / s "did.json")
-          (fun env req respond -> env "_did" req respond);
-        get root (fun env req respond -> env "_health" req respond);
-        get (s "_health") (fun env req respond -> env "_live" req respond);
-        get (s "readyz") (fun env req respond -> env "_ready" req respond);
-      ]
+      ([
+         get (s "xrpc" / str) handler;
+         post (s "xrpc" / str) handler;
+         route Method.Options (s "xrpc" / str) handler;
+         get
+           (s ".well-known" / s "did.json")
+           (fun env req respond -> env "_did" req respond);
+         get root (fun env req respond -> env "_health" req respond);
+         get (s "_health") (fun env req respond -> env "_live" req respond);
+         get (s "readyz") (fun env req respond -> env "_ready" req respond);
+       ]
+      @ if config.web then Web.routes () else [])
   in
   let ip = Eio_unix.Net.Ipaddr.of_unix (Unix.inet_addr_of_string addr) in
   Proffer_httpz.run ~sw

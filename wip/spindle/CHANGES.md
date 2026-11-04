@@ -6,6 +6,13 @@
 
 ## Unreleased
 
+- Add `--web`, web pages at `/ui` where the spindle's users log in with
+  atproto, as a confidential OAuth client, to see their repositories'
+  pipelines and logs. Admins see every repository, and other users the
+  repositories they own or collaborate on. Pages are built with Sitekit,
+  under a strict Content Security Policy, with `proffer.session` sessions
+  kept in the spindle's store.
+
 - Run each workflow as a job of a Duraml store in the state directory, so a
   workflow interrupted by a restart runs again from the start with a fresh
   log instead of failing. Spawning a workflow that the pipeline already has,

@@ -53,3 +53,8 @@
  (name test_durable)
  (modules test_durable)
  (libraries spindle duraml.sqlite eio_main unix))
+
+(test
+ (name test_web)
+ (modules test_web)
+ (libraries spindle proffer proffer.mock httpz uriz eio_main unix))

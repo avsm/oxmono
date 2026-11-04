@@ -321,6 +321,33 @@ present, and patches published in between are not run.
 The spindle starts no process for a workflow. Isolation is the executor's
 responsibility.
 
+
+## Web pages
+
+With `--web`, the spindle serves pages at `/ui` for its users. A visitor
+logs in with their atproto handle or DID. The spindle is a confidential
+OAuth client, at `https://HOSTNAME/oauth/client-metadata.json`, that signs
+its requests with a P-256 key kept in `web-client.key` in the state
+directory and publishes its public half at `/oauth/jwks.json`. It verifies
+the account once, revokes the tokens it was given and keeps none.
+
+Only the spindle's users get a session: its owner and admins, allow-listed
+accounts, and the owners and collaborators of the repositories it serves.
+Admins see every repository. Others see the repositories they own or
+collaborate on, as their knots record it, with their pipelines and logs.
+
+Sessions and logins in progress are kept in the spindle's database, by the
+hash of their IDs, so they survive a restart. The session cookie is
+`__Host-spindle`, `Secure`, `HttpOnly` and `SameSite=Lax`, idle after two
+hours and expired after twelve. A login is bound to the browser that started
+it and can be finished once, within ten minutes. Every page is sent with a
+Content Security Policy that allows nothing inline and with
+`Cache-Control: no-store`. Logging out takes a CSRF token and is checked
+against the site's origin. OAuth requests go only to public addresses over
+HTTPS, since visitors choose where identity resolution leads.
+
+The pages need the spindle to be reached at `https://HOSTNAME`, which the
+OAuth client's identity names.
 ## Verification
 
 ```sh

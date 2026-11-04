@@ -36,4 +36,5 @@ let () =
       terms_of_service = None;
       concurrency = 2;
       repository_workflows = true;
+      web = false;
     }

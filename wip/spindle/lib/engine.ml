@@ -35,6 +35,7 @@ type t = {
   quota_changed : Eio.Condition.t;
   changed : Eio.Condition.t;
   durable : (string, string) Duraml_client.Queue.t option;
+  active : (string, unit Eio.Promise.t) Hashtbl.t;
 }
 
 exception Capacity
@@ -463,6 +464,7 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
     running = Hashtbl.create 16;
     quota_changed = Eio.Condition.create ();
     changed = Eio.Condition.create ();
+    active = Hashtbl.create 16;
     durable =
       Option.map
         (fun store ->
@@ -535,7 +537,7 @@ let migrate t static =
       ~puts:(("schema", "json-import", "1") :: puts)
       ~deletes:[]
 
-let restore t id raw =
+let restore ?(resume = false) t id raw =
   if not (Atp.Tid.is_valid id) then invalid "invalid stored pipeline ID";
   let data = decode raw in
   let v = required "pipeline" data in
@@ -562,11 +564,12 @@ let restore t id raw =
           let was_running =
             get "status" (required "workflow" raw) = "running"
           in
-          let resume = t.durable <> None in
           let run = Runner.restore ~resume raw in
-          if resume && was_running then
-            Store.delete_logs t.store ~pipeline:id ~workflow:run.job.name;
-          Store.logs t.store ~pipeline:id ~workflow:run.job.name
+          (* A workflow that runs again starts with an empty log. Its stored
+             log is deleted only when it does run, so a workflow that cannot
+             keeps what it wrote. *)
+          (if resume && was_running then []
+           else Store.logs t.store ~pipeline:id ~workflow:run.job.name)
           |> List.iter (fun (seq, raw) ->
               run.events <- decode raw :: run.events;
               run.log_bytes <- run.log_bytes + String.length raw;
@@ -594,7 +597,10 @@ let load t =
             List.mem (get "status" w) [ "pending"; "running"; "blocked" ])
       in
       if active then (
-        let p = restore t id (Option.get (Store.get t.store "pipeline" id)) in
+        let p =
+          restore ~resume:(t.durable <> None) t id
+            (Option.get (Store.get t.store "pipeline" id))
+        in
         Hashtbl.add t.pipelines id p;
         persist t p;
         start t p))
@@ -629,10 +635,22 @@ let serve ?(lease = 60.) t =
                       (fun (r : Runner.t) -> r.job.name = name)
                       p.workflows
                   with
+                  | Some w when w.cancelled && not (Runner.terminal w) ->
+                      (* Cancelled while it waited to run again. *)
+                      w.status <- "cancelled";
+                      w.error <- Some "User canceled the workflow";
+                      w.finished <- Some (Runner.now ());
+                      persist t p
                   | Some w when not (Runner.terminal w) ->
                       let attempt =
                         Option.fold ~none:1 ~some:snd (Duraml_client.attempt ())
                       in
+                      (* An earlier run in this process, whose lease another
+                         worker took, is cancelled at its next renewal. It
+                         finishes before this one starts. *)
+                      (match Hashtbl.find_opt t.active key with
+                      | Some earlier -> Eio.Promise.await earlier
+                      | None -> ());
                       if attempt > max_restarts + 1 then
                         lost t p w
                           (Printf.sprintf
@@ -640,12 +658,18 @@ let serve ?(lease = 60.) t =
                               ran"
                              (attempt - 1))
                       else (
-                        if w.status = "running" then (
+                        if attempt > 1 then (
                           Runner.reset w;
                           Store.delete_logs t.store ~pipeline:p.id
                             ~workflow:w.job.name;
                           persist t p);
-                        run t p w)
+                        let finished, finish = Eio.Promise.create () in
+                        Hashtbl.replace t.active key finished;
+                        Fun.protect
+                          ~finally:(fun () ->
+                            Hashtbl.remove t.active key;
+                            Eio.Promise.resolve finish ())
+                          (fun () -> run t p w))
                   | _ -> ())));
           Duraml_client.Completion.succeed "")
 

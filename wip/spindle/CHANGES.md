@@ -11,7 +11,11 @@
   pipelines and logs. Admins see every repository, and other users the
   repositories they own or collaborate on. Pages are built with Sitekit,
   under a strict Content Security Policy, with `proffer.session` sessions
-  kept in the spindle's store.
+  kept in the spindle's store. Logins are bounded in number, time and
+  storage, and expired sessions are swept.
+- Fix durable workflows cancelled while waiting to run again, keep the logs
+  of a workflow that cannot run again, and never run one workflow twice at
+  once after a lost lease. Reading a pipeline no longer deletes logs.
 
 - Run each workflow as a job of a Duraml store in the state directory, so a
   workflow interrupted by a restart runs again from the start with a fresh

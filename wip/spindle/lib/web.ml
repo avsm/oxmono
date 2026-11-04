@@ -18,7 +18,14 @@ type t = {
   collaborates : (string * string, float * bool) Hashtbl.t;
       (* Whether a user collaborates on a repository, and when the knot said
          so, so that a page does not ask the knot about every repository. *)
+  lock : Eio.Mutex.t;
+  mutable logins : int;  (** Logins being started or finished now. *)
 }
+
+(* Bounds on what visitors who have not logged in can make the spindle do. *)
+let max_logins = 8
+let max_pending = 500
+let login_deadline = 30.
 
 exception Forbidden
 exception Missing
@@ -96,7 +103,30 @@ let client_key directory =
       Eio.Path.save ~create:(`Exclusive 0o600) path (Oauth.Key.to_string key);
       key
 
-let v ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
+let idle = 2. *. 3600.
+
+(* Expired sessions and logins are swept away, since a session is otherwise
+   removed only when its own cookie comes back. *)
+let sweep t =
+  let now = Eio.Time.now t.clock in
+  let ended r =
+    Ptime.to_float_s r.Session.Store.expires <= now
+    || Ptime.to_float_s r.Session.Store.seen +. idle <= now
+  in
+  List.iter
+    (fun (key, raw) ->
+      match decode record_jsont raw with
+      | Some r when not (ended r) -> ()
+      | _ -> Store.delete t.store "web-session" key)
+    (Store.list t.store "web-session");
+  List.iter
+    (fun (key, raw) ->
+      match decode login_jsont raw with
+      | Some l when Oauth.pending_expires_at l.pending > now -> ()
+      | _ -> Store.delete t.store "web-login" key)
+    (Store.list t.store "web-login")
+
+let v ~sw ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
   let origin = Option.value ~default:("https://" ^ hostname) origin in
   let key = client_key directory in
   let kid =
@@ -118,7 +148,11 @@ let v ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
     match http with
     | Some h -> h
     | None ->
-        (Fetch_httpz.std ~connect:(Oauth.Public_net.connect env#net) env
+        (* Each visitor's login is its own: no cookie jar, and no retries that
+           an unresponsive server could stretch. *)
+        (Fetch_httpz.std ~cookies:`Off
+           ~retry:{ Fetch.Retry.default with max_retries = 0 }
+           ~connect:(Oauth.Public_net.connect env#net) env
           :> Fetch.plain)
   in
   {
@@ -138,7 +172,19 @@ let v ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
         ~nav:[ S.nav "Repositories" (S.Url.path [ "ui" ]) ]
         ();
     collaborates = Hashtbl.create 16;
+    lock = Eio.Mutex.create ();
+    logins = 0;
   }
+  |> fun t ->
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+      while true do
+        (try sweep t with
+        | Eio.Cancel.Cancelled _ as e -> raise e
+        | e -> Printf.eprintf "spindle web sweep: %s\n%!" (Printexc.to_string e));
+        Eio.Time.sleep t.clock 600.
+      done;
+      `Stop_daemon);
+  t
 
 (* {1 Who sees what} *)
 
@@ -161,6 +207,7 @@ let collaborator t ~user repo =
         | Eio.Cancel.Cancelled _ as e -> raise e
         | _ -> false
       in
+      if Hashtbl.length t.collaborates > 4096 then Hashtbl.reset t.collaborates;
       Hashtbl.replace t.collaborates (user, repo) (now, yes);
       yes
 
@@ -241,15 +288,18 @@ let login_page ?error t (respond @ local) =
              [ S.input ~name:"handle" ~label:"Handle or DID" ~value:"" () ];
          ]))
 
-(* Logins in progress that have expired are dropped as new ones start. *)
-let prune t =
-  let now = Eio.Time.now t.clock in
-  List.iter
-    (fun (key, raw) ->
-      match decode login_jsont raw with
-      | Some l when Oauth.pending_expires_at l.pending > now -> ()
-      | _ -> Store.delete t.store "web-login" key)
-    (Store.list t.store "web-login")
+(* A login holds one of [max_logins] places while it talks to servers, and
+   gives up after [login_deadline] seconds. *)
+let limited t f =
+  if t.logins >= max_logins then None
+  else (
+    t.logins <- t.logins + 1;
+    Fun.protect ~finally:(fun () -> t.logins <- t.logins - 1) @@ fun () ->
+    match Eio.Time.with_timeout t.clock login_deadline (fun () -> Ok (f ())) with
+    | Ok r -> Some r
+    | Error `Timeout -> Some (Error `Timeout))
+
+let busy = "The spindle is busy with other logins. Try again in a minute."
 
 let login t (req @ local) (respond @ local) =
   (* A login form posted from another site could log the browser in to an
@@ -266,20 +316,43 @@ let login t (req @ local) (respond @ local) =
   in
   if not (Atp.Handle.is_valid identifier || Atp.Did.is_valid identifier) then
     login_page t respond ~error:"That is not a handle or a DID."
-  else (
-    prune t;
+  else if List.length (Store.list t.store "web-login") >= max_pending then (
+    sweep t;
+    login_page t respond ~error:busy)
+  else
     match
-      Oauth.start ~clock:t.clock ~http:t.http ?plc:t.plc t.client ~identifier
+      limited t (fun () ->
+          (Oauth.start ~clock:t.clock ~http:t.http ?plc:t.plc t.client
+             ~identifier
+            :> (_, [ Oauth.error | `Timeout ]) result))
     with
-    | Error e ->
+    | None -> login_page t respond ~error:busy
+    | Some (Error e) ->
+        (* Details of other servers stay in the log, not on the page. *)
+        Printf.eprintf "spindle web login %s: %s\n%!" identifier
+          (match e with
+          | `Timeout -> "timed out"
+          | #Oauth.error as e -> Oauth.error_to_string e);
         login_page t respond
-          ~error:("The login could not start: " ^ Oauth.error_to_string e)
-    | Ok (pending, url) ->
-        let nonce, cookie = Session.Login.start t.sessions in
-        Store.put t.store "web-login"
-          (state_key (Oauth.pending_state pending))
-          (encode login_jsont { pending; nonce = Session.Login.hash nonce });
-        see_other ~cookies:[ cookie ] respond url)
+          ~error:
+            "The login could not start. Check the handle, or try again \
+             later."
+    | Some (Ok (pending, url)) -> (
+        match S.Url.external_ url with
+        | None -> login_page t respond ~error:"The account's server is unusable."
+        | Some link ->
+            let nonce, cookie = Session.Login.start t.sessions in
+            Store.put t.store "web-login"
+              (state_key (Oauth.pending_state pending))
+              (encode login_jsont { pending; nonce = Session.Login.hash nonce });
+            (* A redirect after a form may only go to this site, under the
+               pages' form-action policy, so the browser follows a link. *)
+            html ~cookies:[ cookie ] respond
+              (page t ~title:"Log in"
+                 [
+                   paragraph "Continuing to your account's login page.";
+                   S.follow link "Continue";
+                 ]))
 
 let failed t (respond @ local) text =
   html ~status:Status.Bad_request
@@ -293,28 +366,46 @@ let callback t (req @ local) (respond @ local) =
   | None -> failed t respond "This is not a login."
   | Some state -> (
       let key = state_key state in
-      let stored = Store.get t.store "web-login" key in
-      (* A login is finished at most once. *)
-      Store.delete t.store "web-login" key;
+      (* A login is finished at most once, even by two callbacks at once. *)
+      let stored =
+        Eio.Mutex.use_rw ~protect:true t.lock (fun () ->
+            let stored = Store.get t.store "web-login" key in
+            Store.delete t.store "web-login" key;
+            stored)
+      in
       match Option.bind stored (decode login_jsont) with
       | None -> failed t respond "This login has expired or was used already."
-      | Some l ->
+      | Some l -> (
           if not (Session.Login.matches t.sessions req ~hash:l.nonce) then
             failed t respond "This login was started in another browser."
-          else (
+          else
+            let query = Xrpc_auth_protocol.encode_query (Req.query req) in
             match
-              Oauth.finish ~clock:t.clock ~http:t.http ?plc:t.plc t.client
-                l.pending
-                ~query:(Xrpc_auth_protocol.encode_query (Req.query req))
+              limited t (fun () ->
+                  (Oauth.finish ~clock:t.clock ~http:t.http ?plc:t.plc
+                     t.client l.pending ~query
+                    :> (_, [ Oauth.error | `Timeout ]) result))
             with
-            | Error e -> failed t respond ("The login failed: " ^ Oauth.error_to_string e)
-            | Ok identity ->
+            | None -> failed t respond busy
+            | Some (Error e) ->
+                Printf.eprintf "spindle web callback: %s\n%!"
+                  (match e with
+                  | `Timeout -> "timed out"
+                  | #Oauth.error as e -> Oauth.error_to_string e);
+                failed t respond "The login failed. Try again."
+            | Some (Ok identity) ->
                 if not (user t identity.did) then
                   failed t respond
                     "This spindle has no repositories of yours or that you \
                      collaborate on, so there is nothing for you to see."
                 else
-                  let s, cookie =
+                  (* A new login ends whatever session the browser had. *)
+                  let ended =
+                    match Session.find t.sessions req with
+                    | Some old -> [ Session.destroy t.sessions old ]
+                    | None -> []
+                  in
+                  let _, cookie =
                     Session.create t.sessions ~subject:identity.did
                       ~data:
                         (match identity.handle with
@@ -322,13 +413,20 @@ let callback t (req @ local) (respond @ local) =
                         | None -> identity.did)
                       ()
                   in
-                  ignore s;
+                  (* The new cookie comes last, so that it wins over the
+                     cleared one of the same name. *)
                   see_other
-                    ~cookies:[ cookie; Session.Login.clear t.sessions ]
+                    ~cookies:(ended @ [ Session.Login.clear t.sessions; cookie ])
                     respond "/ui"))
 
 let logout t s (req @ local) (respond @ local) =
-  if not (Session.check_unsafe t.sessions s req) then raise Forbidden;
+  (* Logging out changes state, so only a POST from this site with the
+     session's token does it. *)
+  if
+    Req.meth req <> Httpz.Method.Post
+    || Session.request_origin t.sessions req = `Cross
+    || not (Session.check_csrf s req)
+  then raise Forbidden;
   see_other ~cookies:[ Session.destroy t.sessions s ] respond "/ui"
 
 (* {1 Pages} *)
@@ -388,7 +486,9 @@ let trigger j =
 let repo_name t did =
   match Catalog.managed t.catalog did with
   | Some r when r.name <> "" -> r.name
-  | _ | (exception _) -> did
+  | _ -> did
+  | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+  | exception _ -> did
 
 let home t s (respond @ local) =
   let user = Session.subject s in

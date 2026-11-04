@@ -344,7 +344,17 @@ it and can be finished once, within ten minutes. Every page is sent with a
 Content Security Policy that allows nothing inline and with
 `Cache-Control: no-store`. Logging out takes a CSRF token and is checked
 against the site's origin. OAuth requests go only to public addresses over
-HTTPS, since visitors choose where identity resolution leads.
+HTTPS, since visitors choose where identity resolution leads, with no
+cookie jar or retries. At most eight logins talk to other servers at once,
+each for at most 30 seconds, and at most 500 may be in progress. Expired
+sessions and logins are swept every ten minutes, and a new login ends the
+browser's previous session. Visitors see only generic errors; the details
+go to the spindle's log.
+
+Since the pages' `form-action 'self'` policy forbids redirecting a form to
+another site, the login form is answered with a page whose link Sitekit's
+script follows to the account's authorization server. XRPC method names
+never reach the web pages, and logging out takes a POST.
 
 The pages need the spindle to be reached at `https://HOSTNAME`, which the
 OAuth client's identity names.

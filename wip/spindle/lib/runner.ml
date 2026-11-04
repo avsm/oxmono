@@ -159,6 +159,7 @@ let restore ?(resume = false) raw =
 
 (* A workflow interrupted in this process, by a lost lease, runs again too. *)
 let reset p =
+  p.cancel <- None;
   p.status <- "pending";
   p.started <- None;
   p.finished <- None;
@@ -435,8 +436,9 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
         Ok ()
       with
       | Eio.Cancel.Cancelled _ as e when interruptible && not p.cancelled ->
-          (* The spindle is stopping. The workflow stays running, to run again
-             once it is back. *)
+          (* The spindle is stopping, or another worker took the job. The
+             workflow stays running, to run again, and its switch is gone. *)
+          p.cancel <- None;
           raise e
       | exn -> Error exn
     in

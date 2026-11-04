@@ -87,7 +87,7 @@ let () =
   in
   Eio.Promise.await done_;
   let web =
-    Web.v ~engine ~store ~catalog ~directory ~hostname:"spindle.test"
+    Web.v ~sw ~engine ~store ~catalog ~directory ~hostname:"spindle.test"
       ~origin:"https://spindle.test" env
   in
   let site = Proffer.Site.of_routes (Web.routes ()) in
@@ -166,6 +166,22 @@ let () =
   in
   assert (has log "&lt;script&gt;alert(1)&lt;/script&gt;");
   assert (not (has log "<script>alert"));
+  (* Logging out by any method but POST does nothing, even with the token, as
+     when a GET is routed to it by mistake. *)
+  let stray_site =
+    Proffer.Site.of_routes
+      [
+        Proffer.Route.get
+          Proffer.Route.(s "x")
+          (fun env req respond -> env "web:logout" req respond);
+      ]
+  in
+  ignore
+    (M.request
+       ~headers:[ ("Cookie", cookie) ]
+       stray_site env' Httpz.Method.Get
+       ("/x?_csrf=" ^ Uriz.pct_encode ~component:`Query_value csrf));
+  assert (has (M.body (as_owner "/ui")) "demo");
   (* Logging out needs the session's CSRF token from this site. *)
   assert (
     code (post ~headers:[ ("Cookie", cookie) ] ~body:"_csrf=wrong" "/ui/logout")

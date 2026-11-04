@@ -40,6 +40,7 @@ type t = private {
   quota_changed : Eio.Condition.t;
   changed : Eio.Condition.t;
   durable : (string, string) Duraml_client.Queue.t option;
+  active : (string, unit Eio.Promise.t) Hashtbl.t;
 }
 
 exception Capacity

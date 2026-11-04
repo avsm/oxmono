@@ -1167,7 +1167,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   let web =
     if config.web then
       Some
-        (Web.v ~engine ~store ~catalog ~directory ~hostname:config.hostname
+        (Web.v ~sw ~engine ~store ~catalog ~directory ~hostname:config.hostname
            ~plc:config.plc system)
     else None
   in
@@ -1212,7 +1212,14 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
             ~jetstream ~health ~policy:operations))
     config.jetstream;
   let open Route in
-  let handler name env req respond = env (Req.globalize name) req respond in
+  (* An XRPC method is never one of the web pages, whose names only the web
+     routes give. *)
+  let handler name env req respond =
+    let name = Req.globalize name in
+    env
+      (if String.starts_with ~prefix:"web:" name then "invalid" else name)
+      req respond
+  in
   let site =
     Site.of_routes
       ([

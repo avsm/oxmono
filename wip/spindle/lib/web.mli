@@ -16,6 +16,7 @@
 type t
 
 val v :
+  sw:Eio.Switch.t ->
   engine:Engine.t ->
   store:Store.t ->
   catalog:Catalog.t ->
@@ -31,7 +32,10 @@ val v :
     key is [directory/web-client.key], created readable only by its owner on
     first use. [http] makes the OAuth requests, by default an HTTPS client
     that refuses private and loopback addresses, since identity resolution
-    follows addresses that visitors choose. *)
+    follows addresses that visitors choose, keeps no cookies and does not
+    retry. At most eight logins talk to other servers at once, each for at
+    most 30 seconds, and at most 500 logins may be in progress. A fiber on
+    [sw] sweeps away expired sessions and logins every ten minutes. *)
 
 val handle :
   t -> string -> Proffer.Req.t @ local -> Proffer.Resp.respond @ local -> unit

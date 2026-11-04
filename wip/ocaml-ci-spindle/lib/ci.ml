@@ -8,6 +8,7 @@ type config = {
   compilers : string list;
   platforms : Variant.platform list;
   full_platforms : Variant.platform list;
+  day10 : Variant.arch list;
   diagnose : Diagnose.t option;
 }
 
@@ -19,6 +20,7 @@ module Job = Spindle.Job
 let variant_var = "OCAMLCI_VARIANT"
 let pool_var = "OCAMLCI_POOL"
 let diagnose_var = "OCAMLCI_DIAGNOSE"
+let day10_var = "OCAMLCI_DAY10"
 let jobs = [ Job.v "ocaml-ci" [ Job.step "plan" "opam-0install" ] ]
 
 let logf (ctx : Spindle.Executor.context) fmt =
@@ -39,7 +41,13 @@ let rec snapshots repos f =
       Opam_repo.with_snapshot repo (fun ~commit ~packages ->
           snapshots rest (fun l -> f ((repo, commit, packages) :: l)))
 
-let env_of (v : Variant.t) = [ (variant_var, v.name); (pool_var, v.pool) ]
+let env_of (v : Variant.t) =
+  [ (variant_var, v.name); (pool_var, v.pool) ]
+  @ if v.day10 then [ (day10_var, "1") ] else []
+
+(* A build's first step is its OBuilder spec, or a day10 build's JSON. *)
+let build_step (v : Variant.t) spec =
+  Job.step (if v.day10 then "day10" else "obuilder") spec
 
 (* The [ocaml-ci] workflow: find the project, solve, spawn the builds. The
    newest OCaml's build carries the builds for the other platforms as further
@@ -299,6 +307,22 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
               }
             in
             match Eio_unix.run_in_systhread (fun () -> Solve.solve request) with
+            | Ok packages when v.day10 ->
+                (* day10 solves again itself, but the solve here says which
+                   builds the project can have. *)
+                logf ctx "%s: %d packages, built with day10\n" v.name
+                  (List.length packages);
+                let d =
+                  Spec.day10 ~variant:v
+                    ~opam_repository:
+                      (Opam_repo.url config.opam_repository, default_commit)
+                    ~opam_files:(List.map fst a.opam_files)
+                in
+                Some
+                  ( v,
+                    match Jsont_bytesrw.encode_string Spec.day10_jsont d with
+                    | Ok s -> s
+                    | Error e -> failwith e )
             | Ok packages ->
                 logf ctx "%s: %d packages\n" v.name (List.length packages);
                 Some
@@ -316,8 +340,9 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                 None
           in
           let variants =
-            Variant.choose ~packages:default config.compilers
-            @ match oxcaml with Some _ -> [ Variant.oxcaml ] | None -> []
+            (Variant.choose ~packages:default config.compilers
+            @ match oxcaml with Some _ -> [ Variant.oxcaml ] | None -> [])
+            |> List.map (Variant.use_day10 ~arches:config.day10)
           in
           builds := List.filter_map solve variants;
           (* [choose] puts the newest OCaml first. *)
@@ -329,7 +354,10 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
               let others =
                 List.filter_map
                   (fun platform ->
-                    let v = Variant.v ~platform (Variant.version primary) in
+                    let v =
+                      Variant.use_day10 ~arches:config.day10
+                        (Variant.v ~platform (Variant.version primary))
+                    in
                     if
                       List.exists
                         (fun ((b : Variant.t), _) -> b.name = v.name)
@@ -354,7 +382,7 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                 !later
             else []
           in
-          ctx.spawn ~env:(env_of v) v.name (Job.step "obuilder" spec :: after))
+          ctx.spawn ~env:(env_of v) v.name (build_step v spec :: after))
         !builds;
       summary config ctx r ~primary:(Option.map fst primary) ~later:!later)
     !project
@@ -494,10 +522,14 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
   let submission = Ocluster_client.submission config.scheduler in
   Fun.protect ~finally:(fun () -> Ocluster_client.release_submission submission)
   @@ fun () ->
+  let cache_hint = r.repo ^ "/" ^ r.workflow
+  and src = (r.source, [ r.commit ]) in
   let ticket =
-    Ocluster_client.submit submission ~pool
-      ~cache_hint:(r.repo ^ "/" ^ r.workflow)
-      ~src:(r.source, [ r.commit ]) spec
+    if List.mem_assoc day10_var r.env then
+      match Jsont_bytesrw.decode_string Spec.day10_jsont spec with
+      | Ok d -> Ocluster_client.submit_day10 submission ~pool ~cache_hint ~src d
+      | Error e -> invalid_arg ("a day10 workflow's build is unreadable: " ^ e)
+    else Ocluster_client.submit submission ~pool ~cache_hint ~src spec
   in
   let job = Ocluster_client.job ticket in
   (* A cancelled workflow cancels its job, over the scheduler's connection,
@@ -533,7 +565,12 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
         raise e);
   List.iter
     (fun (s : Job.step) ->
-      ctx.spawn ~env:s.env s.name [ Job.step "obuilder" s.command ])
+      ctx.spawn ~env:s.env s.name
+        [
+          Job.step
+            (if List.mem_assoc day10_var s.env then "day10" else "obuilder")
+            s.command;
+        ])
     after
 
 let executor config =

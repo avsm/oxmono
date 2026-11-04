@@ -135,3 +135,74 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository ~opam_files
   in
   Printf.sprintf "((from %s)\n %s)\n" (atom variant.image)
     (String.concat "\n " ops)
+
+(* A day10 build solves and builds the project itself, against the same
+   opam-repository commit and for the same platform as the OBuilder one. *)
+let day10 ~(variant : Variant.t) ~opam_repository:(url, commit) ~opam_files :
+    Ocluster_client.day10 =
+  {
+    opam_repository = url;
+    opam_repository_commit = commit;
+    ocaml_version = fst variant.compiler ^ "." ^ snd variant.compiler;
+    with_test = true;
+    dune_args = [ "@install"; "@check"; "@runtest" ];
+    only_packages = List.map Filename.remove_extension opam_files;
+    arch = variant.vars.arch;
+    os = variant.vars.os;
+    os_family = variant.vars.os_family;
+    os_distribution = variant.vars.os_distribution;
+    os_version = variant.vars.os_version;
+  }
+
+let day10_jsont =
+  let open Jsont.Object in
+  map ~kind:"day10"
+    (fun
+      opam_repository
+      opam_repository_commit
+      ocaml_version
+      with_test
+      dune_args
+      only_packages
+      arch
+      os
+      os_family
+      os_distribution
+      os_version
+      :
+      Ocluster_client.day10
+    ->
+      {
+        opam_repository;
+        opam_repository_commit;
+        ocaml_version;
+        with_test;
+        dune_args;
+        only_packages;
+        arch;
+        os;
+        os_family;
+        os_distribution;
+        os_version;
+      })
+  |> mem "opamRepository" Jsont.string ~enc:(fun (d : Ocluster_client.day10) ->
+      d.opam_repository)
+  |> mem "opamRepositoryCommit" Jsont.string
+       ~enc:(fun (d : Ocluster_client.day10) -> d.opam_repository_commit)
+  |> mem "ocamlVersion" Jsont.string ~enc:(fun (d : Ocluster_client.day10) ->
+      d.ocaml_version)
+  |> mem "withTest" Jsont.bool ~enc:(fun (d : Ocluster_client.day10) ->
+      d.with_test)
+  |> mem "duneArgs" (Jsont.list Jsont.string)
+       ~enc:(fun (d : Ocluster_client.day10) -> d.dune_args)
+  |> mem "onlyPackages" (Jsont.list Jsont.string)
+       ~enc:(fun (d : Ocluster_client.day10) -> d.only_packages)
+  |> mem "arch" Jsont.string ~enc:(fun (d : Ocluster_client.day10) -> d.arch)
+  |> mem "os" Jsont.string ~enc:(fun (d : Ocluster_client.day10) -> d.os)
+  |> mem "osFamily" Jsont.string ~enc:(fun (d : Ocluster_client.day10) ->
+      d.os_family)
+  |> mem "osDistribution" Jsont.string ~enc:(fun (d : Ocluster_client.day10) ->
+      d.os_distribution)
+  |> mem "osVersion" Jsont.string ~enc:(fun (d : Ocluster_client.day10) ->
+      d.os_version)
+  |> finish

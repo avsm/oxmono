@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Build Debian on `--day10` architectures, x86_64 and riscv64 by default,
+  as `day10 build` jobs on the `day10-` OCluster pools, which are much
+  faster than OBuilder ones. OxCaml and Windows builds stay OBuilder.
+
 - Show a build as pending until an OCluster worker takes its job, rather
   than running from its submission. The build's first step is now `start`,
   the worker's setup before the first operation.

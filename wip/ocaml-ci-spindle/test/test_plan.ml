@@ -135,6 +135,7 @@ let () =
       compilers = [ "auto" ];
       platforms = [ Debian Arm64; Debian X86_64 ];
       full_platforms = [ Windows ];
+      day10 = [];
       diagnose =
         Some
           (Diagnose.v ~key:"sekrit" ~model:"test-model" ~clock:env#mono_clock
@@ -337,6 +338,36 @@ let () =
   assert (
     has (Buffer.contents log)
       "Windows are built only for a pull request a maintainer labels ci:full.");
+  (* With day10 on x86_64, those builds are day10 jobs on the day10 pool, and
+     the rest stay OBuilder specs. *)
+  spawned := [];
+  remaining := script;
+  (match
+     Ci.executor
+       { config with day10 = [ Variant.X86_64 ] }
+       ctx
+       { request with labels = (fun () -> [ Ci.full_label ]) }
+   with
+  | () -> failwith "the summary passed with a failed build"
+  | exception Failure _ -> ());
+  let _, env, steps = List.find (fun (n, _, _) -> n = x86) !spawned in
+  assert (List.assoc "OCAMLCI_POOL" env = "day10-linux-x86_64");
+  assert (List.assoc "OCAMLCI_DAY10" env = "1");
+  let first = List.hd steps in
+  assert (first.name = "day10");
+  (match Jsont_bytesrw.decode_string Spec.day10_jsont first.command with
+  | Ok d ->
+      assert (d.ocaml_version = "ocaml.5.4.1" && d.with_test);
+      assert (d.only_packages = [ "demo" ] && d.os_distribution = "debian");
+      assert (d.dune_args = [ "@install"; "@check"; "@runtest" ]);
+      assert (d.opam_repository_commit <> "")
+  | Error e -> failwith e);
+  let later name =
+    List.find (fun (s : Spindle.Job.step) -> s.name = name) steps
+  in
+  assert (not (List.mem_assoc "OCAMLCI_DAY10" (later arm).env));
+  assert (List.assoc "OCAMLCI_POOL" (later win).env = "windows-x86_64");
+  assert (has (later win).command "host-system-mingw");
   (* A repository's own workflow never reaches OCluster, whatever its
      environment says. *)
   (match

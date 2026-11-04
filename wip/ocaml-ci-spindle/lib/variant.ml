@@ -13,6 +13,7 @@ type t = {
   compiler : string * string;
   requires : string list;
   oxcaml : bool;
+  day10 : bool;
 }
 
 let arch_name = function
@@ -77,6 +78,7 @@ let v ?(platform = Debian X86_64) version =
         compiler = ("ocaml", version);
         requires = [];
         oxcaml = false;
+        day10 = false;
       }
   | Windows ->
       {
@@ -88,6 +90,7 @@ let v ?(platform = Debian X86_64) version =
         compiler = ("ocaml", version);
         requires = [ "host-system-mingw" ];
         oxcaml = false;
+        day10 = false;
       }
 
 let oxcaml =
@@ -100,6 +103,7 @@ let oxcaml =
     compiler = ("oxcaml-compiler", "5.2.0minus39");
     requires = [];
     oxcaml = true;
+    day10 = false;
   }
 
 let version t = snd t.compiler
@@ -129,3 +133,13 @@ let choose ~packages minors =
     | minors -> List.filter (fun (m, _) -> List.mem m minors) releases
   in
   List.map (fun (_, version) -> v version) wanted
+
+(* day10 workers sit in pools named for the OBuilder ones they replace. They
+   read one opam repository, so OxCaml, which layers its own over
+   opam-repository, stays on OBuilder, as does Windows. *)
+let use_day10 ~arches v =
+  if
+    v.os = Linux && (not v.oxcaml)
+    && List.exists (fun a -> opam_arch a = v.vars.arch) arches
+  then { v with day10 = true; pool = "day10-" ^ v.pool }
+  else v

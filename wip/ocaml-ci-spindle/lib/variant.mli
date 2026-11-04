@@ -20,6 +20,8 @@ type t = {
       (** Packages the solution must also hold, such as the Windows C toolchain
           the image has. *)
   oxcaml : bool;  (** Whether the OxCaml repository and switch are used. *)
+  day10 : bool;
+      (** Whether it is built with day10 rather than an OBuilder spec. *)
 }
 
 val platforms : (string * platform) list
@@ -41,3 +43,8 @@ val choose : packages:string -> string list -> t list
 (** [choose ~packages minors] is a Debian 13 x86_64 build for the newest release
     of each OCaml minor version in [minors], newest first, as opam-repository's
     [packages] lists them. [["auto"]] picks 4.14 and the two newest minors. *)
+
+val use_day10 : arches:arch list -> t -> t
+(** [use_day10 ~arches v] builds [v] with day10, on the [day10-] pool named for
+    its own, if it is a Debian build on one of [arches] that is not OxCaml's.
+    Otherwise it is [v]. *)

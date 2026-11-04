@@ -24,6 +24,10 @@ type config = {
       (** Platforms that build the newest of [compilers] once its x86_64 build
           passes. *)
   full_platforms : Variant.platform list;
+  day10 : Variant.arch list;
+      (** The architectures whose Debian builds are [day10 build] jobs, on the
+          [day10-] pools, rather than OBuilder specs. OxCaml's and Windows
+          builds are always OBuilder ones. *)
       (** Further such platforms, built only for a pull request labelled
           {!full_label}. *)
   diagnose : Diagnose.t option;

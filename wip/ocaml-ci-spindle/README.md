@@ -21,6 +21,7 @@ It takes every option of the `spindle` command, and these of its own:
 | `--compilers MINORS` | OCaml minor versions to build on Debian 13 x86_64, such as `4.14,5.4`. `auto`, the default, picks 4.14 and the two newest. |
 | `--platforms LIST` | Platforms that build the newest compiler once its x86_64 build passes, from `arm64`, `ppc64le`, `riscv64` and `windows`. `arm64` by default. |
 | `--full-platforms LIST` | Further such platforms, built only for a pull request labelled `ci:full`. `ppc64le`, `riscv64` and `windows` by default. |
+| `--day10 ARCHES` | Debian architectures built with day10 on the `day10-linux-ARCH` pools instead of OBuilder, from `x86_64`, `arm64`, `ppc64le` and `riscv64`, or `none`. `x86_64,riscv64` by default. |
 | `--oxcaml` | Also build with OxCaml 5.2.0minus39, as oxmono does. |
 | `--opam-cache DIR` | Where opam-repository is cloned to solve. |
 | `--diagnose` | Ask a language model about the failed builds of pull requests labelled `ci:diagnose`. Off by default. |
@@ -94,6 +95,25 @@ pull request from its knot to see who did. Labels are read when the
 `ocaml-ci` workflow starts and when its summary ends, and a label added
 later takes effect on a retry. Pushes and manual runs have no labels, so
 they build only `--platforms` and are never diagnosed.
+
+## day10 builds
+
+Debian builds on the `--day10` architectures are `day10 build` jobs, the
+custom OCluster jobs of [Mark Elvers's day10
+branch](https://github.com/mtelvers/ocluster/tree/day10), on the pool of the
+same name with a `day10-` prefix, such as `day10-linux-x86_64`. Only workers
+started with `--day10-cache` take them. The job names the project's source,
+the opam-repository commit of the solve, the compiler, such as
+`ocaml.5.4.1`, the project's packages, the platform's opam variables, and
+`dune build @install @check @runtest` with tests. day10 solves and builds the
+project itself in a cached sandbox. The solve here still decides which
+builds a project has. The workflow's first step is `day10`, whose command is
+the job as JSON.
+
+day10 reads a single opam repository, so OxCaml builds, which layer the
+OxCaml repository over opam-repository, stay OBuilder specs, as Windows
+builds do. day10's output has no OBuilder operations, so its log is one
+step.
 
 ## Diagnosing failures
 

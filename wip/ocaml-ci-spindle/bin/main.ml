@@ -50,8 +50,14 @@ let diagnose =
 let options =
   let open Arg in
   Term.(
-    const (fun cap cache compilers platforms full_platforms oxcaml diagnose ->
-        (cap, cache, compilers, (platforms, full_platforms), oxcaml, diagnose))
+    const
+      (fun cap cache compilers platforms full_platforms day10 oxcaml diagnose ->
+        ( cap,
+          cache,
+          compilers,
+          (platforms, full_platforms, day10),
+          oxcaml,
+          diagnose ))
     $ required
         (opt (some file) None
         & info [ "ocluster-cap" ] ~docv:"FILE"
@@ -83,6 +89,27 @@ let options =
                the repository's owner or a collaborator labels $(b,ci:full). \
                $(b,ppc64le), $(b,riscv64) and $(b,windows) by default.")
     $ value
+        (opt
+           (list
+              (enum
+                 Variant.
+                   [
+                     ("x86_64", [ X86_64 ]);
+                     ("arm64", [ Arm64 ]);
+                     ("ppc64le", [ Ppc64le ]);
+                     ("riscv64", [ Riscv64 ]);
+                     ("none", []);
+                   ]))
+           Variant.[ [ X86_64 ]; [ Riscv64 ] ]
+        & info [ "day10" ] ~docv:"ARCHES"
+            ~doc:
+              "Build Debian on these architectures with day10 instead of \
+               OBuilder, on the OCluster pools named \
+               $(b,day10-linux-)$(i,ARCH), from $(b,x86_64), $(b,arm64), \
+               $(b,ppc64le) and $(b,riscv64), or $(b,none). \
+               $(b,x86_64,riscv64) by default. OxCaml and Windows always build \
+               with OBuilder.")
+    $ value
         (flag
         & info [ "oxcaml" ]
             ~doc:"Also build with OxCaml 5.2.0minus39, as oxmono does.")
@@ -110,8 +137,15 @@ let () =
                     "https://github.com/oxcaml/opam-repository.git")
              else None);
           compilers;
-          platforms = fst platforms;
-          full_platforms = snd platforms;
+          platforms =
+            (let p, _, _ = platforms in
+             p);
+          full_platforms =
+            (let _, f, _ = platforms in
+             f);
+          day10 =
+            (let _, _, d = platforms in
+             List.concat d);
           diagnose =
             Option.map
               (fun (url, model, key) ->

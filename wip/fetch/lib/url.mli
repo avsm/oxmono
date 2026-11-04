@@ -48,28 +48,28 @@ val of_uri : Httpz_uri.t -> (t, string) result
 (** [of_uri u] is [u] validated and normalized as an absolute HTTP or HTTPS
     URL, or an error explaining why [u] is not acceptable. *)
 
-val to_uri : t -> Httpz_uri.t @@ portable
+val to_uri : t -> Httpz_uri.t
 (** [to_uri t] is [t]'s canonical form as an {!Httpz_uri.t}, for a transport
     API that takes one. Its fragment is omitted because fragments are not part
     of an HTTP request target. A default port is elided, so a caller needing
     the port supplies 80 or 443 itself. It serializes as {!to_string} does. *)
 
-val scheme : t @ local -> scheme @@ portable
+val scheme : t @ local -> scheme
 (** [scheme t] is [t]'s scheme. *)
 
-val host : t -> string @@ portable
+val host : t -> string
 (** [host t] is [t]'s host, lowercase ASCII in the canonical spelling
     described above: an A-label with no trailing dot, or an IPv4 address as a
     dotted quad. An IPv6 literal is held without its brackets, which {!origin}
     re-adds. *)
 
-val port : t @ local -> int @@ portable
+val port : t @ local -> int
 (** [port t] is [t]'s port, the scheme's default already applied. *)
 
-val default_port : scheme -> int @@ portable
+val default_port : scheme -> int
 (** [default_port s] is 80 for [`Http] and 443 for [`Https]. *)
 
-val same_origin : t @ local -> t @ local -> bool @@ portable
+val same_origin : t @ local -> t @ local -> bool
 (** [same_origin a b] is [true] if [a] and [b] agree on scheme, host and
     port. *)
 
@@ -92,14 +92,14 @@ val path_segments : t -> string list
     escape. Construction validates every triplet, so no value of {!t} reaches
     that. *)
 
-val has_query : t @ local -> bool @@ portable
+val has_query : t @ local -> bool
 (** [has_query t] is [true] if [t] binds any query parameter. *)
 
-val has_fragment : t @ local -> bool @@ portable
+val has_fragment : t @ local -> bool
 (** [has_fragment t] is [true] if its client-side URI contains a fragment,
     including an explicitly empty one. *)
 
-val under : prefix:t @ local -> t @ local -> bool @@ portable
+val under : prefix:t @ local -> t @ local -> bool
 (** [under ~prefix t] is [true] if [t] has [prefix]'s origin and
     [prefix]'s normalized wire path is a prefix of [t]'s, aligned on
     segments, so that ["https://h/api"] covers ["https://h/api/x"] but
@@ -129,11 +129,11 @@ val resolve : base:t -> string -> (t, string) result
     redirection by RFC 9110 section 10.2.2. An absolute reference with a
     scheme other than HTTP or HTTPS is rejected after resolution. *)
 
-val to_string : t -> string @@ portable
+val to_string : t -> string
 (** [to_string t] is the fragment-free canonical serialization a backend sends
     to the origin. *)
 
-val effective_string : t -> string @@ portable
+val effective_string : t -> string
 (** [effective_string t] is the canonical serialization including its
     client-side fragment. *)
 

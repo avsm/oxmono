@@ -55,13 +55,13 @@ val author_name : t -> string
 
 (** {1 Entry Lookup} *)
 
-val lookup : t -> string -> Bushel.Entry.entry option @@ portable
+val lookup : t -> string -> Bushel.Entry.entry option
 (** [lookup t slug] is the entry named by [slug], if present. *)
 val lookup_exn : t -> string -> Bushel.Entry.entry
 (** [lookup_exn t slug] is the entry named by [slug].
 
     @raise Not_found if it is absent. *)
-val lookup_image : t -> string -> Srcsetter.t option @@ portable
+val lookup_image : t -> string -> Srcsetter.t option
 (** [lookup_image t slug] is the image named by [slug], if present. *)
 val lookup_by_name : t -> string -> Sortal_schema.Contact.t option
 (** [lookup_by_name t name] is the unambiguous contact named [name], if any. *)

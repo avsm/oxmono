@@ -51,6 +51,6 @@ val string_drop_prefix : prefix:string -> string -> string
 (** [string_drop_prefix ~prefix s] is [s] without a leading [prefix]. *)
 
 val with_feed_references :
-  ctx:Arod_ctx.t -> Bushel.Note.t -> string -> string @@ portable
+  ctx:Arod_ctx.t -> Bushel.Note.t -> string -> string
 (** [with_feed_references ~ctx note html] is [html] followed by the references
     of [note] when it is a permanent or DOI entry. *)

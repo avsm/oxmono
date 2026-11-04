@@ -199,6 +199,36 @@ let service_of_did ?plc http did ~id =
   | Some endpoint -> Ok endpoint
   | None -> Error (Printf.sprintf "%s lists no %s service" did id)
 
+let handle_of_document ~did json =
+  match Jsont_bytesrw.decode_string Jsont.json json with
+  | Error _ -> None
+  | Ok doc -> (
+      if str (member "id" doc) <> Some did then None
+      else
+        match member "alsoKnownAs" doc with
+        | Some (Jsont.Array (items, _)) ->
+            List.find_map
+              (function
+                | Jsont.String (aka, _)
+                  when String.starts_with ~prefix:"at://" aka ->
+                    Some (String.sub aka 5 (String.length aka - 5))
+                | _ -> None)
+              items
+        | _ -> None)
+
+(* A handle counts only when the DID document claims it and the handle names
+   the DID back. *)
+let verified_handle ?plc http did =
+  match document ?plc http did with
+  | Error _ -> None
+  | Ok body -> (
+      match handle_of_document ~did body with
+      | None -> None
+      | Some handle -> (
+          match did_of_handle http handle with
+          | Ok back when back = did -> Some (String.lowercase_ascii handle)
+          | _ -> None))
+
 let pds_of_handle ?plc http handle =
   let* did = did_of_handle http handle in
   pds_of_did ?plc http did

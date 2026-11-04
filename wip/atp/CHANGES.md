@@ -1,5 +1,8 @@
 # Changes
 
+- Add `Xrpc.Identity.verified_handle` and `handle_of_document`, the
+  two-way handle check that `xrpc-auth.web` now uses.
+
 - Accept borrowed Fetch requests and copy data only where retained or required
   by an owned-input parser.
 

@@ -17,8 +17,8 @@
 
     Each request goes to a host that the caller named, with the redirect policy
     of the client given. A server that resolves handles supplied by its users
-    should give a client that limits where it may connect. The DID that a handle
-    names is not checked against the handle that its document lists. *)
+    should give a client that limits where it may connect. Only
+    {!verified_handle} checks a handle against the DID it names. *)
 
 val pds_of_document : string -> string option
 (** [pds_of_document json] is the personal data server in the DID document
@@ -54,6 +54,17 @@ val service_of_did :
   ?plc:string -> _ Fetch.t -> string -> id:string -> (string, string) result
 (** [service_of_did ?plc http did ~id] is [service_of_document ~id] of the DID
     document of [did]. *)
+
+val handle_of_document : did:string -> string -> string option
+(** [handle_of_document ~did json] is the first handle that the DID document
+    [json] claims in [alsoKnownAs], as [at://<handle>], if the document's [id]
+    is [did]. The claim is not checked. *)
+
+val verified_handle : ?plc:string -> _ Fetch.t -> string -> string option
+(** [verified_handle ?plc http did] is the handle of [did], lower case, if its
+    DID document claims one and {!did_of_handle} of that handle is [did]. It is
+    [None] for any answer that cannot be used. A network failure raises as
+    {!Fetch} does. *)
 
 val pds_of_handle :
   ?plc:string -> _ Fetch.t -> string -> (string, string) result

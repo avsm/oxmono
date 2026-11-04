@@ -285,41 +285,6 @@ let member name = function
       | None -> None)
   | _ -> None
 
-(* A handle counts only when the DID document claims it and the handle's host
-   names the DID back. *)
-let verified_handle ?plc ~http did =
-  match Xrpc.Identity.document ?plc http did with
-  | Error _ -> None
-  | Ok body -> (
-      match Jsont_bytesrw.decode_string Jsont.json body with
-      | Error _ -> None
-      | Ok doc -> (
-          if
-            match member "id" doc with
-            | Some (Jsont.String (id, _)) -> id <> did
-            | _ -> true
-          then None
-          else
-            let claimed =
-              match member "alsoKnownAs" doc with
-              | Some (Jsont.Array (items, _)) ->
-                  List.find_map
-                    (function
-                      | Jsont.String (aka, _)
-                        when String.starts_with ~prefix:"at://" aka ->
-                          Some (String.sub aka 5 (String.length aka - 5))
-                      | _ -> None)
-                    items
-              | _ -> None
-            in
-            match claimed with
-            | None -> None
-            | Some handle -> (
-                match Xrpc.Identity.did_of_handle http handle with
-                | Ok back when back = did ->
-                    Some (String.lowercase_ascii handle)
-                | _ -> None)))
-
 let revoke ~clock ~http client dpop server token =
   match server.P.revocation_endpoint with
   | None -> ()
@@ -404,7 +369,7 @@ let finish ~clock ~http ?plc client pending ~query =
       Ok
         {
           did;
-          handle = verified_handle ?plc ~http did;
+          handle = Xrpc.Identity.verified_handle ?plc http did;
           pds = P.strip_slash pds;
           scope;
         }

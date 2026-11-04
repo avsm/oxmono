@@ -185,6 +185,111 @@ let solve r =
   | exception ((Out_of_memory | Stack_overflow) as e) -> raise e
   | exception e -> Error ("bad opam file: " ^ Printexc.to_string e)
 
+(* A project package's dependencies, with its test ones, as the solve reads
+   them. *)
+let depends text =
+  OpamFile.OPAM.read_from_string text
+  |> OpamFile.OPAM.depends
+  |> OpamFilter.filter_deps ~build:true ~post:false ~test:true ~doc:false
+       ~dev:false ~default:false
+
+let direct pins =
+  let own = List.map fst pins in
+  List.concat_map
+    (fun (_, text) ->
+      match depends text with
+      | f ->
+          List.map
+            (fun (n, _) -> OpamPackage.Name.to_string n)
+            (OpamFormula.atoms f)
+      | exception _ -> [])
+    pins
+  |> List.filter (fun n -> not (List.mem n own))
+  |> List.sort_uniq String.compare
+
+(* The first reason the solver gives for each package it could not choose,
+   from lines such as [- ocaml-compiler -> (problem)] and those indented
+   beneath them. *)
+let problems diagnostics =
+  let lines = List.map String.trim (String.split_on_char '\n' diagnostics) in
+  let rec go acc = function
+    | [] -> List.rev acc
+    | l :: rest
+      when String.starts_with ~prefix:"- " l
+           && String.ends_with ~suffix:"-> (problem)" l ->
+        let name =
+          String.trim
+            (String.sub l 2
+               (String.length l - 2 - String.length "-> (problem)"))
+        in
+        let rec reason = function
+          | r :: rest when r = "" || r = "Rejected candidates:" -> reason rest
+          | r :: _ when not (String.starts_with ~prefix:"- " r) -> Some r
+          | _ -> None
+        in
+        go
+          (match reason rest with Some r -> (name, r) :: acc | None -> acc)
+          rest
+    | _ :: rest -> go acc rest
+  in
+  go [] lines
+
+let explain r diagnostics =
+  let cname, cver = r.compiler in
+  let compiler =
+    OpamPackage.create
+      (OpamPackage.Name.of_string cname)
+      (OpamPackage.Version.of_string cver)
+  in
+  (* The commonest reason is the project's own bound on the compiler. *)
+  let bound =
+    List.find_map
+      (fun (name, text) ->
+        match depends text with
+        | f ->
+            List.find_map
+              (fun ((n, _) as atom) ->
+                if
+                  OpamPackage.Name.to_string n = cname
+                  && not (OpamFormula.check atom compiler)
+                then
+                  let bound =
+                    match atom with
+                    | n, Some (op, v) ->
+                        Printf.sprintf "%s %s %s"
+                          (OpamPackage.Name.to_string n)
+                          (match op with
+                          | `Eq -> "="
+                          | `Neq -> "!="
+                          | `Geq -> ">="
+                          | `Gt -> ">"
+                          | `Leq -> "<="
+                          | `Lt -> "<")
+                          (OpamPackage.Version.to_string v)
+                    | _ -> OpamFormula.short_string_of_atom atom
+                  in
+                  Some (Printf.sprintf "%s requires %s" name bound)
+                else None)
+              (OpamFormula.atoms f)
+        | exception _ -> None)
+      r.pins
+  in
+  match bound with
+  | Some why -> why
+  | None -> (
+      match problems diagnostics with
+      | [] -> (
+          match
+            List.filter (( <> ) "") (String.split_on_char '\n' diagnostics)
+          with
+          | first :: _ -> String.trim first
+          | [] -> "no solution")
+      | ps ->
+          String.concat "; "
+            (List.map
+               (fun (name, why) -> name ^ ": " ^ why)
+               (List.filteri (fun i _ -> i < 3) ps)))
+
 let versions packages name =
   sorted_dir (packages / name)
   |> List.filter_map (fun nv ->

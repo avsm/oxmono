@@ -98,6 +98,45 @@ let () =
       assert (List.mem "lib.1.0" p && List.mem "testlib.1.0" p);
       assert (List.mem "demo.dev" p && List.mem "ocaml.4.14.2" p)
   | Error e -> failwith e);
+  (* A failed solve is explained by the project's own bound on the compiler
+     where that is the reason, or else by the solver's first reason for each
+     package in conflict. *)
+  let bounded =
+    ( "demo",
+      "opam-version: \"2.0\"\ndepends: [\"ocaml\" {>= \"5.1\"} \"lib\"]\n" )
+  in
+  let request compiler pins : Solve.request =
+    {
+      platform = vars;
+      repositories = [ packages ];
+      pins;
+      compiler = ("ocaml", compiler);
+      requires = [];
+    }
+  in
+  (match Solve.solve (request "4.14.2" [ bounded ]) with
+  | Ok _ -> failwith "solved against the project's bound"
+  | Error why ->
+      let short = Solve.explain (request "4.14.2" [ bounded ]) why in
+      assert (short = "demo requires ocaml >= 5.1"));
+  let diagnostics =
+    "Can't find all required versions.\n\
+     Selected: ocaml-base-compiler.5.5.2\n\
+     - ocaml -> ocaml.4.14.4\n\
+    \    User requested = 4.14.4\n\
+     - ocaml-compiler -> (problem)\n\
+    \    ocaml-base-compiler 5.5.2 requires = 5.5.2\n\
+    \    Rejected candidates:\n\
+    \      ocaml-compiler.5.7: Incompatible with restriction: = 5.5.2\n\
+     - ocaml-variants -> (problem)\n\
+    \    Rejected candidates:\n\
+    \      ocaml-variants.5.7.0+trunk: In same conflict class\n"
+  in
+  assert (
+    Solve.explain (request "4.14.4" [ project ]) diagnostics
+    = "ocaml-compiler: ocaml-base-compiler 5.5.2 requires = 5.5.2; \
+       ocaml-variants: ocaml-variants.5.7.0+trunk: In same conflict class");
+  assert (Solve.direct [ project; bounded ] = [ "lib"; "ocaml"; "testlib" ]);
   (match solve "5.4.1" with
   | Ok p -> assert (List.mem "lib.2.0" p)
   | Error e -> failwith e);

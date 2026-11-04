@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Show the solve as a short summary: the repositories by short commit, each
+  installable build with its package count and the versions chosen for the
+  project's direct dependencies, and each other build with one reason, such
+  as the project's own bound on the compiler, instead of the solver's
+  traceback.
+
 - Build Debian on `--day10` architectures, x86_64 and riscv64 by default,
   as `day10 build` jobs on the `day10-` OCluster pools, which are much
   faster than OBuilder ones. OxCaml and Windows builds stay OBuilder.

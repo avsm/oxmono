@@ -26,12 +26,6 @@ let jobs = [ Job.v "ocaml-ci" [ Job.step "plan" "opam-0install" ] ]
 let logf (ctx : Spindle.Executor.context) fmt =
   Printf.ksprintf (fun s -> ctx.log `Stdout s) fmt
 
-let first_lines n s =
-  String.split_on_char '\n' s
-  |> List.filteri (fun i _ -> i < n)
-  |> List.map (fun l -> "  " ^ l)
-  |> String.concat "\n"
-
 (* [snapshots repos f] is [f] applied to each repository's commit and packages
    directory, all held still while [f] runs. *)
 let rec snapshots repos f =
@@ -284,10 +278,14 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
             config.opam_repository :: Option.to_list config.oxcaml_repository
           in
           snapshots repos @@ fun snaps ->
+          logf ctx "Solving with opam-0install against:\n";
           List.iter
             (fun (repo, commit, _) ->
-              logf ctx "%s at %s\n" (Opam_repo.url repo) commit)
+              logf ctx "  %s %s (%s)\n" (Opam_repo.name repo)
+                (String.sub commit 0 (min 7 (String.length commit)))
+                (Opam_repo.url repo))
             snaps;
+          logf ctx "\n";
           let _, default_commit, default = List.hd snaps in
           let oxcaml = List.nth_opt snaps 1 in
           let solve (v : Variant.t) =
@@ -306,12 +304,39 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                 requires = v.requires;
               }
             in
+            (* What a build would install: the project's direct
+               dependencies, at the versions the solve chose. *)
+            let installable packages =
+              let chosen =
+                List.filter_map
+                  (fun name ->
+                    List.find_map
+                      (fun nv ->
+                        let p = name ^ "." in
+                        if String.starts_with ~prefix:p nv then
+                          Some
+                            (name ^ " "
+                            ^ String.sub nv (String.length p)
+                                (String.length nv - String.length p))
+                        else None)
+                      packages)
+                  (Solve.direct (Analysis.packages a))
+              in
+              logf ctx "✓ %s: installable, %d packages%s\n" v.name
+                (List.length packages)
+                (if v.day10 then ", built with day10" else "");
+              if chosen <> [] then
+                let shown = List.filteri (fun i _ -> i < 12) chosen in
+                logf ctx "    %s%s\n" (String.concat ", " shown)
+                  (match List.length chosen - List.length shown with
+                  | 0 -> ""
+                  | n -> Printf.sprintf " and %d more" n)
+            in
             match Eio_unix.run_in_systhread (fun () -> Solve.solve request) with
             | Ok packages when v.day10 ->
                 (* day10 solves again itself, but the solve here says which
                    builds the project can have. *)
-                logf ctx "%s: %d packages, built with day10\n" v.name
-                  (List.length packages);
+                installable packages;
                 let d =
                   Spec.day10 ~variant:v
                     ~opam_repository:
@@ -324,7 +349,7 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                     | Ok s -> s
                     | Error e -> failwith e )
             | Ok packages ->
-                logf ctx "%s: %d packages\n" v.name (List.length packages);
+                installable packages;
                 Some
                   ( v,
                     Spec.v ~variant:v ~opam_repository:default_commit
@@ -336,7 +361,8 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                       ~opam_files:(List.map fst a.opam_files)
                       ~packages () )
             | Error why ->
-                logf ctx "%s: no solution\n%s\n" v.name (first_lines 20 why);
+                logf ctx "✗ %s: not installable, as %s\n" v.name
+                  (Solve.explain request why);
                 None
           in
           let variants =

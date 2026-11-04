@@ -31,6 +31,18 @@ val solve : request -> (string list, string) result
 (** [solve request] is the packages of a solution, as [name.version], or an
     explanation of why there is none. The pinned packages are included. *)
 
+val direct : (string * string) list -> string list
+(** [direct pins] is the names of the packages that the project's [pins], given
+    as in {!request}, depend on directly, with their test dependencies, apart
+    from the project's own. *)
+
+val explain : request -> string -> string
+(** [explain r diagnostics] is a short reason that [r] has no solution, from the
+    solver's [diagnostics]: a project package's bound on the compiler that its
+    version does not meet, such as [tdmrep requires ocaml >= 5.1], or else the
+    first reason the solver gives for at most three packages it could not
+    choose. *)
+
 val versions : string -> string -> string list
 (** [versions packages name] is the released versions of package [name] in the
     [packages] directory, without pre-releases, newest first. *)

@@ -6,4 +6,5 @@
   pipeline up to date in the rooms that repositories' owners and
   collaborators bind them to, verifying its own device with the account's
   cross-signing keys. `--room` reports every repository of the served
-  accounts in a room, as a firehose.
+  accounts in a room, as a firehose. `--spindle` limits it to repositories
+  whose CI runs on given spindles.

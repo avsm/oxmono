@@ -18,7 +18,16 @@ let rooms ~repo ~owner ~collaborators wanted =
     wanted
   |> List.sort_uniq String.compare
 
-let read api ~accounts ~bot ?(everything = [])
+(* A spindle is named by DID or by host, which is its [did:web]. *)
+let spindle_did s =
+  if String.starts_with ~prefix:"did:" s then s else "did:web:" ^ s
+
+let served ~spindles (repo : Api.repository) =
+  match repo.manifest.spindle with
+  | None -> false
+  | Some s -> spindles = [] || List.mem s (List.map spindle_did spindles)
+
+let read api ~accounts ~bot ?(everything = []) ?(spindles = [])
     ?(resolve = fun did -> Api.resolve_repo api did) ?(on_error = log_error) ()
     =
   let guard what f =
@@ -62,7 +71,7 @@ let read api ~accounts ~bot ?(everything = [])
        (fun did ->
          guard did (fun () ->
              let repo = resolve did in
-             if repo.manifest.spindle = None then []
+             if not (served ~spindles repo) then []
              else
                (* Collaborators are read once per repository, and only when an
                author is not its owner. *)

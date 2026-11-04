@@ -8,7 +8,7 @@ let read_secret path =
   s
 
 let run () state bot password_file recovery_key_file homeserver accounts rooms
-    interval edit_interval appview allow_unencrypted plc =
+    spindles interval edit_interval appview allow_unencrypted plc =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let state = Eio.Path.(Eio.Stdenv.fs env / state) in
@@ -46,8 +46,8 @@ let run () state bot password_file recovery_key_file homeserver accounts rooms
       m "Posting as %s, device %s, for %s" (Bot.user_id bot) (Bot.device_id bot)
         (String.concat ", " accounts));
   let messages = Messages.load Eio.Path.(state / "messages.json") in
-  Poster.run ~sw ~clock:env#clock ~api ~bot ~messages ~accounts ~rooms ~interval
-    ~edit_interval ?appview ()
+  Poster.run ~sw ~clock:env#clock ~api ~bot ~messages ~accounts ~rooms ~spindles
+    ~interval ~edit_interval ?appview ()
 
 let setup_log =
   let setup style level =
@@ -122,6 +122,15 @@ let rooms =
            in ROOM, by alias or ID, without bindings, as a firehose. The bot \
            must be invited to it. Repeat the option for more rooms.")
 
+let spindles =
+  Arg.(
+    value & opt_all string []
+    & info [ "spindle" ] ~docv:"SPINDLE"
+        ~doc:
+          "Report only repositories whose CI runs on SPINDLE, by host such as \
+           $(i,spindle.example.org) or by DID. Repeat the option for more \
+           spindles. Without it, repositories on any spindle are reported.")
+
 let interval =
   Arg.(
     value & opt float 15.
@@ -175,7 +184,7 @@ let cmd =
          ])
     Term.(
       const run $ setup_log $ state $ bot $ password_file $ recovery_key_file
-      $ homeserver $ accounts $ rooms $ interval $ edit_interval $ appview
-      $ allow_unencrypted $ plc)
+      $ homeserver $ accounts $ rooms $ spindles $ interval $ edit_interval
+      $ appview $ allow_unencrypted $ plc)
 
 let () = exit (Cmd.eval cmd)

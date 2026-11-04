@@ -11,8 +11,9 @@ type pending = {
   mutable held : bool;  (** Whether a not-ready room was already logged. *)
 }
 
-let run ~sw ~clock ~api ~bot ~messages ~accounts ?(rooms = []) ?(interval = 15.)
-    ?(edit_interval = 10.) ?(bindings_interval = 60.) ?appview () =
+let run ~sw ~clock ~api ~bot ~messages ~accounts ?(rooms = []) ?spindles
+    ?(interval = 15.) ?(edit_interval = 10.) ?(bindings_interval = 60.) ?appview
+    () =
   let clock = (clock :> float Eio.Time.clock_ty Eio.Resource.t) in
   let bindings = ref [] in
   (* Resolving a repository takes a few requests, and an account may have
@@ -39,7 +40,8 @@ let run ~sw ~clock ~api ~bot ~messages ~accounts ?(rooms = []) ?(interval = 15.)
         rooms
     in
     bindings :=
-      Bindings.read api ~accounts ~bot:(Bot.user_id bot) ~everything ~resolve ();
+      Bindings.read api ~accounts ~bot:(Bot.user_id bot) ~everything ?spindles
+        ~resolve ();
     Logs.info (fun m -> m "Reporting %d repositories" (List.length !bindings))
   in
   refresh ();

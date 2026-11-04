@@ -28,6 +28,7 @@ tangled-matrix --bot @ci:example.org --password-file bot.password \
 | `--password-file FILE` | Its password, for the first login and for creating cross-signing keys. |
 | `--account HANDLE` | A Tangled account whose bindings the bot honours. Repeat it for more. |
 | `--room ROOM` | Also report every repository of the `--account` accounts in ROOM, as a firehose, without bindings. Repeat it for more rooms. |
+| `--spindle SPINDLE` | Only report repositories whose CI runs on SPINDLE, by host or DID. Repeat it for more. Any spindle by default. |
 | `--state-dir DIR` | Where the session, keys and messages are kept. `tangled-matrix-state` by default. |
 | `--recovery-key-file FILE` | The account's recovery key, to verify a new device of an account that already has cross-signing keys. |
 | `--homeserver URL` | The homeserver, found through `.well-known/matrix/client` by default. |

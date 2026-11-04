@@ -8,6 +8,7 @@ val run :
   messages:Messages.t ->
   accounts:string list ->
   ?rooms:string list ->
+  ?spindles:string list ->
   ?interval:float ->
   ?edit_interval:float ->
   ?bindings_interval:float ->
@@ -19,7 +20,8 @@ val run :
     {!Bindings.read} finds them every [bindings_interval] seconds, 60 by
     default, and every repository [accounts] own that names a spindle in each of
     [rooms], given by ID or alias as {!Bot.find_room} finds them. A room not
-    found yet is looked for again at the next reading.
+    found yet is looked for again at the next reading. With [spindles], only
+    repositories naming one of them are reported.
 
     A pipeline's message is sent when it is first seen and edited in place as it
     changes, at most once every [edit_interval] seconds, 10 by default, so that

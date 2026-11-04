@@ -122,6 +122,31 @@ let messages env =
   assert (Messages.entries (Messages.load path) = []);
   assert (Sys.file_exists (Filename.concat dir "messages.json.bad"))
 
+let spindles () =
+  let on spindle =
+    let manifest =
+      match
+        Jsont_bytesrw.decode_string Tangled.Api.Lex.Repo.Manifest.main_jsont
+          (Printf.sprintf
+             {|{"$type":"org.tangled.repo.manifest","createdAt":"2026-01-01T00:00:00Z",
+                "declaration":{"owner":"did:plc:alice","name":"demo"},"spindle":"%s"}|}
+             spindle)
+      with
+      | Ok m -> m
+      | Error e -> failwith e
+    in
+    { repo with manifest }
+  in
+  let ours = on "did:web:spindle.recoil.org"
+  and theirs = on "did:web:spindle.tangled.network" in
+  let served = Bindings.served in
+  (* By host or DID, and any spindle when none is named. *)
+  assert (served ~spindles:[ "spindle.recoil.org" ] ours);
+  assert (served ~spindles:[ "did:web:spindle.recoil.org" ] ours);
+  assert (not (served ~spindles:[ "spindle.recoil.org" ] theirs));
+  assert (served ~spindles:[] theirs);
+  assert (not (served ~spindles:[] repo))
+
 let bindings () =
   let wanted =
     [
@@ -162,6 +187,7 @@ let () =
   render ();
   messages env;
   bindings ();
+  spindles ();
   print_endline
-    "tangled-matrix: rendering, escaping, the message store and binding \
-     permissions passed"
+    "tangled-matrix: rendering, escaping, the message store, binding \
+     permissions and spindle filtering passed"

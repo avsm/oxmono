@@ -59,7 +59,8 @@ module Client : sig
 
       @raise Invalid_argument
         unless the three URLs are HTTPS URLs without a fragment on one origin,
-        or if [scope] lacks [atproto]. *)
+        if [client_uri] is not a parent of [client_id], as Bluesky's
+        authorization server requires, or if [scope] lacks [atproto]. *)
 
   val id : t -> string
   val redirect_uri : t -> string

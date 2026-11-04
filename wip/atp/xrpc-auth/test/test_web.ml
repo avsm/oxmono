@@ -253,6 +253,15 @@ let () =
          W.Client.v ~client_id:"https://site.test/m.json"
            ~redirect_uri:"https://evil.test/cb" ~jwks_uri:"https://site.test/k"
            ~key ~kid:"k1" ()));
+  check "a client URI that is not a parent of the client ID refused"
+    (raises_invalid (fun () ->
+         W.Client.v ~client_id:"https://site.test/oauth/m.json"
+           ~redirect_uri:"https://site.test/cb" ~jwks_uri:"https://site.test/k"
+           ~key ~kid:"k1" ~client_uri:"https://site.test/ui" ()));
+  ignore
+    (W.Client.v ~client_id:"https://site.test/oauth/m.json"
+       ~redirect_uri:"https://site.test/cb" ~jwks_uri:"https://site.test/k"
+       ~key ~kid:"k1" ~client_uri:"https://site.test" ());
   check "scope without atproto refused"
     (raises_invalid (fun () ->
          W.Client.v ~client_id:"https://site.test/m.json"

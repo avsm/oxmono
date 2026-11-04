@@ -9,6 +9,9 @@
 
 ## Unreleased
 
+- `Xrpc_auth_web.Client.v` refuses a `client_uri` that is not a parent of
+  the client ID, which Bluesky's authorization server rejects at login.
+
 - `Xrpc.Identity.did_of_handle` reads a handle's `_atproto` DNS TXT record,
   for now through Cloudflare's DNS-over-HTTPS resolver, before trying
   `/.well-known/atproto-did`, so handles published only in DNS resolve.

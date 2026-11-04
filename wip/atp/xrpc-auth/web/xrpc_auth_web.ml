@@ -45,6 +45,19 @@ module Client = struct
       invalid_arg "The JWKS URI must be on the client ID's origin";
     if not (has_atproto scope) then invalid_arg "The scope must include atproto";
     if kid = "" then invalid_arg "The key ID is empty";
+    (* Bluesky's authorization server refuses a client whose address is not
+       a parent of its client ID, more strictly than the specification's
+       same-host rule. *)
+    Option.iter
+      (fun uri ->
+        let parent =
+          if String.ends_with ~suffix:"/" uri then uri else uri ^ "/"
+        in
+        if
+          origin_of "The client URI" uri <> origin
+          || not (uri = client_id || String.starts_with ~prefix:parent client_id)
+        then invalid_arg "The client URI must be a parent of the client ID")
+      client_uri;
     {
       id = client_id;
       redirect_uri;

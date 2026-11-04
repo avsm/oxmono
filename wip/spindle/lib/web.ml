@@ -155,7 +155,9 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
       ~client_id:(origin ^ "/oauth/client-metadata.json")
       ~redirect_uri:(origin ^ "/oauth/callback")
       ~jwks_uri:(origin ^ "/oauth/jwks.json")
-      ~key ~kid ~client_name:hostname ~client_uri:(origin ^ "/ui") ()
+      (* Bluesky's authorization server requires the client's address to be a
+         parent of its client ID, which the spec does not. *)
+      ~key ~kid ~client_name:hostname ~client_uri:origin ()
   in
   let http =
     match http with

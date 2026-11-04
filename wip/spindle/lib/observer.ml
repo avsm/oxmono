@@ -37,6 +37,12 @@ let cursor store (policy : Operations.t) ~now =
 (* Jetstream sends identity and account events for the whole network,
    whatever the wanted collections. Only an owner whose account went inactive
    concerns this spindle. *)
+(* A relay also marks an account inactive while it is throttled or out of
+   sync, which passes. *)
+let lasting = function
+  | Some ("deleted" | "deactivated" | "takendown" | "suspended") -> true
+  | _ -> false
+
 let wanted settings event =
   try
     match get "kind" event with
@@ -45,6 +51,7 @@ let wanted settings event =
     | "account" ->
         let account = required "account" event in
         field "active" account = Some (Jsont.Json.bool false)
+        && lasting (Option.map string (field "status" account))
         && Settings.repos_of settings (did (get "did" event)) <> []
     | _ -> false
   with Invalid _ -> false
@@ -66,37 +73,44 @@ let connect ~system ~store ~settings ~url ~health ~policy =
   Health.connected health source ~now:(Eio.Time.now system#clock);
   while
     Httpz_websocket.receive socket ~f:(fun kind bytes ~off ~len ->
-        if kind <> Httpz_websocket.Text then invalid "event must be JSON text";
-        let event = decode (Bytes.sub_string bytes off len) in
-        let timestamp = timestamp event in
-        let cursor = Int64.to_string timestamp in
-        (* An event this spindle cannot name or does not want is passed over,
+        (* A frame that is not an event with a time cannot move the cursor,
+           so it is reported and passed over, and the next event moves it. *)
+        match
+          if kind <> Httpz_websocket.Text then invalid "event must be JSON text";
+          let event = decode (Bytes.sub_string bytes off len) in
+          (event, timestamp event)
+        with
+        | exception Invalid m -> report source (Invalid m)
+        | event, timestamp ->
+            let cursor = Int64.to_string timestamp in
+            (* An event this spindle cannot name or does not want is passed over,
            so that it cannot stall the stream. *)
-        let id =
-          try
-            if not (wanted settings event) then None
-            else
-              Some
-                (String.concat "/"
-                   ([ source; cursor; get "did" event ]
-                   @
-                   match field "commit" event with
-                   | None -> [ get "kind" event ]
-                   | Some commit ->
-                       [
-                         get "collection" commit;
-                         get "rkey" commit;
-                         get "operation" commit;
-                       ]))
-          with Invalid _ -> None
-        in
-        (match id with
-        | None -> Store.advance store ~source ~cursor
-        | Some id ->
-            Store.enqueue store ~source ~cursor ~key:id ~value:(encode event));
-        Health.event health source
-          ~now:(Eio.Time.now system#clock)
-          ~at:(Int64.to_float timestamp /. 1e6))
+            let id =
+              try
+                if not (wanted settings event) then None
+                else
+                  Some
+                    (String.concat "/"
+                       ([ source; cursor; get "did" event ]
+                       @
+                       match field "commit" event with
+                       | None -> [ get "kind" event ]
+                       | Some commit ->
+                           [
+                             get "collection" commit;
+                             get "rkey" commit;
+                             get "operation" commit;
+                           ]))
+              with Invalid _ -> None
+            in
+            (match id with
+            | None -> Store.advance store ~source ~cursor
+            | Some id ->
+                Store.enqueue store ~source ~cursor ~key:id
+                  ~value:(encode event));
+            Health.event health source
+              ~now:(Eio.Time.now system#clock)
+              ~at:(Int64.to_float timestamp /. 1e6))
   do
     ()
   done
@@ -373,11 +387,26 @@ let assignment engine ~wipe ~repo ~operation commit =
 
 (* An owner whose account is deactivated, suspended or deleted loses what is
    kept for their repositories. *)
-let account engine ~wipe event =
+let account engine network ~wipe event =
   let owner = did (get "did" event) in
-  Printf.eprintf
-    "spindle observer: account %s is inactive, wiping its repos\n%!" owner;
-  List.iter wipe (Settings.repos_of engine.Engine.settings owner)
+  (* The event is not trusted, so the account's PDS must say so too. *)
+  let inactive =
+    let pds = Network.pds network owner in
+    let status =
+      Network.json network
+        (Network.query
+           (pds ^ "/xrpc/com.atproto.sync.getRepoStatus")
+           [ ("did", owner) ])
+    in
+    field "active" status = Some (Jsont.Json.bool false)
+    || List.mem
+         (Option.fold ~none:"" ~some:string (field "error" status))
+         [ "RepoNotFound"; "RepoDeactivated"; "RepoTakendown"; "RepoSuspended" ]
+  in
+  if inactive then (
+    Printf.eprintf
+      "spindle observer: account %s is inactive, wiping its repos\n%!" owner;
+    List.iter wipe (Settings.repos_of engine.Engine.settings owner))
 
 let handle engine network hooks ~wipe event =
   match get "kind" event with
@@ -392,8 +421,17 @@ let handle engine network hooks ~wipe event =
         pull engine network hooks ~repo ~rkey:(get "rkey" commit)
       else if collection = ticket then
         if operation = "delete" then
-          Store.delete engine.store "pull-seen"
-            ("at://" ^ repo ^ "/" ^ ticket ^ "/" ^ get "rkey" commit)
+          (* Only a ticket the knot no longer holds is forgotten. *)
+          let rkey = get "rkey" commit in
+          match
+            if Catalog.known engine.catalog repo then
+              Catalog.managed engine.catalog repo
+            else None
+          with
+          | Some served when read network served ticket rkey = None ->
+              Store.delete engine.store "pull-seen"
+                ("at://" ^ repo ^ "/" ^ ticket ^ "/" ^ rkey)
+          | _ -> ()
         else
           (* Each change of the ticket is its own round, so a second close
              notifies as the first did. *)
@@ -402,7 +440,7 @@ let handle engine network hooks ~wipe event =
               (match field "cid" commit with
               | Some (Jsont.String (cid, _)) -> cid
               | _ -> get "rev" commit)
-  | "account" -> account engine ~wipe event
+  | "account" -> account engine network ~wipe event
   | _ -> ()
 
 (* A failing event is retried, its backoff doubling to an hour, and given up
@@ -434,8 +472,11 @@ let groups ready =
 
 let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
   let store = engine.Engine.store and system = engine.runner.system in
-  let rec retry f =
+  (* Reconnecting waits 2 seconds, doubling to a minute while connections
+     fail, and 2 again after one that lasted. *)
+  let rec retry ?(delay = 2.) f =
     Health.starting health "jetstream" ~now:(Eio.Time.now system#clock);
+    let began = Eio.Time.Mono.now system#mono_clock in
     (try
        f ();
        Health.failed health "jetstream"
@@ -446,85 +487,99 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
     | exn ->
         Health.failed health "jetstream" ~now:(Eio.Time.now system#clock) exn;
         report "jetstream" exn);
-    Eio.Time.sleep system#clock 2.;
-    retry f
+    let lasted =
+      Mtime.Span.to_float_ns
+        (Mtime.span began (Eio.Time.Mono.now system#mono_clock))
+      /. 1e9
+    in
+    let delay = if lasted > 60. then 2. else delay in
+    Eio.Time.sleep system#clock delay;
+    retry ~delay:(Float.min 60. (delay *. 2.)) f
   in
   Health.require health "jetstream";
+  (* A failing pass, such as a store error, is reported and the next one
+     tries again, rather than stopping the spindle. *)
   let work () =
     while true do
-      let reject key message =
-        Store.batch store
-          ~puts:[ ("rejected", key, message); ("done", key, "") ]
-          ~deletes:[ ("inbox", key) ]
-      in
-      (* [one key raw] is whether the event is settled. A failure leaves it, and
-         the later events of its repository, for another attempt. *)
-      let one (key, raw) =
-        try
-          Eio.Time.with_timeout_exn system#clock 30. (fun () ->
-              handle engine network hooks ~wipe (decode raw));
+      try
+        let reject key message =
           Store.batch store
-            ~puts:[ ("done", key, "") ]
-            ~deletes:[ ("inbox", key) ];
-          true
-        with
-        | Eio.Cancel.Cancelled _ as exn -> raise exn
-        | Invalid message ->
-            reject key message;
-            report key (Invalid message);
+            ~puts:[ ("rejected", key, message); ("done", key, "") ]
+            ~deletes:[ ("inbox", key) ]
+        in
+        (* [one key raw] is whether the event is settled. A failure leaves it, and
+         the later events of its repository, for another attempt. *)
+        let one (key, raw) =
+          try
+            Eio.Time.with_timeout_exn system#clock 30. (fun () ->
+                handle engine network hooks ~wipe (decode raw));
+            Store.batch store
+              ~puts:[ ("done", key, "") ]
+              ~deletes:[ ("inbox", key) ];
             true
-        | Xrpc_error.E (status, code, message)
-          when Httpz.Res.status_code status < 500 ->
-            reject key (code ^ ": " ^ message);
-            true
-        | Engine.Capacity ->
-            (* A full queue is no fault of the event. *)
-            Store.delay store "inbox" key
-              ~until:(Eio.Time.now system#clock +. 5.);
-            false
-        | exn ->
-            report key exn;
-            if
-              Store.defer store "inbox" key ~now:(Eio.Time.now system#clock)
-              >= max_attempts
-            then (
-              reject key ("gave up: " ^ Printexc.to_string exn);
-              true)
-            else false
-      in
-      let now = Eio.Time.now system#clock in
-      (* An event waits behind an earlier one of its repository that is
+          with
+          | Eio.Cancel.Cancelled _ as exn -> raise exn
+          | Invalid message ->
+              reject key message;
+              report key (Invalid message);
+              true
+          | Xrpc_error.E (status, code, message)
+            when Httpz.Res.status_code status < 500 ->
+              reject key (code ^ ": " ^ message);
+              true
+          | Engine.Capacity ->
+              (* A full queue is no fault of the event. *)
+              Store.delay store "inbox" key
+                ~until:(Eio.Time.now system#clock +. 5.);
+              false
+          | exn ->
+              report key exn;
+              if
+                Store.defer store "inbox" key ~now:(Eio.Time.now system#clock)
+                >= max_attempts
+              then (
+                reject key ("gave up: " ^ Printexc.to_string exn);
+                true)
+              else false
+        in
+        let now = Eio.Time.now system#clock in
+        (* An event waits behind an earlier one of its repository that is
          waiting to be retried, whichever batch it arrives in. *)
-      let waiting =
-        List.fold_left
-          (fun acc key ->
-            let repo = repo_of_key key in
-            if List.mem_assoc repo acc then acc else (repo, key) :: acc)
-          []
-          (Store.waiting store "inbox" ~now)
-      in
-      Eio.Fiber.List.iter ~max_fibers:4
-        (fun items ->
-          ignore
-            (List.fold_left
-               (fun failed ((key, _) as item) ->
-                 let behind =
-                   match failed with
-                   | Some _ -> failed
-                   | None -> (
-                       match List.assoc_opt (repo_of_key key) waiting with
-                       | Some earlier when String.compare earlier key < 0 ->
-                           Some earlier
-                       | _ -> None)
-                 in
-                 match behind with
-                 | None -> if one item then None else Some key
-                 | Some behind ->
-                     Store.hold store "inbox" key ~behind;
-                     Some behind)
-               None items))
-        (groups (Store.ready store "inbox" ~now ~limit:64));
-      Eio.Time.sleep system#clock 0.5
+        let waiting =
+          List.fold_left
+            (fun acc key ->
+              let repo = repo_of_key key in
+              if List.mem_assoc repo acc then acc else (repo, key) :: acc)
+            []
+            (Store.waiting store "inbox" ~now)
+        in
+        Eio.Fiber.List.iter ~max_fibers:4
+          (fun items ->
+            ignore
+              (List.fold_left
+                 (fun failed ((key, _) as item) ->
+                   let behind =
+                     match failed with
+                     | Some _ -> failed
+                     | None -> (
+                         match List.assoc_opt (repo_of_key key) waiting with
+                         | Some earlier when String.compare earlier key < 0 ->
+                             Some earlier
+                         | _ -> None)
+                   in
+                   match behind with
+                   | None -> if one item then None else Some key
+                   | Some behind ->
+                       Store.hold store "inbox" key ~behind;
+                       Some behind)
+                 None items))
+          (groups (Store.ready store "inbox" ~now ~limit:64));
+        Eio.Time.sleep system#clock 0.5
+      with
+      | Eio.Cancel.Cancelled _ as exn -> raise exn
+      | exn ->
+          report "inbox" exn;
+          Eio.Time.sleep system#clock 5.
     done
   in
   let url =

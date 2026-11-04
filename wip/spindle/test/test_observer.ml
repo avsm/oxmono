@@ -31,12 +31,15 @@ let () =
         ("commit", obj [ ("collection", str collection) ]);
       ]
   in
-  let account did active =
+  let account ?(status = "deactivated") did active =
     obj
       [
         ("kind", str "account");
         ("did", str did);
-        ("account", obj [ ("active", bool active); ("did", str did) ]);
+        ( "account",
+          obj
+            ([ ("active", bool active); ("did", str did) ]
+            @ if active then [] else [ ("status", str status) ]) );
       ]
   in
   (* Only followed collections and an inactive owner with repositories are
@@ -45,6 +48,9 @@ let () =
   assert (not (Observer.wanted settings (commit "app.bsky.feed.post")));
   assert (Observer.wanted settings (account owner false));
   assert (not (Observer.wanted settings (account owner true)));
+  (* A relay's passing states are not an account going away. *)
+  assert (
+    not (Observer.wanted settings (account ~status:"throttled" owner false)));
   assert (not (Observer.wanted settings (account other false)));
   assert (
     not

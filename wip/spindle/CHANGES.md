@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Pass over a malformed Jetstream frame instead of reconnecting to it
+  forever, back off reconnections up to a minute, and keep handling events
+  after a store error. Wipe an inactive owner's repositories only for a
+  lasting status that the account's PDS confirms, and forget a pull request
+  only when its knot no longer holds the ticket.
+
 - Spend an invite use, add CI minutes and add a secret atomically, so that
   requests at once cannot spend a code twice, lose minutes or overwrite a
   secret. An account already allowed spends no invite use.

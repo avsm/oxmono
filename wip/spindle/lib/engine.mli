@@ -23,25 +23,7 @@ type reader = did:string -> commit:string -> (string * string) list
 type tree = did:string -> commit:string -> Executor.files
 (** [tree ~did ~commit] reads repository [did] at [commit] for executors. *)
 
-type t = private {
-  store : Store.t;
-  catalog : Catalog.t;
-  settings : Settings.t;
-  hostname : string;
-  jobs : Job.t list;
-  read_workflows : reader option;
-  tree : tree option;
-  runner : Runner.env;
-  sw : Eio.Switch.t;
-  pipelines : (string, pipeline) Hashtbl.t;
-  lock : Eio.Mutex.t;
-  mutable last_tid : int64;
-  running : (string, int) Hashtbl.t;
-  quota_changed : Eio.Condition.t;
-  changed : Eio.Condition.t;
-  durable : (string, string) Duraml_client.Queue.t option;
-  active : (string, unit Eio.Promise.t) Hashtbl.t;
-}
+type t
 
 exception Capacity
 
@@ -73,6 +55,15 @@ val v :
     store's workers. A workflow interrupted when the spindle stops stays running
     and runs again from the start when its job's lease runs out, with a fresh
     log, up to three times. Without it, an interrupted workflow fails. *)
+
+val catalog : t -> Catalog.t
+val store : t -> Store.t
+val settings : t -> Settings.t
+val system : t -> Eio_unix.Stdenv.base
+
+val prune : t -> now:float -> Operations.t -> int * int
+(** [prune t ~now policy] is {!Store.prune} of [t]'s store, while no pipeline
+    changes. *)
 
 val migrate : t -> (string * string) option -> unit
 
@@ -184,3 +175,11 @@ val running : t -> string -> int
 
 val wipe : t -> string -> unit
 (** [wipe t repo] cancels and deletes every pipeline of [repo]. *)
+
+(**/**)
+
+val slots : t -> Eio.Semaphore.t
+(** [slots t] is the worker slots, for tests to hold. *)
+
+val loaded : t -> string list
+(** [loaded t] is the IDs of the pipelines held in memory, for tests. *)

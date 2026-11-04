@@ -133,10 +133,10 @@ let load_seen engine uri =
           }
       | _ | (exception Invalid _) ->
           { head = raw; author = ""; rounds = 1; state = "open" })
-    (Store.get engine.Engine.store "pull-seen" uri)
+    (Store.get (Engine.store engine) "pull-seen" uri)
 
 let save_seen engine uri s =
-  Store.put engine.Engine.store "pull-seen" uri
+  Store.put (Engine.store engine) "pull-seen" uri
     (encode
        (obj
           [
@@ -189,10 +189,10 @@ let pull_view ~ticket:t ~seen ~source =
 let dispatch ?round engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen
     ~source ~action ~event ~sender =
   if
-    Catalog.admitted engine.Engine.catalog served.owner
+    Catalog.admitted (Engine.catalog engine) served.owner
     && not
-         (Settings.banned engine.settings seen.author
-         || Settings.banned engine.settings sender)
+         (Settings.banned (Engine.settings engine) seen.author
+         || Settings.banned (Engine.settings engine) sender)
   then begin
     let dedup =
       String.concat "/"
@@ -234,8 +234,8 @@ let dispatch ?round engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen
        collaborator's approval, as does a change by such a sender. *)
     let blocked =
       not
-        (Catalog.authorized engine.catalog served seen.author
-        && Catalog.authorized engine.catalog served sender)
+        (Catalog.authorized (Engine.catalog engine) served seen.author
+        && Catalog.authorized (Engine.catalog engine) served sender)
     in
     ignore
       (Engine.create engine ~dedup ~blocked ~untrusted:fork ~automatic:true
@@ -255,8 +255,8 @@ let read network (served : Catalog.repo) collection rkey =
    this spindle has accepted is looked up, so the rest cost no requests. *)
 let pull engine network hooks ~repo ~rkey =
   match
-    if Catalog.known engine.Engine.catalog repo then
-      Catalog.managed engine.catalog repo
+    if Catalog.known (Engine.catalog engine) repo then
+      Catalog.managed (Engine.catalog engine) repo
     else None
   with
   | None -> ()
@@ -290,7 +290,8 @@ let pull engine network hooks ~repo ~rkey =
                     (* Each patch record is a round, as the reference spindle
                        counts them, whatever its head. *)
                     let round = uri ^ "/" ^ rkey in
-                    if Store.get engine.store "pull-patch" round = None then begin
+                    if Store.get (Engine.store engine) "pull-patch" round = None
+                    then begin
                       let seen =
                         {
                           head;
@@ -316,7 +317,7 @@ let pull engine network hooks ~repo ~rkey =
                         ~seen ~source:(field "source" value) ~action ~event
                         ~sender:author;
                       save_seen engine uri seen;
-                      Store.put engine.store "pull-patch" round ""
+                      Store.put (Engine.store engine) "pull-patch" round ""
                     end
                   end)))
 
@@ -328,7 +329,7 @@ let lifecycle engine network hooks ~repo ~rkey ~round =
   match load_seen engine uri with
   | None -> ()
   | Some seen -> (
-      match Catalog.managed engine.Engine.catalog repo with
+      match Catalog.managed (Engine.catalog engine) repo with
       | None -> ()
       | Some served -> (
           match read network served ticket rkey with
@@ -375,7 +376,7 @@ let lifecycle engine network hooks ~repo ~rkey ~round =
    its pull requests are followed. A deleted repository's settings and
    history are wiped, as the reference spindle wipes them. *)
 let assignment engine ~wipe ~repo ~operation commit =
-  let catalog = engine.Engine.catalog in
+  let catalog = Engine.catalog engine in
   Catalog.forget catalog repo;
   if operation = "delete" then (
     if Catalog.known catalog repo && Catalog.deleted catalog repo then wipe repo)
@@ -406,7 +407,7 @@ let account engine network ~wipe event =
   if inactive then (
     Printf.eprintf
       "spindle observer: account %s is inactive, wiping its repos\n%!" owner;
-    List.iter wipe (Settings.repos_of engine.Engine.settings owner))
+    List.iter wipe (Settings.repos_of (Engine.settings engine) owner))
 
 let handle engine network hooks ~wipe event =
   match get "kind" event with
@@ -424,12 +425,12 @@ let handle engine network hooks ~wipe event =
           (* Only a ticket the knot no longer holds is forgotten. *)
           let rkey = get "rkey" commit in
           match
-            if Catalog.known engine.catalog repo then
-              Catalog.managed engine.catalog repo
+            if Catalog.known (Engine.catalog engine) repo then
+              Catalog.managed (Engine.catalog engine) repo
             else None
           with
           | Some served when read network served ticket rkey = None ->
-              Store.delete engine.store "pull-seen"
+              Store.delete (Engine.store engine) "pull-seen"
                 ("at://" ^ repo ^ "/" ^ ticket ^ "/" ^ rkey)
           | _ -> ()
         else
@@ -471,7 +472,7 @@ let groups ready =
     repos
 
 let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
-  let store = engine.Engine.store and system = engine.runner.system in
+  let store = Engine.store engine and system = Engine.system engine in
   (* Reconnecting waits 2 seconds, doubling to a minute while connections
      fail, and 2 again after one that lasted. *)
   let rec retry ?(delay = 2.) f =
@@ -592,4 +593,5 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
   in
   Eio.Fiber.both work (fun () ->
       retry (fun () ->
-          connect ~system ~store ~settings:engine.settings ~url ~health ~policy))
+          connect ~system ~store ~settings:(Engine.settings engine) ~url ~health
+            ~policy))

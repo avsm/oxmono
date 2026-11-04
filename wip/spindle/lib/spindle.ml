@@ -78,7 +78,7 @@ let authorize state meth req =
       ~consume:(fun ~issuer ~jti ~expires ->
         let now = Eio.Time.now state.system#clock in
         expires > now
-        && Store.consume state.engine.store ~now ~issuer ~jti ~expires)
+        && Store.consume (Engine.store state.engine) ~now ~issuer ~jti ~expires)
       ~audience:(Catalog.web_did state.config.hostname)
       ~meth ~now token
   in
@@ -122,7 +122,7 @@ let query_pipelines state req =
     cursor;
   let triggers = query_list req "triggers" in
   let commits = query_list req "commits" in
-  if not (Catalog.known state.engine.catalog repo) then
+  if not (Catalog.known (Engine.catalog state.engine) repo) then
     ignore (Engine.managed state.engine repo);
   Engine.query state.engine ~repo ~limit ~cursor ~triggers ~commits
 
@@ -463,7 +463,7 @@ let resolve_commit state repo ref_ =
         | "" -> None
         | commit -> Some commit)
     | None -> (
-        let knot = Catalog.knot_origin state.engine.catalog repo in
+        let knot = Catalog.knot_origin (Engine.catalog state.engine) repo in
         let commits =
           Network.json state.network
             (Network.query
@@ -484,7 +484,8 @@ let repository_definitions state repo ref_ =
     | Some commit ->
         Workflows.definitions ~repo ~commit
           (read_files ~process:state.system#process_mgr state.config
-             state.engine.catalog state.network ~did:repo ~commit)
+             (Engine.catalog state.engine)
+             state.network ~did:repo ~commit)
 
 let ci_output ids =
   obj [ ("ci", obj [ ("pipelines", arr (List.map str ids)) ]) ]
@@ -517,7 +518,7 @@ let notify state req ~issuer body =
     | t when t = Engine.push ->
         (* Only the knot named by the repository's DID document reports its
            pushes. *)
-        if issuer <> Catalog.knot_did engine.catalog repo then
+        if issuer <> Catalog.knot_did (Engine.catalog engine) repo then
           raise Auth.Rejected;
         let actor = did (get "actor" event) in
         let new_sha = sha (get "newSha" event) in
@@ -533,8 +534,8 @@ let notify state req ~issuer body =
           (* A knot resends a push it is unsure was delivered. Its webhook
              fires once, as the reference spindle's push record allows. *)
           (if changes_ref then
-             match Catalog.managed engine.catalog repo with
-             | Some r when Catalog.admitted engine.catalog r.owner ->
+             match Catalog.managed (Engine.catalog engine) repo with
+             | Some r when Catalog.admitted (Engine.catalog engine) r.owner ->
                  let before = get "oldSha" event in
                  if
                    Engine.first engine "push-hook"
@@ -545,13 +546,15 @@ let notify state req ~issuer body =
           (* A push to a repository this spindle does not serve, or whose
              owner is paused, runs nothing and is not an error, so that the
              knot does not log it as one. *)
-          match Catalog.managed engine.catalog repo with
+          match Catalog.managed (Engine.catalog engine) repo with
           | None -> None
           | Some _ when not (runnable_push event) -> None
           | Some managed ->
               let ref_ = get "ref" event in
               let default_ref =
-                match Catalog.default_branch engine.catalog managed with
+                match
+                  Catalog.default_branch (Engine.catalog engine) managed
+                with
                 | Some branch -> ref_ = "refs/heads/" ^ branch
                 | None -> false
               in
@@ -579,7 +582,7 @@ let notify state req ~issuer body =
             let ref_ = string ref_ in
             if
               not
-                (Catalog.ref_contains engine.catalog
+                (Catalog.ref_contains (Engine.catalog engine)
                    (Engine.managed engine repo)
                    ~ref_ ~commit)
             then invalid ("ref " ^ ref_ ^ " does not contain commit " ^ commit))
@@ -601,7 +604,7 @@ let served state req =
   ignore (Engine.managed state.engine (did (query_required req "repo")))
 
 let require_admin state actor =
-  if not (Catalog.admin state.engine.catalog actor) then
+  if not (Catalog.admin (Engine.catalog state.engine) actor) then
     reject Status.Unauthorized "AccessControl"
       ("DID does not have sufficient access permissions for this operation: "
      ^ actor)
@@ -611,10 +614,10 @@ let require_admin state actor =
    the repository's own key. *)
 let settings_repo state actor repo =
   let repo = did repo in
-  match Catalog.managed state.engine.catalog repo with
+  match Catalog.managed (Engine.catalog state.engine) repo with
   | None -> reject Status.Not_found "RepoNotFound" "failed to access repository"
   | Some r ->
-      if not (Catalog.permitted state.engine.catalog r actor) then
+      if not (Catalog.permitted (Engine.catalog state.engine) r actor) then
         reject Status.Forbidden "AccessControl"
           ("DID does not have sufficient access permissions for this \
             operation: " ^ actor);
@@ -637,7 +640,7 @@ let wipe state subject =
     repos
 
 let usage state ~scope ~subject =
-  let repos = Store.list state.engine.store "repo-owner" in
+  let repos = Store.list (Engine.store state.engine) "repo-owner" in
   let webhooks owner_of =
     let hooks = Hooks.counts state.hooks in
     List.fold_left
@@ -743,7 +746,7 @@ and handle_xrpc state name req respond =
         || ((not post) && meth <> Method.Get && meth <> Method.Head)
       then reject Status.Method_not_allowed "InvalidRequest" "wrong HTTP method";
       let body () = decode (Req.globalize (Req.body req)) in
-      let catalog = state.engine.catalog in
+      let catalog = Engine.catalog state.engine in
       let result =
         match name with
         | "_live" -> obj [ ("status", str "ok") ]
@@ -1216,10 +1219,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       while true do
         let now = Eio.Time.now system#clock in
         (try
-           let pipelines, receipts =
-             Lock.protect engine.lock (fun () ->
-                 Store.prune store ~now operations)
-           in
+           let pipelines, receipts = Engine.prune engine ~now operations in
            Store.put store "health" "maintenance"
              (encode
                 (obj

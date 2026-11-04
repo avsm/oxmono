@@ -73,8 +73,8 @@ let () =
         | _ -> ())
       ~system:env ~directory ~sw ()
   in
-  Eio.Semaphore.acquire engine.runner.slots;
-  Eio.Semaphore.acquire engine.runner.slots;
+  Eio.Semaphore.acquire (Engine.slots engine);
+  Eio.Semaphore.acquire (Engine.slots engine);
   let trigger =
     obj
       [
@@ -102,7 +102,7 @@ let () =
   (* A webhook receipt is recorded once. *)
   assert (Engine.first engine "push-hook" "r/refs/heads/main/a/b");
   assert (not (Engine.first engine "push-hook" "r/refs/heads/main/a/b"));
-  assert (Hashtbl.length engine.pipelines = 1);
+  assert (List.length (Engine.loaded engine) = 1);
   let pipeline = Option.get (Engine.find engine (Option.get first)) in
   assert (List.length pipeline.workflows = 2);
   (* A view shows the lexicon's trigger fields only. *)
@@ -179,7 +179,7 @@ let () =
     List.for_all
       (fun (r : Spindle__Runner.t) -> r.status = "blocked")
       pipeline.workflows);
-  assert (Hashtbl.mem engine.pipelines blocked);
+  assert (List.mem blocked (Engine.loaded engine));
   Engine.approve engine ~actor:owner ~repo ~id:blocked;
   assert (
     List.for_all
@@ -190,8 +190,8 @@ let () =
   | exception J.Invalid _ -> ());
   Engine.cancel engine ~actor:owner ~repo ~id:blocked ~names:[];
   assert (Engine.find engine "not-a-tid" = None);
-  Eio.Semaphore.release engine.runner.slots;
-  Eio.Semaphore.release engine.runner.slots;
+  Eio.Semaphore.release (Engine.slots engine);
+  Eio.Semaphore.release (Engine.slots engine);
   Store.batch store ~puts:[]
     ~deletes:
       (List.map
@@ -236,8 +236,8 @@ let () =
   assert (ids older = [ id 127; id 126 ]);
   let manual = query ~commits:[ sha 42 ] ~triggers:[ Engine.manual ] () in
   assert (get "id" (List.hd (list (required "pipelines" manual))) = id 127);
-  Eio.Semaphore.acquire engine.runner.slots;
-  Eio.Semaphore.acquire engine.runner.slots;
+  Eio.Semaphore.acquire (Engine.slots engine);
+  Eio.Semaphore.acquire (Engine.slots engine);
   let request =
     obj
       [
@@ -261,12 +261,12 @@ let () =
   cancel (List.hd queued);
   let replacement = create () in
   List.iter cancel (replacement :: List.tl queued);
-  Eio.Semaphore.release engine.runner.slots;
-  Eio.Semaphore.release engine.runner.slots;
+  Eio.Semaphore.release (Engine.slots engine);
+  Eio.Semaphore.release (Engine.slots engine);
   (* A workflow may add another to its running pipeline, which runs and is
      shown with it, and wait for it and what it spawns. Waiting gives up the
      only free slot. A retry reruns the workflow that spawned it. *)
-  Eio.Semaphore.acquire engine.runner.slots;
+  Eio.Semaphore.acquire (Engine.slots engine);
   let spawner =
     obj
       [
@@ -305,7 +305,7 @@ let () =
       settle (n - 1))
   in
   let p = settle 100 in
-  Eio.Semaphore.release engine.runner.slots;
+  Eio.Semaphore.release (Engine.slots engine);
   assert (
     List.map (fun (r : Spindle__Runner.t) -> r.job.name) p.workflows
     = [ "inspect"; "child"; "grandchild" ]);

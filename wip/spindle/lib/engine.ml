@@ -481,6 +481,17 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
         durable;
   }
 
+let catalog t = t.catalog
+let store t = t.store
+let settings t = t.settings
+let system t = t.runner.system
+
+let prune t ~now policy =
+  Lock.protect t.lock (fun () -> Store.prune t.store ~now policy)
+
+let slots t = t.runner.slots
+let loaded t = Hashtbl.fold (fun id _ acc -> id :: acc) t.pipelines []
+
 let migrate t static =
   if Store.get t.store "schema" "json-import" = None then
     let open Eio.Path in

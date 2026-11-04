@@ -1,5 +1,11 @@
 # Changes
 
+- Export a review snapshot as a corpus: `taposaur review corpus` writes
+  flat JSON Lines rows with the frozen bibliography and provenance, the
+  holdings, and the body prose of the preferred TEI read from the archive
+  on a pool of domains, ready for Parquet conversion; the TEI reader gains
+  `body_text`, which returns headings, paragraphs and list items without
+  figures, notes, tables, formulae or back matter.
 - Treat an empty `jobs submit --lane` as the unnamed Duraml lane.
 - Build the website on Sitekit: its page shell and generic widgets, with
   Taposaur's stylesheet and scripts served at content-hashed paths, so the

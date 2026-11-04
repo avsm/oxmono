@@ -350,6 +350,87 @@ let metadata_string src = Result.map (fun i -> i.bibliography)
 let metadata ?max_bytes flow = Result.map (fun i -> i.bibliography)
   (inspect ?max_bytes flow)
 
+exception Output_limit
+
+(* The body is read as blocks: a heading, paragraph or list item opens one
+   and its closing tag ends it. Elements that inspect ignores (figures,
+   notes, tables, formulae) are skipped as whole subtrees, so a figure
+   caption inside a paragraph never joins the prose. Reading stops at the
+   end of the body, before any back matter. *)
+let body_text_input ~max_output i =
+  if max_output <= 0 then invalid_arg "max_output must be positive";
+  let out = Buffer.create 65536 and para = Buffer.create 4096 in
+  let stack = ref [] and body = ref None and block = ref None and skip = ref 0 in
+  let flush () =
+    let text = collapse (Buffer.contents para) in
+    Buffer.clear para;
+    if text <> "" then begin
+      if Buffer.length out > 0 then Buffer.add_string out "\n\n";
+      Buffer.add_string out text;
+      if Buffer.length out > max_output then raise Output_limit
+    end in
+  let depth () = List.length !stack in
+  let run () =
+    while true do
+      match Xmlm.input i with
+      | `Dtd _ -> ()
+      | `Data d ->
+        if !body <> None && !block <> None && !skip = 0 then
+          if Buffer.length para < max_output then Buffer.add_string para d
+      | `El_start ((ns, name), _) ->
+        if !stack = [] && (name <> "TEI" ||
+          (ns <> "" && ns <> "http://www.tei-c.org/ns/1.0")) then
+          failwith "Expected a TEI document";
+        (match !body with
+         | None -> if name = "body" then body := Some (depth ())
+         | Some _ ->
+           if !skip > 0 then incr skip
+           else (match name with
+             | "figure" | "note" | "table" | "formula" -> skip := 1
+             | "head" | "p" | "item" when !block = None ->
+               flush (); block := Some (depth ())
+             | _ -> ()));
+        if depth () >= 256 then raise Limit;
+        stack := name :: !stack
+      | `El_end ->
+        match !stack with
+        | [] -> raise Header_done
+        | name :: rest ->
+          stack := rest;
+          (match !body with
+           | Some d when depth () = d -> flush (); raise Body_done
+           | Some _ ->
+             if !skip > 0 then decr skip
+             else begin
+               (match !block with
+                | Some d when depth () = d -> flush (); block := None
+                | _ -> ());
+               if name = "s" || name = "lb" then Buffer.add_char para ' '
+             end
+           | None -> ());
+          if rest = [] then raise Header_done
+    done in
+  let finish () =
+    Ok (if Buffer.length out = 0 then None else Some (Buffer.contents out)) in
+  match run () with
+  | () | exception Header_done | exception Body_done -> finish ()
+  | exception Output_limit -> Error "TEI body text exceeds output limit"
+  | exception Limit -> Error "TEI exceeds byte or nesting limit"
+  | exception Xmlm.Error ((line, col), e) ->
+    Error (Fmt.str "%d:%d: %s" line col (Xmlm.error_message e))
+  | exception End_of_file -> Error "Truncated TEI document"
+  | exception Failure message -> Error message
+
+let body_text ?(max_bytes = 16 * 1024 * 1024) ?(max_output = 8 * 1024 * 1024)
+    flow =
+  let input = Xml.input ~max_bytes flow in
+  try body_text_input ~max_output input
+  with Limit -> Error "TEI exceeds byte limit"
+
+let body_text_string ?(max_output = 8 * 1024 * 1024) src =
+  body_text_input ~max_output
+    (Xmlm.make_input ~strip:false (`String (0, src)))
+
 let validate_string ?(max_bytes = 16 * 1024 * 1024) text =
   if max_bytes < 1 then invalid_arg "max_bytes must be positive";
   if String.length text > max_bytes then Error "TEI exceeds validation limit"

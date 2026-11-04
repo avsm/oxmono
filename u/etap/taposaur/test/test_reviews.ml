@@ -351,10 +351,78 @@ let browse_migration () = with_temp (fun _ sw root path ->
   count "migrated filtered membership" 1 (List.length
     (S.browse ~filter:(R.Statistics.Title,false) upgraded snapshot));
   equal "migration preserves manifest" manifest (S.snapshot upgraded snapshot).manifest)
+(* A corpus export joins frozen rows with archive prose: members the
+   archive does not hold still appear, missing values encode as null, and
+   the text comes from the preferred TEI at export time. *)
+let corpus () = with_temp (fun env sw root _ ->
+  let c = C.open_write ~sw (root / "catalog.db") in
+  load c [{ (make_index "10.1000/a") with title=Some "Held paper";
+    abstract=Some "Frozen abstract"}];
+  let catalog = C.open_read ~sw (root / "catalog.db") in
+  let store = S.open_write ~sw (root / "reviews.db") in
+  ignore (define store "corpus"
+    (definition [list_input store "main" "10.1000/b\n10.1000/a\n"]) 0);
+  let run = X.execute store catalog
+    (S.revision store ~slug:"corpus" ~number:None) ~actor:"agent" [] in
+  let snap = X.snapshot store catalog ~run_id:run ~parent:None
+    ~label:"Corpus" ~actor:"agent" in
+  let uid = get (Uid.of_string "doi:10.1000/a") in
+  let dir = root / "papers" / Layout.paper uid in
+  Eio.Path.mkdirs ~perm:0o700 dir;
+  let tei converter body = Printf.sprintf
+    {|<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><titleStmt><title>Held paper</title></titleStmt></fileDesc></teiHeader><text><body>%s</body></text></TEI>|}
+    body |> fun s -> ignore converter; s in
+  Eio.Path.save ~create:(`Exclusive 0o600) (dir / "grobid.tei.xml")
+    (tei "grobid" "<div><head>Intro</head><p>GROBID prose.</p></div>");
+  Eio.Path.save ~create:(`Exclusive 0o600) (dir / "pub2tei.tei.xml")
+    (tei "pub2tei" "<figure><figDesc>Only a caption</figDesc></figure>");
+  Eio.Path.save ~create:(`Exclusive 0o600) (dir / "paper.json")
+    {|{"v":1,"id":"doi:10.1000/a","artifacts":[{"file":"grobid.tei.xml","format":"tei","source":"tei","converter":"grobid","bytes":1,"at":"2026-09-14T05:54:04.598Z"},{"file":"pub2tei.tei.xml","format":"tei","source":"tei","converter":"pub2tei","bytes":1,"at":"2026-09-14T05:54:04.598Z"}],"updated":"2026-09-14T05:54:04.598Z"}|};
+  let archive = Taposaur_archive.open_root ~sw root in
+  let rows = ref [] in
+  let summary = Taposaur_corpus.export ~fibers:2 ~archive ~store ~snapshot:snap
+    (fun row -> rows := row :: !rows) in
+  let rows = List.rev !rows in
+  count "two rows" 2 (List.length rows);
+  count "summary rows" 2 summary.rows;
+  count "summary held" 1 summary.held;
+  count "summary texts" 1 summary.texts;
+  count "summary errors" 0 summary.errors;
+  let a = List.nth rows 0 and b = List.nth rows 1 in
+  equal "doi order" "10.1000/a" a.doi;
+  equal "uid" "doi:10.1000/a" a.uid;
+  equal "frozen title" "Held paper" (Option.get a.title);
+  equal "frozen abstract" "Frozen abstract" (Option.get a.abstract);
+  equal "title source" "catalogue" (Option.get a.title_source);
+  equal "falls past empty preferred TEI" "Intro\n\nGROBID prose."
+    (Option.get a.text);
+  equal "text file" "grobid.tei.xml" (Option.get a.tei_file);
+  equal "text converter" "grobid" (Option.get a.tei_converter);
+  count "digest length" 64 (String.length (Option.get a.tei_sha256));
+  count "summary characters" (String.length (Option.get a.text))
+    summary.characters;
+  check "unheld member kept" true (b.text = None && b.text_error = None
+    && b.tei_file = None && b.title = None && not b.in_catalogue);
+  let line = Taposaur_corpus.encode_row b in
+  check "null for missing values" true (includes line "\"title\":null");
+  check "snapshot column" true (includes line
+    (Printf.sprintf "\"snapshot\":%d" snap));
+  let back = get (R.decode Taposaur_corpus.row_jsont line) in
+  check "round trip" true (back = b);
+  let pool = Eio.Executor_pool.create ~sw ~domain_count:2
+    (Eio.Stdenv.domain_mgr env) in
+  let pooled = ref [] in
+  let again = Taposaur_corpus.export ~pool ~fibers:4 ~archive ~store
+    ~snapshot:snap (fun row -> pooled := row :: !pooled) in
+  check "pooled export agrees" true (List.rev !pooled = rows && again = summary);
+  check "fiber bound" true (rejects (fun () -> ignore
+    (Taposaur_corpus.export ~fibers:0 ~archive ~store ~snapshot:snap ignore))))
+
 let () = Alcotest.run "reviews" ["review",[
   Alcotest.test_case "query shape and sets" `Quick definitions;
   Alcotest.test_case "snapshots and immutable exports" `Quick snapshots;
   Alcotest.test_case "partial inputs and budgets" `Quick partial_inputs;
   Alcotest.test_case "local queries and consistent reads" `Quick local_search;
   Alcotest.test_case "read-only website" `Quick web;
+  Alcotest.test_case "corpus export with body text" `Quick corpus;
   Alcotest.test_case "browse index migration" `Quick browse_migration]]

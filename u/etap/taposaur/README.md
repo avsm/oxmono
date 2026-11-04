@@ -453,6 +453,47 @@ definition, completion status, counts, input digests and export checksums.
 Repeated exports return the same bytes. `--output FILE` creates a new file
 and refuses to overwrite an existing one.
 
+### Corpus export with body text
+
+`taposaur review corpus SNAPSHOT --output FILE.jsonl` writes one JSON object
+per member in DOI order: the frozen title, abstract, authors, journal,
+publisher, year and identifiers with the source of the title, abstract and
+publisher, the holdings recorded at capture, and the body prose of the
+paper's preferred TEI document read from the archive when the export runs
+(Pub2TEI before GROBID, published versions first, the first with prose
+wins). Rows are flat, every key is present and absent values are `null`, so
+the file converts directly to Parquet:
+
+```sh
+EIO_BACKEND=posix taposaur review corpus 7 --reviews-db reviews.db \
+  --root /data/papers/taposaur --output snapshot-7.jsonl --domains 96
+duckdb -c "COPY (SELECT * FROM read_json('snapshot-7.jsonl',
+  format='newline_delimited', columns={snapshot:'INTEGER', doi:'VARCHAR',
+  uid:'VARCHAR', title:'VARCHAR', abstract:'VARCHAR', authors:'VARCHAR[]',
+  journal:'VARCHAR', publisher:'VARCHAR', year:'INTEGER', published:'VARCHAR',
+  volume:'VARCHAR', issue:'VARCHAR', pages:'VARCHAR', issn:'VARCHAR',
+  pmid:'VARCHAR', pmcid:'VARCHAR', title_source:'VARCHAR',
+  abstract_source:'VARCHAR', publisher_source:'VARCHAR',
+  in_catalogue:'BOOLEAN', pdf:'BOOLEAN', xml:'BOOLEAN', tei:'BOOLEAN',
+  s2orc:'BOOLEAN', tei_file:'VARCHAR', tei_converter:'VARCHAR',
+  tei_sha256:'VARCHAR', tei_bytes:'BIGINT', text:'VARCHAR',
+  text_error:'VARCHAR'})) TO 'snapshot-7.parquet'
+  (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 10000)"
+```
+
+Members the snapshot did not find in the catalogue are written without an
+archive lookup. Each row names the TEI file, its converter, SHA-256 and
+size, so the text can be traced to an archive artifact; `text_error`
+records a TEI that could not be read or parsed. Body text is the TEI
+body's headings, paragraphs and list items with figures, notes, tables,
+formulae and the back matter left out; a block is a line and blocks are
+separated by blank lines. A TEI larger than 16 MiB or a body text over
+8 MiB is an error for that row. The command prints a summary with row,
+held, text and error counts. Regular-file reads block an Eio domain, so
+`--domains` (1..100, default 16) is what overlaps archive latency; the
+io_uring backend needs locked memory for every domain, so large counts
+run under `EIO_BACKEND=posix`. The output file must not exist.
+
 Inputs are bounded to 32 MiB each and 64 MiB combined. The default budget is
 100,000 source occurrences or snapshot members. `run --max-members` and
 `snapshot --max-members` allow up to 2,000,000. Snapshots default to 256 MiB

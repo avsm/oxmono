@@ -1,0 +1,13 @@
+(library
+ (name taposaur_corpus)
+ (public_name taposaur.corpus)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.document
+  taposaur.review
+  taposaur.review-store
+  eio
+  digestif
+  jsont
+  jsont.bytesrw))

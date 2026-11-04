@@ -1125,6 +1125,36 @@ let directory_enrichment () = with_temp (fun _ sw root ->
   Alcotest.(check (list string)) "UID order remains available" expected
     (List.rev_map Uid.to_string !seen))
 
+(* Corpus exports need the body prose as plain text: blocks in order,
+   non-prose subtrees left out, back matter unread, limits enforced. *)
+let body_text () =
+  let doc body = {|<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><titleStmt><title>Whales</title></titleStmt></fileDesc></teiHeader><text>|}
+    ^ body ^ {|<back><div><p>Acknowledged.</p></div><listBibl><biblStruct><analytic><title>Reference title</title></analytic></biblStruct></listBibl></back></text></TEI>|} in
+  let text s = get (Taposaur_document.Tei.body_text_string s) in
+  let flow s = get (Taposaur_document.Tei.body_text (Eio.Flow.string_source s)) in
+  let body = doc {|<body><p>Leading   <hi>para</hi>.</p><div><head>Methods</head><p><s>One.</s><s>Two <ref target="#b0">[1]</ref>.</s></p><figure><head>Figure 1</head><figDesc>Caption</figDesc></figure><p>Three<note place="foot">footnote</note>.<formula>x^2</formula></p><table><row><cell>cell</cell></row></table><list><item>First</item><item>Second</item></list></div></body>|} in
+  equal "blocks in order"
+    "Leading para.\n\nMethods\n\nOne. Two [1].\n\nThree.\n\nFirst\n\nSecond"
+    (Option.get (text body));
+  equal "flow agrees with string" (Option.get (text body)) (Option.get (flow body));
+  check "no body" true (text (doc "") = None);
+  check "empty body" true (text (doc "<body><div><head/><p>  </p></div></body>") = None);
+  check "figure-only body" true
+    (text (doc "<body><figure><figDesc>Caption</figDesc></figure></body>") = None);
+  check "back matter unread" false
+    (includes (Option.get (text body)) "Acknowledged");
+  check "output limit" true (rejected
+    (Taposaur_document.Tei.body_text_string ~max_output:8 body));
+  check "input limit" true (rejected
+    (Taposaur_document.Tei.body_text ~max_bytes:64 (Eio.Flow.string_source body)));
+  check "non-TEI rejected" true
+    (rejected (Taposaur_document.Tei.body_text_string "<html><body><p>x</p></body></html>"));
+  check "truncated rejected" true
+    (rejected (Taposaur_document.Tei.body_text_string
+      (String.sub body 0 200)));
+  check "complete body before truncated back matter" true
+    (Option.is_some (text (String.sub body 0 (String.length body - 20))))
+
 let () = Alcotest.run "taposaur" [
   "core", [Alcotest.test_case "identities and layouts" `Quick identifiers;
     Alcotest.test_case "records" `Quick records;
@@ -1136,7 +1166,8 @@ let () = Alcotest.run "taposaur" [
     Alcotest.test_case "TEI regeneration evidence" `Quick tei_audit;
     Alcotest.test_case "publisher metadata" `Quick publisher_metadata;
     Alcotest.test_case "TEI bibliography and S2ORC" `Quick extended_metadata;
-    Alcotest.test_case "abstracts left in TEI bodies" `Quick body_abstracts];
+    Alcotest.test_case "abstracts left in TEI bodies" `Quick body_abstracts;
+    Alcotest.test_case "body text extraction" `Quick body_text];
   "paper", [Alcotest.test_case "field evidence and multiple TEIs"
     `Quick resolution];
   "catalogue", [

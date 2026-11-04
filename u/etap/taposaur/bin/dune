@@ -56,6 +56,7 @@
   taposaur.review
   taposaur.review-store
   taposaur.review-run
+  taposaur.corpus
   fetch
   fetch-main
   duration

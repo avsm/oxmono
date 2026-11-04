@@ -579,14 +579,63 @@ Three tracks were started:
    examined. A free OpenAlex key (https://openalex.org/settings/api,
    email verification) would allow 30 requests a second and $1 a day.
 
-`butterflies-followup.sh` (PID in `butterflies-followup.pid`, log
-`butterflies-followup.log`) waits for the fetch and the enrichment, runs
-`abstracts fill` over the DOI list, then publishes snapshot run 3 with
-parent 3 and the label "Body-derived and OpenAlex abstracts; publisher
-acquisitions in progress" with a 700,000-member, 900 MiB, one-hour budget.
-Workers and website were restarted at 12:09 UTC on the build with
-`abstract_lookup` in refresh workers, so a refresh keeps a filled abstract.
-Tests: 103 Taposaur (new `test_abstracts` suite of 6) and 60 Duraml.
+`butterflies-followup.sh` was superseded at 20:57 UTC by
+`butterflies-pipeline.sh` (PID in `butterflies-pipeline.pid`, log
+`butterflies-pipeline.log`) so that a snapshot and a corpus export follow
+each stage rather than waiting for the slow enrichment: when the OpenAlex
+fetch finishes it runs `abstracts fill`, publishes a snapshot of run 3 with
+parent 3 ("OpenAlex abstracts; enrichment and publisher acquisitions in
+progress"), exports that snapshot's corpus; when the review-scoped
+enrichment finishes it fills again, publishes another snapshot with the
+first as parent, and exports again. Each snapshot uses the 700,000-member,
+900 MiB, one-hour budget. Workers and website were restarted at 12:09 UTC
+on the build with `abstract_lookup` in refresh workers, so a refresh keeps
+a filled abstract. Tests: 103 Taposaur (new `test_abstracts` suite of 6)
+and 60 Duraml.
+
+### Corpus export for the butterflies review (2026-11-04, from 20:40 UTC)
+
+The user asked for the review's titles, abstracts and TEI full texts in
+Parquet. Nothing in Taposaur produced body text as a string: the TEI
+reader only reported whether a body held prose, and no Parquet writer
+exists in the tree. Added `Taposaur_document.Tei.body_text` and the
+`taposaur.corpus` library with `taposaur review corpus` (see the README
+section "Corpus export with body text"); Parquet is produced from the JSON
+Lines file by `duckdb` 2.0.0 (`~/.local/bin/duckdb`) through
+`taposaur/.local/corpus-parquet.sh`, which declares every column so that
+rows whose optional values are all null never change the schema, writes
+with ZSTD in 10,000-row groups and prints row, text, abstract and title
+counts from the finished file. A 2,000-row sample converted in 0.4 s.
+Tests: 24 in `test_taposaur` (new "body text extraction") and 7 in
+`test_reviews` (new "corpus export with body text", which also checks that
+a domain pool gives the same rows).
+
+Throughput was the problem. CephFS metadata latency under the day's load
+was 0.3 to 3 seconds per operation (a sequential `cat` of eight TEI files
+took 25 s; 64 in parallel took 4 s), and Eio reads regular files with a
+blocking syscall on the calling domain, so fibers alone gave about 3 rows
+a second. The export therefore runs archive lookups on an
+`Eio.Executor_pool`; 32 domains gave about 8 held rows a second. 128
+domains failed twice: under io_uring every domain allocates a ring and the
+8 MiB locked-memory limit returned ENOMEM, and OCaml 5 allows at most 128
+domains in a process ("failed to allocate domain"). `EIO_BACKEND=posix`
+with 96 domains gives about 50 held rows a second, so a 344,000-paper
+snapshot exports in roughly two hours; the CLI caps `--domains` at 100.
+The export reads only members the snapshot found in the catalogue, so a
+paper acquired after the snapshot was taken appears without text until the
+next snapshot.
+
+Running at 21:05 UTC: a corpus export of snapshot 3 (PID in
+`taposaur/.local/corpus-3.pid`, log `corpus-3.log`, output
+`taposaur/.local/exports/ce-butterflies-snapshot-3.jsonl`) as the first
+deliverable with the older frozen abstracts, and the pipeline above, which
+writes `ce-butterflies-snapshot-N.jsonl`, `.parquet` and `.summary.json`
+under `taposaur/.local/exports/` and copies the Parquet file and summary to
+`/data/papers/taposaur/reviews/ce-butterflies/`. Convert the snapshot 3
+file by hand with `corpus-parquet.sh` when it finishes. A native Parquet
+writer in OCaml would remove the duckdb step and is the obvious follow-up;
+reading paper manifests from the catalogue instead of the archive would
+halve the metadata operations per paper.
 
 ### Remaining before a bulk run
 

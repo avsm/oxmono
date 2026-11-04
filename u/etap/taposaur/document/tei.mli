@@ -34,6 +34,21 @@ val metadata :
   (Taposaur.Bibliography.t, string) result
 (** [metadata flow] is the bibliography of {!inspect}. *)
 
+val body_text :
+  ?max_bytes:int -> ?max_output:int -> _ Eio.Flow.source ->
+  (string option, string) result
+(** [body_text flow] is the prose of the TEI body: section headings,
+    paragraphs and list items in document order, one block per line with a
+    blank line between blocks. Whitespace is collapsed and sentence breaks
+    become spaces. The text of figures, notes, tables and formulae is left
+    out, as it is for {!inspect}, and the back matter is never read. The
+    result is [None] when the document has no body or the body holds no
+    prose. Defaults are 16 MiB of input and 8 MiB of output, with 256
+    levels of nesting; exceeding either is an error, as is malformed XML.
+    I/O errors and cancellation propagate. *)
+val body_text_string : ?max_output:int -> string -> (string option, string) result
+(** [body_text_string xml] is {!body_text} over an in-memory document. *)
+
 val validate_string : ?max_bytes:int -> string -> (unit, string) result
 (** [validate_string xml] checks the entire document for well-formed XML
     with a TEI root. It does not validate against a TEI schema. Defaults

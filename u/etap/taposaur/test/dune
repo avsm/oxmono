@@ -52,6 +52,7 @@
   tap_test
   taposaur.audit
   taposaur
+  taposaur.corpus
   taposaur.review
   taposaur.review-store
   taposaur.review-run

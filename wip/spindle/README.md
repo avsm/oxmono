@@ -118,6 +118,14 @@ executor. A planning executor uses it to start one workflow per build it
 decides on, such as one per compiler a dependency solve allows. A retry of a
 spawned workflow reruns the workflow that spawned it.
 
+`await_spawned ()` waits until every workflow the current one spawned, and
+everything those spawned, has finished, and returns how each ended with its
+log as text. A planner calls it last to summarise its builds. While it
+waits, the workflow gives up its worker slot and its place in the
+repository's and owner's workflow limits, and the wait is not charged as CI
+minutes, so waiting planners cannot starve their own builds. The workflow's
+time limit still covers the wait.
+
 `spindle --executor=solve` uses `Spindle.Executor.solve`, which simulates
 this: its `solve` workflow pretends to solve for `ocaml-4.14`, `ocaml-5.5`
 and `oxcaml-5.2minus39`, then spawns a workflow for each that logs made-up

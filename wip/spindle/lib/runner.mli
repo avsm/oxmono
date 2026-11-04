@@ -2,6 +2,8 @@
 
 type t = {
   job : Job.t;
+  parent : string option;
+      (** The workflow that spawned this one while it ran, if any. *)
   mutable status : string;
   mutable started : string option;
   mutable finished : string option;
@@ -41,10 +43,13 @@ val pairs : (string * string) list -> Jsont.json
 val unpairs : Jsont.json -> (string * string) list
 val optional : string -> ('a -> 'b) -> 'a option -> (string * 'b) list
 val terminal : t -> bool
-val v : Job.t -> t
+val v : ?parent:string -> Job.t -> t
 val view : t -> Jsont.json
 val snapshot : t -> Jsont.json
 val restore : Jsont.json -> t
+
+val outcome : t -> Executor.outcome
+(** [outcome t] is how finished workflow [t] ended, with its log as text. *)
 
 val message : exn -> string
 (** [message exn] is the error shown for a workflow that failed with [exn]: the
@@ -56,14 +61,17 @@ val execute :
   record:(string -> int64) ->
   persist:(unit -> unit) ->
   spawn:(env:(string * string) list -> string -> Job.step list -> unit) ->
+  ?await:(unit -> t list) ->
   t ->
   unit
 (** [execute env input ~record ~persist ~spawn workflow] waits for a worker slot
     and hands [workflow] to the executor of [env]. The executor's [spawn] calls
-    [spawn]. Each transition calls [persist]. Each JSON-encoded event calls
-    [record] before becoming visible to log subscribers. [record] returns the
-    durable journal sequence for snapshot compaction. A cancelled workflow's
-    error is ["User canceled the workflow"], as the reference spindle reports
-    it, and a workflow that ran out of time has none. *)
+    [spawn], and its [await_spawned] calls [await], with the worker slot given
+    up meanwhile. [await] is [fun () -> []] by default. Each transition calls
+    [persist]. Each JSON-encoded event calls [record] before becoming visible to
+    log subscribers. [record] returns the durable journal sequence for snapshot
+    compaction. A cancelled workflow's error is ["User canceled the workflow"],
+    as the reference spindle reports it, and a workflow that ran out of time has
+    none. *)
 
 val cancel : persist:(unit -> unit) -> t -> unit

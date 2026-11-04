@@ -33,12 +33,12 @@ type t = {
   mutable last_tid : int64;
   running : (string, int) Hashtbl.t;
   quota_changed : Eio.Condition.t;
+  changed : Eio.Condition.t;
 }
 
 exception Capacity
 
 let terminal p = List.for_all Runner.terminal p.workflows
-
 let push = "org.tangled.event.push"
 let pull_request = "org.tangled.event.pullRequest"
 let manual = "org.tangled.ci.trigger.manual"
@@ -147,6 +147,8 @@ let wiped t p =
   Settings.banned t.settings p.repo || Settings.banned t.settings p.owner
 
 let persist t p =
+  Fun.protect ~finally:(fun () -> Eio.Condition.broadcast t.changed)
+  @@ fun () ->
   if wiped t p then
     Lock.protect t.lock (fun () -> Hashtbl.remove t.pipelines p.id)
   else
@@ -216,6 +218,33 @@ let minutes_left t p =
 
 let running t did = Option.value ~default:0 (Hashtbl.find_opt t.running did)
 
+(* [descendants p name] is every workflow of [p] spawned by [name], or by a
+   workflow it spawned, in the order they were added. *)
+let descendants p name =
+  let rec grow names =
+    let more =
+      List.filter_map
+        (fun (r : Runner.t) ->
+          match r.parent with
+          | Some parent
+            when List.mem parent names && not (List.mem r.job.name names) ->
+              Some r.job.name
+          | _ -> None)
+        p.workflows
+    in
+    if more = [] then names else grow (names @ more)
+  in
+  let names = grow [ name ] in
+  List.filter
+    (fun (r : Runner.t) -> r.job.name <> name && List.mem r.job.name names)
+    p.workflows
+
+(* Every change of a workflow is persisted, which wakes [await_spawned]. *)
+let await_spawned t p (workflow : Runner.t) =
+  Eio.Condition.loop_no_mutex t.changed (fun () ->
+      let ds = descendants p workflow.job.name in
+      if List.for_all Runner.terminal ds then Some ds else None)
+
 (* [start_one t p workflow] runs a pending workflow of [p] in its own fiber,
    and [spawn] adds one while [p] runs. *)
 let rec start_one t p (workflow : Runner.t) =
@@ -247,10 +276,28 @@ let rec start_one t p (workflow : Runner.t) =
         | Some message -> fail message
         | None ->
             acquire t p workflow;
-            let began = Eio.Time.now t.runner.system#clock in
+            let clock = t.runner.system#mono_clock in
+            let seconds () =
+              Int64.to_float (Mtime.to_uint64_ns (Eio.Time.Mono.now clock))
+              /. 1e9
+            in
+            let began = seconds () in
+            (* Waiting for spawned workflows gives up the workflow's place in
+               its repository's and owner's limits, and is not charged. *)
+            let held = ref true and waited = ref 0. in
+            let await () =
+              held := false;
+              release t p;
+              let start = seconds () in
+              let outcomes = await_spawned t p workflow in
+              waited := !waited +. (seconds () -. start);
+              acquire t p workflow;
+              held := true;
+              outcomes
+            in
             Fun.protect ~finally:(fun () ->
-                release t p;
-                let spent = Eio.Time.now t.runner.system#clock -. began in
+                if !held then release t p;
+                let spent = seconds () -. began -. !waited in
                 if workflow.started <> None then
                   Settings.add_minutes t.settings (counted t p)
                     (int_of_float (Float.ceil (spent /. 60.))))
@@ -260,8 +307,9 @@ let rec start_one t p (workflow : Runner.t) =
                 Store.append_log t.store ~pipeline:p.id
                   ~workflow:workflow.job.name event)
               ~persist:(fun () -> persist t p)
-              ~spawn:(fun ~env name steps -> spawn t p ~env name steps)
-              workflow
+              ~spawn:(fun ~env name steps ->
+                spawn t p ~parent:workflow.job.name ~env name steps)
+              ~await workflow
       with exn ->
         Eio.Cancel.protect (fun () ->
             workflow.status <- "failed";
@@ -269,9 +317,9 @@ let rec start_one t p (workflow : Runner.t) =
             workflow.error <- Some (Runner.message exn);
             persist t p))
 
-and spawn t p ~env name steps =
+and spawn t p ~parent ~env name steps =
   if not (Workflows.valid_name name) then invalid "invalid workflow name";
-  let workflow = Runner.v (Job.spawned ~env name steps) in
+  let workflow = Runner.v ~parent (Job.spawned ~env name steps) in
   Lock.protect t.lock (fun () ->
       if List.exists (fun (r : Runner.t) -> r.job.name = name) p.workflows then
         invalid ("the pipeline already has a workflow " ^ name);
@@ -332,6 +380,7 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
     last_tid = 0L;
     running = Hashtbl.create 16;
     quota_changed = Eio.Condition.create ();
+    changed = Eio.Condition.create ();
   }
 
 let migrate t static =

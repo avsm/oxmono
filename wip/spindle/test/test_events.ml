@@ -44,6 +44,7 @@ let () =
       ()
   in
   let job = Job.v "push-only" [] ~accepts:(fun c -> c.kind = Job.Push) in
+  let awaited = ref None in
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:"spindle.test"
       ~jobs:[ Job.inspect; job ]
@@ -51,7 +52,12 @@ let () =
         (* A manual run asks for a spawned workflow with an input. *)
         match List.assoc_opt "TANGLED_INPUT_SPAWN" r.variables with
         | Some name when r.workflow = "inspect" ->
-            ctx.spawn name [ Job.step "child step" "true" ]
+            ctx.spawn name [ Job.step "child step" "true" ];
+            awaited := Some (ctx.await_spawned ())
+        | Some _ when r.workflow = "child" ->
+            ctx.spawn "grandchild" [ Job.step "grandchild step" "true" ]
+        | Some _ when r.workflow = "grandchild" ->
+            ctx.step "say" (fun () -> ctx.log `Stdout "hello\n")
         | _ -> ())
       ~system:env ~directory ~sw ()
   in
@@ -187,9 +193,7 @@ let () =
   Store.batch store ~deletes:[]
     ~puts:
       (List.init 300 (fun i ->
-           let trigger =
-             if i mod 2 = 0 then Engine.push else Engine.manual
-           in
+           let trigger = if i mod 2 = 0 then Engine.push else Engine.manual in
            ( "pipeline-view",
              id i,
              encode
@@ -198,10 +202,7 @@ let () =
                     ("id", str (id i));
                     ("repo", str repo);
                     ("commit", str (sha (i / 3)));
-                    ( "trigger",
-                      obj
-                        [ ("$type", str trigger) ]
-                    );
+                    ("trigger", obj [ ("$type", str trigger) ]);
                   ]) )));
   let query ?cursor ?(commits = []) ?(triggers = []) () =
     Engine.query engine ~repo ~limit:17 ~cursor ~triggers ~commits
@@ -251,7 +252,9 @@ let () =
   Eio.Semaphore.release engine.runner.slots;
   Eio.Semaphore.release engine.runner.slots;
   (* A workflow may add another to its running pipeline, which runs and is
-     shown with it. A retry reruns the workflow that spawned it. *)
+     shown with it, and wait for it and what it spawns. Waiting gives up the
+     only free slot. A retry reruns the workflow that spawned it. *)
+  Eio.Semaphore.acquire engine.runner.slots;
   let spawner =
     obj
       [
@@ -271,7 +274,7 @@ let () =
       List.map (fun (r : Spindle__Runner.t) -> r.job.name) p.workflows
     in
     if
-      List.mem "child" names
+      List.mem "grandchild" names
       && List.for_all
            (fun (r : Spindle__Runner.t) -> r.status = "success")
            p.workflows
@@ -290,13 +293,20 @@ let () =
       settle (n - 1))
   in
   let p = settle 100 in
+  Eio.Semaphore.release engine.runner.slots;
   assert (
     List.map (fun (r : Spindle__Runner.t) -> r.job.name) p.workflows
-    = [ "inspect"; "child" ]);
+    = [ "inspect"; "child"; "grandchild" ]);
   let shown =
     List.map (get "name") (list (required "workflows" (Engine.view engine p)))
   in
-  assert (shown = [ "inspect"; "child" ]);
+  assert (shown = [ "inspect"; "child"; "grandchild" ]);
+  (match !awaited with
+  | Some [ child; grandchild ] ->
+      assert (child.workflow = "child" && child.status = `Success);
+      assert (grandchild.workflow = "grandchild");
+      assert (grandchild.log = "## say\nhello\n")
+  | _ -> failwith "the spawned workflows were not awaited");
   let again =
     Engine.retry engine ~principal:owner ~actor:owner ~repo ~id
       ~names:[ "child" ]
@@ -307,4 +317,4 @@ let () =
   | [] -> assert false);
   print_endline
     "events: durable dispatch deduplication, OCaml selection, approval, retry, \
-     cancellation and spawning passed"
+     cancellation, spawning and awaiting passed"

@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Let an executor wait for the workflows it spawned, and read how each
+  ended and its log, with `await_spawned`.
+
 - Let a custom spindle turn off repositories' own workflows with
   `Spindle_cli.main ~repository_workflows:false`.
 

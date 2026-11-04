@@ -20,10 +20,18 @@ type request = {
 
 type kind = [ `User | `System ]
 
+type outcome = {
+  workflow : string;
+  status : [ `Success | `Failed | `Cancelled | `Timeout ];
+  error : string option;
+  log : string;
+}
+
 type context = {
   step : ?kind:kind -> ?command:string -> string -> (unit -> unit) -> unit;
   log : [ `Stdout | `Stderr ] -> string -> unit;
   spawn : ?env:(string * string) list -> string -> Job.step list -> unit;
+  await_spawned : unit -> outcome list;
 }
 
 type t = context -> request -> unit

@@ -3,6 +3,7 @@ open Json
 
 type t = {
   job : Job.t;
+  parent : string option;
   mutable status : string;
   mutable started : string option;
   mutable finished : string option;
@@ -37,14 +38,16 @@ type input = {
 exception Cancelled
 
 let now () = Ptime.to_rfc3339 ~tz_offset_s:0 (Ptime_clock.now ())
+
 (* A blocked workflow waits for a collaborator's approval. It is live, so
    cancellation and restart keep it, but it does not run until approved. *)
 let terminal p =
   p.status <> "pending" && p.status <> "running" && p.status <> "blocked"
 
-let v job =
+let v ?parent job =
   {
     job;
+    parent;
     status = "pending";
     started = None;
     finished = None;
@@ -182,8 +185,7 @@ let run_step record persist p ~step ~kind ?command name f =
   control record persist p ~step ~kind ?command ~status:"start" name;
   match f () with
   | () ->
-      control record persist p ~step ~kind ~outcome:"success" ~status:"end"
-        name
+      control record persist p ~step ~kind ~outcome:"success" ~status:"end" name
   | exception exn ->
       let bt = Printexc.get_raw_backtrace () in
       (* A full log budget or a closed store must not hide the failure. *)
@@ -280,7 +282,7 @@ let flush record p ~step s =
 (* [context record persist p ~secrets] numbers the executor's steps from 0 and
    masks [secrets] in each stream of a step. Text held back by a mask or an
    unterminated line at the end of a step is flushed into that step. *)
-let context record persist p ~secrets ~spawn : Executor.context =
+let context record persist p ~secrets ~spawn ~await : Executor.context =
   let values = List.map snd secrets in
   let next = ref 0 in
   let current = ref None in
@@ -312,17 +314,59 @@ let context record persist p ~secrets ~spawn : Executor.context =
         frame record p ~step s (Mask.feed s.mask content)
   in
   let spawn ?(env = []) name steps = spawn ~env name steps in
-  { step; log; spawn }
+  { step; log; spawn; await_spawned = await }
+
+(* [text p] is [p]'s log as a person reads it. *)
+let text p =
+  let b = Buffer.create 4096 in
+  List.iter
+    (fun event ->
+      let field k = Option.map string (Json.field k event) in
+      match (field "type", field "content") with
+      | Some "control", Some name when field "status" = Some "start" ->
+          Buffer.add_string b ("## " ^ name ^ "\n")
+      | Some "data", Some content ->
+          Buffer.add_string b content;
+          if not (String.ends_with ~suffix:"\n" content) then
+            Buffer.add_char b '\n'
+      | _ -> ())
+    (List.rev p.events);
+  Buffer.contents b
+
+let outcome p : Executor.outcome =
+  {
+    workflow = p.job.name;
+    status =
+      (match p.status with
+      | "success" -> `Success
+      | "cancelled" -> `Cancelled
+      | "timeout" -> `Timeout
+      | _ -> `Failed);
+    error = p.error;
+    log = text p;
+  }
 
 (* [message exn] is what a viewer is shown for a failed workflow. *)
 let message = function
   | Failure m | Invalid_argument m -> m
   | exn -> Printexc.to_string exn
 
-let execute state input ~record ~persist ~spawn p =
+let execute state input ~record ~persist ~spawn ?(await = fun () -> []) p =
   Eio.Semaphore.acquire state.slots;
-  Fun.protect ~finally:(fun () -> Eio.Semaphore.release state.slots)
+  (* The slot is given up while the workflow waits for those it spawned, so
+     that waiting workflows cannot occupy every slot their children need. *)
+  let held = ref true in
+  Fun.protect ~finally:(fun () ->
+      if !held then Eio.Semaphore.release state.slots)
   @@ fun () ->
+  let await () =
+    held := false;
+    Eio.Semaphore.release state.slots;
+    let outcomes = await () in
+    Eio.Semaphore.acquire state.slots;
+    held := true;
+    List.map outcome outcomes
+  in
   if (not p.cancelled) && p.status = "pending" then (
     p.status <- "running";
     p.started <- Some (now ());
@@ -334,7 +378,7 @@ let execute state input ~record ~persist ~spawn p =
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
         state.executor
-          (context record persist p ~secrets:input.secrets ~spawn)
+          (context record persist p ~secrets:input.secrets ~spawn ~await)
           (request input p.job);
         Ok ()
       with exn -> Error exn

@@ -13,6 +13,7 @@
   fetch-httpz
   eio
   eio.unix
+  mtime
   jsont
   jsont.bytesrw
   multibase

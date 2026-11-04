@@ -38,6 +38,7 @@ type t = private {
   mutable last_tid : int64;
   running : (string, int) Hashtbl.t;
   quota_changed : Eio.Condition.t;
+  changed : Eio.Condition.t;
 }
 
 exception Capacity

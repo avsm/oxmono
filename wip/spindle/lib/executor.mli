@@ -40,6 +40,16 @@ type kind = [ `User | `System ]
 (** A [`User] step comes from the workflow. A [`System] step is one the executor
     adds, such as a checkout, which viewers fold by default. *)
 
+type outcome = {
+  workflow : string;  (** The workflow's name. *)
+  status : [ `Success | `Failed | `Cancelled | `Timeout ];
+  error : string option;  (** Why it failed, when known. *)
+  log : string;
+      (** Its log as text: each step's name, prefixed by [## ], then its output.
+      *)
+}
+(** How a finished workflow ended. *)
+
 type context = {
   step : ?kind:kind -> ?command:string -> string -> (unit -> unit) -> unit;
       (** [step ~kind ~command name f] runs [f] as the next step of the log,
@@ -56,6 +66,12 @@ type context = {
           alongside the current workflow, for instance one for each build a plan
           finds. [name] must be a valid workflow file name not already in the
           pipeline, which holds at most 50 workflows. *)
+  await_spawned : unit -> outcome list;
+      (** [await_spawned ()] waits until every workflow this one spawned, and
+          every workflow those spawned, has finished, and is their outcomes in
+          the order they were spawned. The workflow gives up its worker slot
+          while it waits, and the wait does not count towards its minutes. Its
+          time limit still applies. *)
 }
 
 type t = context -> request -> unit

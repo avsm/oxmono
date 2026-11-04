@@ -84,3 +84,9 @@
  (modules test_local)
  (package proffer)
  (libraries proffer httpz))
+
+(test
+ (name test_session)
+ (modules test_session)
+ (package proffer)
+ (libraries proffer proffer.session httpz eio eio.mock eio_main))

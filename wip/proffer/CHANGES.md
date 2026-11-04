@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Add `proffer.session`: server-side browser sessions in `__Host-` cookies,
+  stored by the hash of their ID, with CSRF tokens, `Sec-Fetch-Site` and
+  `Origin` checks for unsafe methods, and a login nonce cookie for OAuth
+  redirects.
+
 - Accept borrowed request and response strings, local stream callbacks and
   local sink writes. Preserve local header and allocation contracts in the
   public interface.

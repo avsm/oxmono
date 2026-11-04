@@ -1,0 +1,4 @@
+(library
+ (name proffer_session)
+ (public_name proffer.session)
+ (libraries proffer httpz httpz.cookie eio cstruct digestif eqaf ptime))

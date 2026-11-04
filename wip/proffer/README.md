@@ -8,6 +8,28 @@ WebDAV exports. `proffer.dav.eio` supplies confined read-only directories and a
 private transactional writer. No DAV route is enabled by default. Outbound
 WebDAV operations belong to [`fetch.dav`](../fetch/dav/README.md).
 
+The [`proffer.session`](session/proffer_session.mli) library keeps browser
+sessions on the server. The browser holds only a 256-bit random ID in a
+`__Host-` cookie that is `Secure`, `HttpOnly` and `SameSite=Lax`, and the
+store is keyed by the ID's SHA-256, so a copy of the store cannot be replayed
+as cookies. `create` always mints a new ID, so call it on login and `destroy`
+the request's old session. A request carrying the cookie twice has no
+session. Sessions end after two idle hours or twelve hours in all, by
+default.
+
+State-changing requests go through `check_unsafe`. It needs the session's
+CSRF token, in the `_csrf` form field or an `X-CSRF-Token` field, and a request
+whose `Sec-Fetch-Site` and `Origin` fields do not name another site. An
+older browser that sends neither passes on the token alone. `Login` binds an
+off-site login, such as an OAuth authorization, to the browser that began it
+with a ten-minute nonce cookie. That cookie is `Lax`, not `Strict`, because the
+return from the authorization server is a cross-site top-level navigation.
+
+A site behind a TLS-terminating proxy sees plaintext connections. It still
+sets `Secure` cookies, since its browsers use HTTPS, and it takes its origin
+from configuration. `Host` and `X-Forwarded-Proto` are chosen by the client
+and must not decide what requests are checked against.
+
 Start with the [server and client examples](../../examples/README.md).
 The [first Proffer lesson](../../examples/proffer/1-hello/README.md)
 contains a complete program and its run command.

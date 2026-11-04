@@ -31,8 +31,8 @@
 
 - Run each workflow as a job of a Duraml store in the state directory, so a
   workflow interrupted by a restart runs again from the start with a fresh
-  log instead of failing. Spawning a workflow that the pipeline already has,
-  with the same steps, is a no-op.
+  log instead of failing. A re-run spawning a workflow it spawned before
+  keeps the earlier one, even if it now plans it differently.
 - Keep each workflow's parent across restarts, so `await_spawned` still
   finds what a restored workflow spawned.
 - Give executors `finished`, how the pipeline's other workflows ended.

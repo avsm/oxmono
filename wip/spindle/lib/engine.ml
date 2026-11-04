@@ -391,16 +391,15 @@ and spawn t p ~parent ~env name steps =
   if not (Workflows.valid_name name) then invalid "invalid workflow name";
   let workflow = Runner.v ~parent (Job.spawned ~env name steps) in
   (* A workflow that runs again after a restart spawns what it spawned
-     before, which is already there. *)
+     before, which is already there and may already be running. The earlier
+     child stands, even if the steps differ now, as a planner's may when it
+     solves again or its configuration changed across the restart. *)
   let again =
     Lock.protect t.lock (fun () ->
         match
           List.find_opt (fun (r : Runner.t) -> r.job.name = name) p.workflows
         with
-        | Some r
-          when r.parent = Some parent && r.job.steps = steps && r.job.env = env
-          ->
-            true
+        | Some r when r.parent = Some parent -> true
         | Some _ -> invalid ("the pipeline already has a workflow " ^ name)
         | None ->
             if List.length p.workflows >= 50 then

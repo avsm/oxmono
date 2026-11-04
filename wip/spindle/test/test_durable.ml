@@ -36,7 +36,10 @@ let () =
     | "inspect" ->
         ctx.step "work" (fun () ->
             ctx.log `Stdout (Printf.sprintf "run %d\n" (count "inspect")));
-        ctx.spawn "child" [ Job.step "child step" "true" ];
+        (* A re-run may plan the child differently, as a planner that solves
+           again does, and the earlier child still stands. *)
+        ctx.spawn "child"
+          [ Job.step "child step" (Printf.sprintf "run %d" (count "inspect")) ];
         if count "inspect" = 1 then (
           Eio.Promise.resolve set_started ();
           Eio.Fiber.await_cancel ())

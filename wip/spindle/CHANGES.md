@@ -6,6 +6,16 @@
 
 ## Unreleased
 
+- Reach only public addresses when resolving identities and reading knots
+  and PDSes, unless `--allow-http` is given for a development network, since
+  the accounts and repositories asked about choose those hosts. Webhooks use
+  the same address filter, which also refuses IPv4-compatible, NAT64 and
+  6to4 forms of private addresses and tries each public address in turn.
+- Serve pictures only of accounts the pages show, keep at most 32 MiB of
+  them, and list at most 50 of a visitor's other repositories, those whose
+  manifests name them, for at most ten seconds. Show the jobs tab only with a
+  job store, and give the reason a member could not be added.
+
 - Hide a secret whole when a shorter secret it begins with is complete first
   and the rest arrives in a later write, and hide secrets in step names,
   commands and errors too.

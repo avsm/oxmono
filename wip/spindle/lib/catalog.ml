@@ -11,6 +11,7 @@ type repo = {
 }
 
 type admission = Open | Closed
+type manifest = { name : string; owner : string; spindle : string option }
 
 type t = {
   store : Store.t;
@@ -207,9 +208,13 @@ let manifest t did =
   | None -> None
   | Some m ->
       let v = required "value" m in
+      let declaration = required "declaration" v in
       Some
-        ( get "name" (required "declaration" v),
-          Option.map string (field "spindle" v) )
+        {
+          name = get "name" declaration;
+          owner = get "owner" declaration;
+          spindle = Option.map string (field "spindle" v);
+        }
 
 let names_self t manifest =
   Option.map string (field "spindle" manifest) = Some (self t)

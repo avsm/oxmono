@@ -201,11 +201,10 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
       S.site ~name:hostname ~brand:"sp"
         ~home:(S.Url.path [ "ui" ])
         ~nav:
-          [
-            S.nav "Repositories" (S.Url.path [ "ui" ]);
-            S.nav "Jobs" (S.Url.path [ "ui"; "jobs" ]);
-            S.nav "Members" (S.Url.path [ "ui"; "members" ]);
-          ]
+          ([ S.nav "Repositories" (S.Url.path [ "ui" ]) ]
+          @ (if jobs = None then []
+             else [ S.nav "Jobs" (S.Url.path [ "ui"; "jobs" ]) ])
+          @ [ S.nav "Members" (S.Url.path [ "ui"; "members" ]) ])
         ();
     jobs;
     collaborates = Hashtbl.create 16;
@@ -569,6 +568,18 @@ let repo_name t did =
   | exception (Eio.Cancel.Cancelled _ as e) -> raise e
   | exception _ -> did
 
+(* A repository name shown inside a shell command: letters, digits and
+   [._-], as Tangled's names are. *)
+let safe_name name =
+  String.length name > 0
+  && String.length name <= 100
+  && String.for_all
+       (function
+         | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '.' | '_' | '-' -> true
+         | _ -> false)
+       name
+  && name.[0] <> '-'
+
 (* The user's own repositories that this spindle does not serve, from the
    declarations in their PDS and the manifests on their knots, kept for five
    minutes. *)
@@ -580,7 +591,7 @@ let elsewhere t user =
       let served = List.map fst (served t) in
       let repos =
         match
-          Eio.Time.with_timeout t.clock 10. (fun () ->
+          Eio.Time.with_timeout t.clock 5. (fun () ->
               Ok
                 (Network.records (Catalog.network t.catalog) user
                    "org.tangled.repo.declaration"))
@@ -593,20 +604,35 @@ let elsewhere t user =
         | exception (Eio.Cancel.Cancelled _ as e) -> raise e
         | exception _ -> []
       in
+      (* At most 50 repositories are looked up, for at most ten seconds in
+         all. Only those whose manifest names the user, with a name fit to
+         show in a command, are listed. *)
+      let candidates =
+        List.sort_uniq String.compare repos
+        |> List.filter (fun repo ->
+            Atp.Did.is_valid repo && not (List.mem repo served))
+        |> List.filteri (fun i _ -> i < 50)
+      in
+      let found = ref [] in
+      (match
+         Eio.Time.with_timeout t.clock 10. (fun () ->
+             Eio.Fiber.List.iter ~max_fibers:8
+               (fun repo ->
+                 match
+                   Eio.Time.with_timeout t.clock 5. (fun () ->
+                       Ok (Catalog.manifest t.catalog repo))
+                 with
+                 | Ok (Some m) when m.owner = user && safe_name m.name ->
+                     found := (repo, m.name, m.spindle) :: !found
+                 | Ok _ | Error `Timeout -> ()
+                 | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+                 | exception _ -> ())
+               candidates;
+             Ok ())
+       with
+      | Ok () | Error `Timeout -> ());
       let l =
-        Eio.Fiber.List.filter_map ~max_fibers:8
-          (fun repo ->
-            if List.mem repo served || not (Atp.Did.is_valid repo) then None
-            else
-              match
-                Eio.Time.with_timeout t.clock 5. (fun () ->
-                    Ok (Catalog.manifest t.catalog repo))
-              with
-              | Ok (Some (name, spindle)) -> Some (repo, name, spindle)
-              | Ok None | Error `Timeout -> None
-              | exception (Eio.Cancel.Cancelled _ as e) -> raise e
-              | exception _ -> None)
-          (List.sort_uniq String.compare repos)
+        List.sort (fun (_, a, _) (_, b, _) -> String.compare a b) !found
       in
       if Hashtbl.length t.elsewhere > 1000 then Hashtbl.reset t.elsewhere;
       Hashtbl.replace t.elsewhere user (now, l);
@@ -720,8 +746,17 @@ let required (req @ local) name =
 (* A profile picture from the account's own PDS, served from here, so that
    pages load nothing from elsewhere. Its type is one of a few image types,
    and it is never sniffed as anything else. *)
-let avatar t (req @ local) (respond @ local) =
+let avatar t s (req @ local) (respond @ local) =
   let did = required req "did" in
+  (* Only the accounts the pages show: the visitor, the spindle's admins and
+     members, and its repositories' owners. *)
+  let known =
+    admin t did
+    || List.mem did (Catalog.allowed t.catalog)
+    || did = Session.subject s
+    || List.exists (fun (_, owner) -> owner = did) (served t)
+  in
+  if not known then raise Missing;
   match Identity.avatar t.identity did with
   | None -> raise Missing
   | Some (mime, bytes) ->
@@ -1168,14 +1203,11 @@ let add_member t s (req @ local) (respond @ local) =
   in
   match resolved with
   | Error e ->
-      Printf.eprintf "spindle web member %s: %s\n%!" identifier e;
-      members_page t s respond
-        ~error:("Could not add " ^ identifier ^ ": the handle does not resolve.")
+      Printf.eprintf "spindle web member %S: %s\n%!" identifier e;
+      members_page t s respond ~error:("Could not add " ^ identifier ^ ": " ^ e ^ ".")
   | Ok (did, handle) ->
       Catalog.allow t.catalog did;
-      (match handle with
-      | Some h -> Store.put t.store "web-member" did ("@" ^ h)
-      | None -> ());
+      Option.iter (Identity.remember t.identity did) handle;
       Printf.eprintf "spindle web: %s added member %s\n%!" (Session.subject s)
         did;
       see_other respond "/ui/members"
@@ -1186,7 +1218,6 @@ let remove_member t s (req @ local) (respond @ local) =
   match Req.form_param req "did" with
   | Some did when Atp.Did.is_valid did ->
       Catalog.disallow t.catalog did;
-      Store.delete t.store "web-member" did;
       Printf.eprintf "spindle web: %s removed member %s\n%!"
         (Session.subject s) did;
       see_other respond "/ui/members"
@@ -1216,7 +1247,7 @@ let handle t name (req @ local) (respond @ local) =
             | "members" -> members_page t s respond
             | "member-add" -> add_member t s req respond
             | "member-remove" -> remove_member t s req respond
-            | "avatar" -> avatar t req respond
+            | "avatar" -> avatar t s req respond
             | _ -> raise Missing))
   with
   | Eio.Cancel.Cancelled _ as e -> raise e

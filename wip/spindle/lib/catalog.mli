@@ -123,10 +123,16 @@ val pull_labels : t -> repo -> pull:string -> string list
 
 val network : t -> Network.t
 
-val manifest : t -> string -> (string * string option) option
-(** [manifest t did] is the name and spindle that the knot's manifest of the
-    repository [did] gives, whether or not this spindle serves it. It asks the
-    knot each time. *)
+type manifest = {
+  name : string;
+  owner : string;  (** The DID the manifest names as owner, unchecked. *)
+  spindle : string option;  (** The spindle it names, if any. *)
+}
+
+val manifest : t -> string -> manifest option
+(** [manifest t did] is what the knot's manifest of the repository [did] says,
+    whether or not this spindle serves it. It asks the knot each time. It raises
+    as {!managed} does. *)
 
 val default_branch : t -> repo -> string option
 (** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]

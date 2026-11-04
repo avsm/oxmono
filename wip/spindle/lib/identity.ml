@@ -8,6 +8,7 @@ type t = {
   clock : float Eio.Time.clock_ty Eio.Resource.t;
   handles : (string, float * string option) Hashtbl.t;
   avatars : (string, float * (string * string) option) Hashtbl.t;
+  mutable avatar_bytes : int;
 }
 
 let v ~store ~network ~http ~clock =
@@ -18,6 +19,7 @@ let v ~store ~network ~http ~clock =
     clock :> float Eio.Time.clock_ty Eio.Resource.t;
     handles = Hashtbl.create 64;
     avatars = Hashtbl.create 64;
+    avatar_bytes = 0;
   }
 
 (* An answer is kept for an hour, a failure for ten minutes, and a handle in
@@ -137,6 +139,11 @@ let avatar t did =
     | Some entry when fresh t entry -> snd entry
     | _ ->
         let a = fetch_avatar t did in
-        if Hashtbl.length t.avatars > 500 then Hashtbl.reset t.avatars;
+        (* At most 32 MiB of pictures are kept. *)
+        let size = function Some (_, b) -> String.length b | None -> 0 in
+        if t.avatar_bytes + size a > 32 * 1024 * 1024 then (
+          Hashtbl.reset t.avatars;
+          t.avatar_bytes <- 0);
+        t.avatar_bytes <- t.avatar_bytes + size a;
         Hashtbl.replace t.avatars did (now t, a);
         a

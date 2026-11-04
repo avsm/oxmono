@@ -12,11 +12,14 @@ val v :
   store:Store.t ->
   network:Network.t ->
   http:Fetch.plain ->
+  ?plc:string ->
   clock:_ Eio.Time.clock ->
+  unit ->
   t
-(** [v ~store ~network ~http ~clock] resolves DID documents through [network]
-    and checks handles and fetches avatars through [http], which should refuse
-    private addresses, since accounts choose where these lead. *)
+(** [v ~store ~network ~http ~plc ~clock ()] verifies handles with
+    {!Xrpc.Identity.verified_handle} through [http] and the PLC directory [plc],
+    and finds avatars through [network] and [http]. Both should refuse private
+    addresses, since accounts choose where these lead. *)
 
 val handle : t -> string -> string option
 (** [handle t did] is [did]'s verified handle, if it has one. Unless kept, it

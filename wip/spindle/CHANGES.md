@@ -6,6 +6,8 @@
 
 ## Unreleased
 
+- Verify handles in the web pages with `Xrpc.Identity.verified_handle`.
+
 - Bound the repository acceptance cache, which any caller could grow, read
   a long pull request's label versions in batches and stop at an empty
   cursor, and keep a repository's new name only after its rename is handled.

@@ -211,8 +211,8 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
     lock = Eio.Mutex.create ();
     logins = 0;
     identity =
-      Identity.v ~store ~network:(Catalog.network catalog) ~http
-        ~clock:env#clock;
+      Identity.v ~store ~network:(Catalog.network catalog) ~http ?plc
+        ~clock:env#clock ();
     elsewhere = Hashtbl.create 16;
     hostname;
   }

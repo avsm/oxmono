@@ -5,17 +5,19 @@ type t = {
   store : Store.t;
   network : Network.t;
   http : Fetch.plain;
+  plc : string option;
   clock : float Eio.Time.clock_ty Eio.Resource.t;
   handles : (string, float * string option) Hashtbl.t;
   avatars : (string, float * (string * string) option) Hashtbl.t;
   mutable avatar_bytes : int;
 }
 
-let v ~store ~network ~http ~clock =
+let v ~store ~network ~http ?plc ~clock () =
   {
     store;
     network;
     http;
+    plc;
     clock :> float Eio.Time.clock_ty Eio.Resource.t;
     handles = Hashtbl.create 64;
     avatars = Hashtbl.create 64;
@@ -30,7 +32,6 @@ let stored = 86400.
 let now t = Eio.Time.now t.clock
 let fresh t (at, value) = now t -. at < if value = None then missing else found
 
-(* A lookup takes at most five seconds, and any failure is no answer. *)
 let bounded t f =
   match Eio.Time.with_timeout t.clock 5. (fun () -> Ok (f ())) with
   | Ok v -> v
@@ -39,28 +40,7 @@ let bounded t f =
   | exception _ -> None
 
 let lookup t did =
-  bounded t (fun () ->
-      let doc = decode (Network.resolve t.network did) in
-      if Option.map string (field "id" doc) <> Some did then None
-      else
-        let claimed =
-          match field "alsoKnownAs" doc with
-          | Some aka ->
-              List.find_map
-                (fun j ->
-                  let s = string j in
-                  if String.starts_with ~prefix:"at://" s then
-                    Some (String.sub s 5 (String.length s - 5))
-                  else None)
-                (list aka)
-          | None -> None
-        in
-        match claimed with
-        | Some h when Atp.Handle.is_valid h -> (
-            match Xrpc.Identity.did_of_handle t.http h with
-            | Ok back when back = did -> Some (String.lowercase_ascii h)
-            | _ -> None)
-        | _ -> None)
+  bounded t (fun () -> Xrpc.Identity.verified_handle ?plc:t.plc t.http did)
 
 let keep t did h =
   if Hashtbl.length t.handles > 10_000 then Hashtbl.reset t.handles;

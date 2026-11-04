@@ -1,0 +1,28 @@
+(lang dune 3.21)
+
+(name sitekit)
+
+(generate_opam_files true)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "anil@recoil.org")
+
+(package
+ (name sitekit)
+ (synopsis "Server-rendered web pages that are safe by construction")
+ (description
+  "Sitekit is a small library of Htmlit components and a page shell for
+server-rendered sites on Proffer. Text is always escaped, links take
+validated URLs, and its stylesheet and script are served at content-hashed
+paths, so pages run under a Content Security Policy without unsafe-inline.")
+ (depends
+  (ocaml
+   (>= 5.2))
+  htmlit
+  proffer
+  uriz
+  digestif
+  ptime))

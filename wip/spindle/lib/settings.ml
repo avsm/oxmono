@@ -3,9 +3,19 @@ open Json
 module S = Httpz.Res
 
 type defaults = { repo : (string * int) list; user : (string * int) list }
-type t = { store : Store.t; now : unit -> float; defaults : defaults }
 
-let v ~store ~now ~defaults = { store; now; defaults }
+type t = {
+  store : Store.t;
+  now : unit -> float;
+  defaults : defaults;
+  lock : Eio.Mutex.t;
+      (* Serializes this module's reads that are followed by writes, such as
+         spending an invite use or adding minutes, since the store yields
+         between them. *)
+}
+
+let v ~store ~now ~defaults =
+  { store; now; defaults; lock = Eio.Mutex.create () }
 
 let stamp t =
   match Ptime.of_float_s (t.now ()) with
@@ -85,6 +95,7 @@ let check_secret ~key:k ~value =
 
 let add_secret t ~repo ~by k value =
   check_secret ~key:k ~value:(Some value);
+  Lock.protect t.lock @@ fun () ->
   if Store.get t.store "secret" (key repo k) <> None then
     fail S.Conflict "SecretAlreadyExists"
       "SecretAlreadyExists: key already present";
@@ -181,8 +192,13 @@ let redeem t code ~actor =
     fail S.Bad_request "InviteNotFound"
       "this invite code is unknown, already spent, or expired"
   in
+  Lock.protect t.lock @@ fun () ->
   match Store.get t.store "invite" code with
   | None -> unknown ()
+  | Some _ when Store.get t.store "allow" actor <> None ->
+      (* An account already allowed spends no use, so one account cannot
+         use up a code meant for several. *)
+      ()
   | Some raw ->
       let v = decode raw in
       if Json.number (required "expiresAt" v) <= t.now () then unknown ();
@@ -276,13 +292,18 @@ let minutes t d =
 
 let add_minutes t dids n =
   if n > 0 then
-    Store.batch t.store
-      ~puts:
-        (List.map
-           (fun d ->
-             ("minutes", key (month t) d, string_of_int (minutes t d + n)))
-           (List.sort_uniq compare dids))
-      ~deletes:[]
+    let month = month t in
+    let used d =
+      Option.fold ~none:0 ~some:int_of_string
+        (Store.get t.store "minutes" (key month d))
+    in
+    Lock.protect t.lock (fun () ->
+        Store.batch t.store
+          ~puts:
+            (List.map
+               (fun d -> ("minutes", key month d, string_of_int (used d + n)))
+               (List.sort_uniq compare dids))
+          ~deletes:[])
 
 let wipe t repo =
   let deletes namespace =

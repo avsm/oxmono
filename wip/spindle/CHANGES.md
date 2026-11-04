@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Spend an invite use, add CI minutes and add a secret atomically, so that
+  requests at once cannot spend a code twice, lose minutes or overwrite a
+  secret. An account already allowed spends no invite use.
+
 - Match a repository workflow's branch and tag globs in time quadratic in
   their length, since a crafted pattern could stall the spindle, refuse
   patterns with more than 256 brace alternatives, and treat `**` as a whole

@@ -54,10 +54,22 @@ let () =
   in
   let shared = code 2 in
   Settings.redeem t shared ~actor:"did:plc:a";
+  (* An account already allowed spends no use. *)
+  Settings.redeem t shared ~actor:"did:plc:a";
   Settings.redeem t shared ~actor:"did:plc:b";
   refused "InviteNotFound" (fun () ->
       Settings.redeem t shared ~actor:"did:plc:c");
   assert (Store.get store "allow" "did:plc:b" = Some "");
+  (* Redemptions at once spend a code's uses once each. *)
+  let once = code 1 in
+  let spent = ref 0 in
+  Eio.Fiber.List.iter
+    (fun actor ->
+      match Settings.redeem t once ~actor with
+      | () -> incr spent
+      | exception E.E _ -> ())
+    [ "did:plc:r1"; "did:plc:r2"; "did:plc:r3" ];
+  assert (!spent = 1);
   let addressed = code ~for_account:"did:plc:d" 1 in
   refused "InviteNotFound" (fun () ->
       Settings.redeem t addressed ~actor:"did:plc:e");
@@ -85,6 +97,11 @@ let () =
   (* Monthly minutes, charged once to a repository that owns itself *)
   Settings.add_minutes t [ repo; owner; repo ] 3;
   assert (Settings.minutes t repo = 3 && Settings.minutes t owner = 3);
+  (* Charges at once all count. *)
+  Eio.Fiber.List.iter
+    (fun () -> Settings.add_minutes t [ owner ] 1)
+    (List.init 5 (fun _ -> ()));
+  assert (Settings.minutes t owner = 8);
   clock := !clock +. (40. *. 86400.);
   assert (Settings.minutes t repo = 0);
   Settings.add_secret t ~repo ~by:owner "KEPT" "x";

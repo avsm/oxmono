@@ -324,8 +324,17 @@ responsibility.
 
 ## Web pages
 
-With `--web`, the spindle serves pages at `/ui` for its users. Logs are
-shown with their terminal colours. Admins also get a jobs tab, at
+With `--web`, the spindle serves pages at `/ui` for its users, and a browser
+asking for `/` is sent there. Other clients of `/` still get the health
+report. Logs are shown with their terminal colours. Accounts are shown by
+their handle, once it is verified both ways, and their Bluesky profile
+picture. Handles are kept in the store for a day, and pictures in memory for
+an hour. Pictures are read from each account's PDS through the address
+filter and served from `/ui/avatar` as one of a few image types, so pages
+load nothing from elsewhere. The home page also lists the visitor's other
+Tangled repositories, those whose manifests name another spindle or none,
+with the `tangled repo set-spindle` command that moves each here. A
+repository names a single spindle. Admins also get a jobs tab, at
 `/ui/jobs`, showing the Duraml queue: how many jobs are in each state, those
 running, the newest activity, and for each job its timeline and the
 workflow it runs. A members tab, at `/ui/members`, lists the accounts

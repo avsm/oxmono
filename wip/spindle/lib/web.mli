@@ -43,8 +43,13 @@ val v :
 val handle :
   t -> string -> Proffer.Req.t @ local -> Proffer.Resp.respond @ local -> unit
 (** [handle t page req respond] answers the page called [page]: [home],
-    [repo], [pipeline], [log], [login], [logout], [callback], [metadata] or
+    [repo], [pipeline], [log], [jobs], [job], [members], [member-add],
+    [member-remove], [avatar], [login], [logout], [callback], [metadata] or
     [jwks]. *)
+
+val wants_html : Proffer.Req.t @ local -> bool
+(** [wants_html req] is whether [req] accepts [text/html], as a browser's
+    request for a page does. *)
 
 val routes :
   unit ->
@@ -57,6 +62,7 @@ val routes :
 
 (**/**)
 
-val login_as : t -> string -> string * string
-(** [login_as t did] is a [Cookie] field value holding a new session for
-    [did], and its CSRF token, for tests. *)
+val login_as : ?handle:string -> t -> string -> string * string
+(** [login_as ~handle t did] is a [Cookie] field value holding a new session
+    for [did], and its CSRF token, for tests. A [handle] is kept as [did]'s,
+    as a login keeps the one it verified. *)

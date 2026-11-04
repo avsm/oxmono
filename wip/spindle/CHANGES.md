@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Show accounts in the web pages by their verified handles, kept across
+  restarts, and their Bluesky profile pictures, served from the spindle.
+- Send a browser asking for `/` to the web pages.
+- List a visitor's repositories on other spindles, with the command that
+  moves each here.
+
 - Add a members tab to the web pages, where admins add the accounts whose
   repositories may run CI by handle or DID, and remove them.
 

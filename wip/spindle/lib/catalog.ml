@@ -197,6 +197,20 @@ let ref_contains t (repo : repo) ~ref_ ~commit =
         (list commits)
   | None -> false
 
+let network t = t.network
+
+let manifest t did =
+  match
+    Network.record t.network ~service:(knot_of t did) ~did
+      ~collection:"org.tangled.repo.manifest" ~rkey:"self"
+  with
+  | None -> None
+  | Some m ->
+      let v = required "value" m in
+      Some
+        ( get "name" (required "declaration" v),
+          Option.map string (field "spindle" v) )
+
 let names_self t manifest =
   Option.map string (field "spindle" manifest) = Some (self t)
 

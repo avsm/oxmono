@@ -33,8 +33,8 @@ val v :
   unit ->
   t
 (** [v ~store ~network ~owner ~hostname ~admission ~static ~ttl ~now ()] is a
-    catalog for the spindle at [hostname]. [owner] and [admins] administer
-    it. [static] is always served. Acceptance is cached for [ttl] seconds. *)
+    catalog for the spindle at [hostname]. [owner] and [admins] administer it.
+    [static] is always served. Acceptance is cached for [ttl] seconds. *)
 
 val slug : string -> string
 (** [slug name] is the record key of a repository called [name]: [name] in
@@ -104,8 +104,8 @@ val locate : t -> string -> string
 (** [locate t did] is the clone URL of any repository, served or not. *)
 
 val authorized : t -> repo -> string -> bool
-(** [authorized t repo actor] holds for the owner and for collaborators the
-    knot currently records. It asks the knot on every call. *)
+(** [authorized t repo actor] holds for the owner and for collaborators the knot
+    currently records. It asks the knot on every call. *)
 
 val permitted : t -> repo -> string -> bool
 (** [permitted t repo actor] holds when [actor] is the DID of [repo], which has
@@ -120,6 +120,13 @@ val pull_labels : t -> repo -> pull:string -> string list
     the version that last added it was made by someone [authorized] for [repo].
     It asks the knot for every version of the ticket and checks each one's
     content id. It is [[]] when anything fails. *)
+
+val network : t -> Network.t
+
+val manifest : t -> string -> (string * string option) option
+(** [manifest t did] is the name and spindle that the knot's manifest of the
+    repository [did] gives, whether or not this spindle serves it. It asks the
+    knot each time. *)
 
 val default_branch : t -> repo -> string option
 (** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]

@@ -687,7 +687,14 @@ let procedures =
   ]
 
 let rec handle state name req respond =
-  if String.starts_with ~prefix:"web:" name then
+  if name = "_root" then
+    match state.web with
+    | Some _ when Web.wants_html req ->
+        Resp.html respond ~status:Status.See_other
+          ~headers:(Headers.of_list [ ("Location", "/ui") ])
+          ""
+    | _ -> handle_xrpc state "_health" req respond
+  else if String.starts_with ~prefix:"web:" name then
     match state.web with
     | Some web ->
         Web.handle web (String.sub name 4 (String.length name - 4)) req respond
@@ -1228,7 +1235,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
          get
            (s ".well-known" / s "did.json")
            (fun env req respond -> env "_did" req respond);
-         get root (fun env req respond -> env "_health" req respond);
+         get root (fun env req respond -> env "_root" req respond);
          get (s "_health") (fun env req respond -> env "_live" req respond);
          get (s "readyz") (fun env req respond -> env "_ready" req respond);
        ]

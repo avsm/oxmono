@@ -155,6 +155,43 @@ let () =
     let as_owner t = get ~headers:[ ("Cookie", cookie) ] t in
     let home = M.body (as_owner "/ui") in
     assert (has home "demo" && has home bobs);
+    (* An account shows by its handle once one is known, with its picture
+       from here, and by its DID until then. *)
+    assert (has home owner);
+    let cookie, csrf = Web.login_as ~handle:"alice.test" web owner in
+    let as_owner t = get ~headers:[ ("Cookie", cookie) ] t in
+    let named = M.body (as_owner "/ui") in
+    assert (has named "@alice.test");
+    assert (
+      has named
+        ({|<img src="/ui/avatar?did=|}
+        ^ String.concat "%3A" (String.split_on_char ':' owner)));
+    (* An account whose picture cannot be read has none, and asking for one
+       of something that is not a DID is no page. *)
+    assert (code (as_owner ("/ui/avatar?did=" ^ owner)) = 404);
+    assert (code (as_owner "/ui/avatar?did=../../etc") = 404);
+    assert (code (get ("/ui/avatar?did=" ^ owner)) = 200);
+    assert (
+      has (M.body (get ("/ui/avatar?did=" ^ owner))) {|action="/ui/login"|});
+    (* A browser's request for the root is sent to the pages, and others get
+       the health report. *)
+    let root =
+      Proffer.Site.of_routes
+        [
+          Proffer.Route.get Proffer.Route.root (fun env req respond ->
+              env "root" req respond);
+        ]
+    in
+    let answer _ req respond =
+      Proffer.Resp.text respond
+        (if Web.wants_html req then "pages" else "health")
+    in
+    let at accept =
+      M.body (M.request ~headers:accept root answer Httpz.Method.Get "/")
+    in
+    assert (at [ ("Accept", "Text/HTML,application/xhtml+xml;q=0.9") ] = "pages");
+    assert (at [ ("Accept", "application/json") ] = "health");
+    assert (at [] = "health");
     (* Bob sees only his own. *)
     let bob_cookie, _ = Web.login_as web bob in
     let as_bob t = get ~headers:[ ("Cookie", bob_cookie) ] t in
@@ -292,6 +329,7 @@ let () =
         {|action="/ui/login"|});
     print_endline
       "web: security fields, confidential client metadata, login and logout \
-       checks, who sees which repository, and the jobs tab passed";
+       checks, who sees which repository, handles, avatars, the root redirect \
+       and the jobs tab passed";
     Eio.Switch.fail sw Exit
   with Exit -> ()

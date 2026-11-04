@@ -22,6 +22,10 @@ type t = {
          so, so that a page does not ask the knot about every repository. *)
   lock : Eio.Mutex.t;
   mutable logins : int;  (** Logins being started or finished now. *)
+  identity : Identity.t;
+  elsewhere : (string, float * (string * string * string option) list) Hashtbl.t;
+      (* Each user's repositories, with their names and spindles, briefly. *)
+  hostname : string;
 }
 
 (* Bounds on what visitors who have not logged in can make the spindle do. *)
@@ -207,6 +211,11 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
     collaborates = Hashtbl.create 16;
     lock = Eio.Mutex.create ();
     logins = 0;
+    identity =
+      Identity.v ~store ~network:(Catalog.network catalog) ~http
+        ~clock:env#clock;
+    elsewhere = Hashtbl.create 16;
+    hostname;
   }
   |> fun t ->
   Eio.Fiber.fork_daemon ~sw (fun () ->
@@ -288,11 +297,21 @@ let json (respond @ local) j =
          ])
     "application/json" (encode Jsont.json j)
 
+let avatar_url did = S.Url.path [ "ui"; "avatar" ] ~query:[ ("did", did) ]
+
+(* An account by its verified handle, or by its DID while it has none. *)
+let name_of t did =
+  match Identity.handle t.identity did with Some h -> "@" ^ h | None -> did
+
+let who t did = S.person ~avatar:(avatar_url did) (name_of t did)
+
 let account s =
   S.account
+    ~avatar:(avatar_url (Session.subject s))
     ~name:(Session.data s)
     ~logout:(S.Url.path [ "ui"; "logout" ])
     ~csrf:(Session.csrf_field, Session.csrf_token s)
+    ()
 
 (* A page for someone logged in shows their account, and to admins the jobs
    tab. *)
@@ -462,6 +481,9 @@ let callback t (req @ local) (respond @ local) =
                     | Some old -> [ Session.destroy t.sessions old ]
                     | None -> []
                   in
+                  Option.iter
+                    (Identity.remember t.identity identity.did)
+                    identity.handle;
                   let _, cookie =
                     Session.create t.sessions ~subject:identity.did
                       ~data:
@@ -547,8 +569,69 @@ let repo_name t did =
   | exception (Eio.Cancel.Cancelled _ as e) -> raise e
   | exception _ -> did
 
+(* The user's own repositories that this spindle does not serve, from the
+   declarations in their PDS and the manifests on their knots, kept for five
+   minutes. *)
+let elsewhere t user =
+  let now = Eio.Time.now t.clock in
+  match Hashtbl.find_opt t.elsewhere user with
+  | Some (at, l) when now -. at < 300. -> l
+  | _ ->
+      let served = List.map fst (served t) in
+      let repos =
+        match
+          Eio.Time.with_timeout t.clock 10. (fun () ->
+              Ok
+                (Network.records (Catalog.network t.catalog) user
+                   "org.tangled.repo.declaration"))
+        with
+        | Ok l ->
+            List.filter_map
+              (fun r -> Option.bind (field "value" r) (text_field "repo"))
+              l
+        | Error `Timeout -> []
+        | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+        | exception _ -> []
+      in
+      let l =
+        Eio.Fiber.List.filter_map ~max_fibers:8
+          (fun repo ->
+            if List.mem repo served || not (Atp.Did.is_valid repo) then None
+            else
+              match
+                Eio.Time.with_timeout t.clock 5. (fun () ->
+                    Ok (Catalog.manifest t.catalog repo))
+              with
+              | Ok (Some (name, spindle)) -> Some (repo, name, spindle)
+              | Ok None | Error `Timeout -> None
+              | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+              | exception _ -> None)
+          (List.sort_uniq String.compare repos)
+      in
+      if Hashtbl.length t.elsewhere > 1000 then Hashtbl.reset t.elsewhere;
+      Hashtbl.replace t.elsewhere user (now, l);
+      l
+
+(* Whether [v] holds [sub], which is lower case, ignoring case. *)
+let rec contains (v @ local) sub i =
+  let n = String.length v and m = String.length sub in
+  let rec matches k =
+    k >= m
+    || (Char.lowercase_ascii (String.get v (i + k)) = String.get sub k
+       && matches (k + 1))
+  in
+  i + m <= n && (matches 0 || contains v sub (i + 1))
+
+(* A browser asking for the root page wants the pages. *)
+let wants_html (req @ local) =
+  match Req.header_single req "Accept" with
+  | Ok (Some v) -> contains v "text/html" 0 [@nontail]
+  | Ok None | Error `Repeated -> false
+
 let home t s (respond @ local) =
   let user = Session.subject s in
+  let seen = visible t ~user in
+  Identity.handles t.identity (List.map snd seen);
   let rows =
     List.map
       (fun (repo, owner) ->
@@ -574,24 +657,84 @@ let home t s (respond @ local) =
                 (S.Url.path [ "ui"; "repo" ] ~query:[ ("did", repo) ])
                 (repo_name t repo);
             ];
-          S.cell [ S.text owner ];
+          S.cell ~sort:(name_of t owner) [ who t owner ];
           S.cell latest;
         ])
-      (visible t ~user)
+      seen
   in
+  let others = elsewhere t user in
   html respond
     (page t ~session:s ~title:"Repositories"
-       (if rows = [] then
-          [ paragraph "None of your repositories run CI on this spindle yet." ]
-        else
-          [
-            S.table
-              [ ("Repository", `Text); ("Owner", `Text); ("Latest", `Text) ]
-              rows;
-          ]))
+       ((if rows = [] then
+           [ paragraph "None of your repositories run CI on this spindle yet." ]
+         else
+           [
+             S.table
+               [ ("Repository", `Text); ("Owner", `Text); ("Latest", `Text) ]
+               rows;
+           ])
+       @
+       if others = [] then []
+       else
+         [
+           Htmlit.El.h2 [ S.text "Your other repositories" ];
+           paragraph
+             "A repository runs CI on the one spindle its settings name. To \
+              move one here, run the command beside it with the Tangled CLI.";
+           S.table
+             [ ("Repository", `Text); ("Spindle", `Text); ("Move it here", `Text) ]
+             (List.map
+                (fun (_, name, spindle) ->
+                  [
+                    S.cell [ S.text name ];
+                    S.cell
+                      [
+                        S.text
+                          (match spindle with
+                          | Some s when String.starts_with ~prefix:"did:web:" s
+                            ->
+                              String.sub s 8 (String.length s - 8)
+                          | Some s -> s
+                          | None -> "none");
+                      ];
+                    S.cell
+                      [
+                        Htmlit.El.code
+                          [
+                            S.text
+                              (Printf.sprintf
+                                 "tangled repo set-spindle -r %s/%s %s"
+                                 (match Identity.handle t.identity user with
+                                 | Some h -> h
+                                 | None -> user)
+                                 name t.hostname);
+                          ];
+                      ];
+                  ])
+                others);
+         ]))
 
 let required (req @ local) name =
   match Req.query_param req name with Some v -> v | None -> raise Missing
+
+(* A profile picture from the account's own PDS, served from here, so that
+   pages load nothing from elsewhere. Its type is one of a few image types,
+   and it is never sniffed as anything else. *)
+let avatar t (req @ local) (respond @ local) =
+  let did = required req "did" in
+  match Identity.avatar t.identity did with
+  | None -> raise Missing
+  | Some (mime, bytes) ->
+      Resp.media respond
+        ~headers:
+          (Headers.of_list
+             [
+               ("Cache-Control", "private, max-age=3600");
+               ("X-Content-Type-Options", "nosniff");
+               ("Content-Security-Policy", "default-src 'none'; sandbox");
+               ("Cross-Origin-Resource-Policy", "same-origin");
+             ])
+        mime bytes
 
 let repo t s (req @ local) (respond @ local) =
   let repo = required req "did" in
@@ -964,12 +1107,8 @@ let members_page ?error t s (respond @ local) =
     List.map
       (fun did ->
         [
+          S.cell ~sort:(name_of t did) [ who t did ];
           S.cell [ S.text did ];
-          S.cell
-            [
-              S.text
-                (Option.value ~default:"" (Store.get t.store "web-member" did));
-            ];
           S.cell
             [
               S.post_button
@@ -997,7 +1136,7 @@ let members_page ?error t s (respond @ local) =
            (if rows = [] then paragraph "There are no members yet."
             else
               S.table
-                [ ("DID", `Text); ("Added as", `Text); ("", `Text) ]
+                [ ("Member", `Text); ("DID", `Text); ("", `Text) ]
                 rows);
          ]))
 
@@ -1077,6 +1216,7 @@ let handle t name (req @ local) (respond @ local) =
             | "members" -> members_page t s respond
             | "member-add" -> add_member t s req respond
             | "member-remove" -> remove_member t s req respond
+            | "avatar" -> avatar t req respond
             | _ -> raise Missing))
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
@@ -1102,6 +1242,9 @@ let routes () =
         (fun env req respond -> env "web:pipeline" req respond);
       get (s "ui" / s "log") (fun env req respond -> env "web:log" req respond);
       get (s "ui" / s "jobs") (fun env req respond -> env "web:jobs" req respond);
+      get
+        (s "ui" / s "avatar")
+        (fun env req respond -> env "web:avatar" req respond);
       get (s "ui" / s "job") (fun env req respond -> env "web:job" req respond);
       get
         (s "ui" / s "members")
@@ -1129,8 +1272,10 @@ let routes () =
         (fun env req respond -> env "web:jwks" req respond);
     ]
 
-let login_as t did =
-  let s, cookie = Session.create t.sessions ~subject:did ~data:did () in
+let login_as ?handle t did =
+  Option.iter (Identity.remember t.identity did) handle;
+  let data = match handle with Some h -> "@" ^ h | None -> did in
+  let s, cookie = Session.create t.sessions ~subject:did ~data () in
   let value =
     match String.index_opt cookie.value ';' with
     | Some i -> String.sub cookie.value 0 i

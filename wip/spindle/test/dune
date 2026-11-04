@@ -42,7 +42,7 @@
 (test
  (name test_workflows)
  (modules test_workflows)
- (libraries spindle))
+ (libraries spindle unix))
 
 (test
  (name test_observer)

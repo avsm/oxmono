@@ -5,68 +5,136 @@ let directory = ".tangled/workflows"
 
 (* Any regular file is a workflow, as in the reference spindle. Its name is
    shown and logged, so it must be printable UTF-8. *)
-let valid_name name =
+let rec valid_name name =
   name <> "" && name <> "." && name <> ".."
   && String.length name <= 255
   && String.is_valid_utf_8 name
   && String.for_all (fun c -> c <> '/' && c >= ' ' && c <> '\127') name
+  && printable name
+
+(* No C1 control, line or paragraph separator, or bidirectional control,
+   which could disguise a name where it is shown. *)
+and printable name =
+  let rec go i =
+    i >= String.length name
+    ||
+    let d = String.get_utf_8_uchar name i in
+    let u = Uchar.to_int (Uchar.utf_decode_uchar d) in
+    (not
+       ((u >= 0x80 && u <= 0x9f)
+       || u = 0x2028 || u = 0x2029 || u = 0x200e || u = 0x200f
+       || (u >= 0x202a && u <= 0x202e)
+       || (u >= 0x2066 && u <= 0x2069)))
+    && go (i + Uchar.utf_decode_length d)
+  in
+  go 0
+
+(* [braces p] is [p] with each [{a,b}] group expanded, at most 256
+   patterns, or [None] for more. A group without its closing brace is
+   literal text. *)
+let braces p =
+  let rec expand acc = function
+    | [] -> Some (List.rev acc)
+    | p :: rest -> (
+        if List.length acc > 256 then None
+        else
+          match String.index_opt p '{' with
+          | None -> expand (p :: acc) rest
+          | Some open_ -> (
+              match String.index_from_opt p open_ '}' with
+              | None -> expand (p :: acc) rest
+              | Some close ->
+                  let before = String.sub p 0 open_
+                  and after =
+                    String.sub p (close + 1) (String.length p - close - 1)
+                  in
+                  let alts =
+                    String.split_on_char ','
+                      (String.sub p (open_ + 1) (close - open_ - 1))
+                  in
+                  expand acc (List.map (fun a -> before ^ a ^ after) alts @ rest)
+              ))
+  in
+  expand [] [ p ]
 
 (* Glob matching as doublestar does it: [*] and [?] stay within a path
-   segment, [**] crosses them, and [\[...\]] and [{a,b}] select. *)
-let rec glob p pi s si =
+   segment, a [**] segment crosses them, and [\[...\]] selects. Each pair of
+   positions is decided once, so matching takes time quadratic in the
+   lengths, whatever the pattern. *)
+let glob p s =
   let pl = String.length p and sl = String.length s in
-  if pi = pl then si = sl
-  else
-    match p.[pi] with
-    | '*' when pi + 1 < pl && p.[pi + 1] = '*' ->
-        let rest = pi + 2 in
-        let rest = if rest < pl && p.[rest] = '/' then rest + 1 else rest in
-        let rec try_from i = i <= sl && (glob p rest s i || try_from (i + 1)) in
-        try_from si
-    | '*' ->
-        let rec try_from i =
-          i <= sl
-          && (glob p (pi + 1) s i
-             || (i < sl && s.[i] <> '/' && try_from (i + 1)))
-        in
-        try_from si
-    | '?' -> si < sl && s.[si] <> '/' && glob p (pi + 1) s (si + 1)
-    | '[' -> (
-        match String.index_from_opt p (pi + 1) ']' with
-        | None -> si < sl && s.[si] = '[' && glob p (pi + 1) s (si + 1)
-        | Some close ->
-            si < sl
-            && s.[si] <> '/'
-            &&
-            let body = String.sub p (pi + 1) (close - pi - 1) in
-            let negate = body <> "" && (body.[0] = '^' || body.[0] = '!') in
-            let body =
-              if negate then String.sub body 1 (String.length body - 1)
-              else body
+  let memo = Hashtbl.create 64 in
+  let rec go pi si =
+    match Hashtbl.find_opt memo (pi, si) with
+    | Some r -> r
+    | None ->
+        let r = step pi si in
+        Hashtbl.replace memo (pi, si) r;
+        r
+  and step pi si =
+    if pi = pl then si = sl
+    else
+      match p.[pi] with
+      | '*'
+        when pi + 1 < pl
+             && p.[pi + 1] = '*'
+             && (pi = 0 || p.[pi - 1] = '/')
+             && (pi + 2 = pl || p.[pi + 2] = '/') ->
+          (* A whole [**] segment matches any number of segments, and the
+             rest of the pattern starts at a segment boundary. *)
+          if pi + 2 = pl then true
+          else
+            let rest = pi + 3 in
+            let rec try_from i =
+              i <= sl
+              && (((i = si || s.[i - 1] = '/') && go rest i) || try_from (i + 1))
             in
-            let c = s.[si] in
-            let rec member i =
-              i < String.length body
+            try_from si
+      | '*' ->
+          let next =
+            if pi + 1 < pl && p.[pi + 1] = '*' then pi + 2 else pi + 1
+          in
+          let rec try_from i =
+            i <= sl
+            && (go next i || (i < sl && s.[i] <> '/' && try_from (i + 1)))
+          in
+          try_from si
+      | '?' -> si < sl && s.[si] <> '/' && go (pi + 1) (si + 1)
+      | '[' -> (
+          match String.index_from_opt p (pi + 1) ']' with
+          | None -> si < sl && s.[si] = '[' && go (pi + 1) (si + 1)
+          | Some close ->
+              si < sl
+              && s.[si] <> '/'
               &&
-              if i + 2 < String.length body && body.[i + 1] = '-' then
-                (c >= body.[i] && c <= body.[i + 2]) || member (i + 3)
-              else c = body.[i] || member (i + 1)
-            in
-            member 0 <> negate && glob p (close + 1) s (si + 1))
-    | '{' -> (
-        match String.index_from_opt p (pi + 1) '}' with
-        | None -> si < sl && s.[si] = '{' && glob p (pi + 1) s (si + 1)
-        | Some close ->
-            let rest = String.sub p (close + 1) (pl - close - 1) in
-            String.split_on_char ',' (String.sub p (pi + 1) (close - pi - 1))
-            |> List.exists (fun alt ->
-                let p' = alt ^ rest in
-                glob p' 0 s si))
-    | '\\' when pi + 1 < pl ->
-        si < sl && s.[si] = p.[pi + 1] && glob p (pi + 2) s (si + 1)
-    | c -> si < sl && s.[si] = c && glob p (pi + 1) s (si + 1)
+              let body = String.sub p (pi + 1) (close - pi - 1) in
+              let negate = body <> "" && (body.[0] = '^' || body.[0] = '!') in
+              let body =
+                if negate then String.sub body 1 (String.length body - 1)
+                else body
+              in
+              let c = s.[si] in
+              let rec member i =
+                i < String.length body
+                &&
+                if i + 2 < String.length body && body.[i + 1] = '-' then
+                  (c >= body.[i] && c <= body.[i + 2]) || member (i + 3)
+                else c = body.[i] || member (i + 1)
+              in
+              member 0 <> negate && go (close + 1) (si + 1))
+      | '\\' when pi + 1 < pl ->
+          si < sl && s.[si] = p.[pi + 1] && go (pi + 2) (si + 1)
+      | c -> si < sl && s.[si] = c && go (pi + 1) (si + 1)
+  in
+  go 0 0
 
-let matches name patterns = List.exists (fun p -> glob p 0 name 0) patterns
+let matches name patterns =
+  List.exists
+    (fun p ->
+      match braces p with
+      | Some ps -> List.exists (fun p -> glob p name) ps
+      | None -> false)
+    patterns
 
 (* A YAML scalar or list of scalars. *)
 let string_list = function

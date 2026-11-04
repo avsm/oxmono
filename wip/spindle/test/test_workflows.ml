@@ -13,6 +13,17 @@ let () =
   assert (W.matches "dev" [ "{main,dev}" ]);
   assert (not (W.matches "devel" [ "{main,dev}" ]));
   assert (not (W.matches "main" []));
+  (* [**] is a whole segment, and the rest starts at a segment boundary. *)
+  assert (W.matches "a/b" [ "a/**/b" ] && W.matches "a/x/y/b" [ "a/**/b" ]);
+  assert (not (W.matches "a/xb" [ "a/**/b" ]));
+  assert (W.matches "b" [ "**/b" ] && W.matches "x/y/b" [ "**/b" ]);
+  (* Patterns are untrusted, so matching is quick whatever they hold, and too
+     many brace alternatives match nothing. *)
+  let t0 = Unix.gettimeofday () in
+  assert (not (W.matches (String.make 200 'a') [ "*a*a*a*a*a*a*a*a*a*b" ]));
+  assert (Unix.gettimeofday () -. t0 < 1.);
+  assert (
+    not (W.matches "a" [ String.concat "" (List.init 10 (fun _ -> "{a,b}")) ]));
   let push ref_ =
     J.obj [ ("$type", J.str "org.tangled.event.push"); ("ref", J.str ref_) ]
   in
@@ -89,6 +100,9 @@ steps:
   assert (W.valid_name ".hidden" && W.valid_name "my ci.yml");
   assert (not (W.valid_name "a/b" || W.valid_name "" || W.valid_name ".."));
   assert (not (W.valid_name "line\nbreak" || W.valid_name "\xff.yml"));
+  assert (
+    not (W.valid_name "evil\xe2\x80\xaelmy.yml" || W.valid_name "c1\xc2\x85"));
+  assert (W.valid_name "caf\xc3\xa9.yml");
   (* Secret values, their lines and base64 forms are hidden in output, even
      split across reads. *)
   let mask = Mask.v [ "hunter2"; "line one\nline two" ] in

@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Match a repository workflow's branch and tag globs in time quadratic in
+  their length, since a crafted pattern could stall the spindle, refuse
+  patterns with more than 256 brace alternatives, and treat `**` as a whole
+  segment, as doublestar does. Refuse workflow file names with C1 controls,
+  line separators or bidirectional controls.
+
 - Reach only public addresses when resolving identities and reading knots
   and PDSes, unless `--allow-http` is given for a development network, since
   the accounts and repositories asked about choose those hosts. Webhooks use

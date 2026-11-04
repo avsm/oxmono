@@ -28,5 +28,6 @@ OCluster pool, reporting every build as its own Tangled workflow.")
   opam-0install
   eio
   eio_main
+  mtime
   fmt
   cmdliner))

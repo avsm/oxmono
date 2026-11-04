@@ -12,8 +12,6 @@ type platform = {
 }
 (** The opam variables of the machines a build runs on. *)
 
-val debian_12_x86_64 : platform
-
 type request = {
   platform : platform;
   repositories : string list;
@@ -25,6 +23,8 @@ type request = {
   compiler : string * string;
       (** The package that fixes the compiler and its exact version, such as
           [("ocaml", "5.4.0")] or [("oxcaml-compiler", "5.2.0minus39")]. *)
+  requires : string list;
+      (** Other packages the solution must hold, at any version. *)
 }
 
 val solve : request -> (string list, string) result

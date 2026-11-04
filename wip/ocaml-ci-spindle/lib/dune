@@ -9,4 +9,5 @@
   opam-0install
   eio
   eio.unix
+  mtime
   fmt))

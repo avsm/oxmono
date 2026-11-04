@@ -49,23 +49,46 @@ let () =
   in
   assert (
     names (Variant.choose ~packages [ "auto" ])
-    = [ ("debian-12-ocaml-4.14", "4.14.2"); ("debian-12-ocaml-5.4", "5.4.1") ]);
+    = [
+        ("OCaml 5.4.1 on Debian 13 (x86_64)", "5.4.1");
+        ("OCaml 4.14.2 on Debian 13 (x86_64)", "4.14.2");
+      ]);
   assert (
     names (Variant.choose ~packages [ "5.4" ])
-    = [ ("debian-12-ocaml-5.4", "5.4.1") ]);
+    = [ ("OCaml 5.4.1 on Debian 13 (x86_64)", "5.4.1") ]);
+  (* Each platform has its pool, image and opam variables, and every name is
+     a workflow name a spindle accepts. *)
+  let arm = Variant.v ~platform:(Debian Arm64) "5.4.1" in
+  assert (arm.pool = "linux-arm64" && arm.vars.arch = "arm64");
+  assert (arm.image = "ocaml/opam:debian-13-ocaml-5.4");
+  let ppc = Variant.v ~platform:(Debian Ppc64le) "5.4.1" in
+  assert (ppc.pool = "linux-ppc64" && ppc.vars.arch = "ppc64");
+  assert (ppc.name = "OCaml 5.4.1 on Debian 13 (ppc64le)");
+  let win = Variant.v ~platform:Windows "5.4.1" in
+  assert (win.pool = "windows-x86_64" && win.vars.os = "win32");
+  assert (win.image = "ocaml/opam:windows-server-mingw-ltsc2025-ocaml-5.4");
+  let valid name =
+    String.length name <= 255 && not (String.contains name '/')
+  in
+  List.iter
+    (fun (_, platform) -> assert (valid (Variant.v ~platform "5.4.1").name))
+    Variant.platforms;
+  assert (valid Variant.oxcaml.name);
   (* The project is solved per compiler, with its test dependencies, and an
      avoided version loses to a released one. *)
   let project =
     ( "demo",
       "opam-version: \"2.0\"\ndepends: [\"lib\" \"testlib\" {with-test}]\n" )
   in
-  let solve compiler =
+  let vars = (Variant.v "5.4.1").vars in
+  let solve ?(requires = []) ?(pins = [ project ]) compiler =
     Solve.solve
       {
-        platform = Solve.debian_12_x86_64;
+        platform = vars;
         repositories = [ packages ];
-        pins = [ project ];
+        pins;
         compiler = ("ocaml", compiler);
+        requires;
       }
   in
   (match solve "4.14.2" with
@@ -79,6 +102,14 @@ let () =
   (match solve "6.0" with
   | Ok _ -> failwith "solved for a compiler that does not exist"
   | Error _ -> ());
+  (* A required package is in the solution though nothing depends on it. *)
+  let bare = ("bare", "opam-version: \"2.0\"\n") in
+  (match solve ~pins:[ bare ] ~requires:[ "testlib" ] "5.4.1" with
+  | Ok p -> assert (List.mem "testlib.1.0" p)
+  | Error e -> failwith e);
+  (match solve ~pins:[ bare ] "5.4.1" with
+  | Ok p -> assert (not (List.mem "testlib.1.0" p))
+  | Error e -> failwith e);
   (* An earlier repository overrides a later one, as an overlay does. *)
   let overlay = repository () in
   let ov = Filename.concat overlay "packages/lib/lib.9.0" in
@@ -88,10 +119,11 @@ let () =
   (match
      Solve.solve
        {
-         platform = Solve.debian_12_x86_64;
+         platform = vars;
          repositories = [ Filename.concat overlay "packages"; packages ];
          pins = [ project ];
          compiler = ("ocaml", "5.4.1");
+         requires = [];
        }
    with
   | Ok p -> assert (List.mem "lib.9.0" p)
@@ -99,25 +131,38 @@ let () =
   (* The spec pins the project, installs its solution without itself and
      quotes shell text. *)
   let spec =
-    Spec.v
-      ~variant:(Variant.ocaml "5.4" "5.4.1")
-      ~opam_repository:"abc123" ~opam_files:[ "demo.opam" ]
+    Spec.v ~variant:(Variant.v "5.4.1") ~opam_repository:"abc123"
+      ~opam_files:[ "demo.opam" ]
       ~packages:[ "demo.dev"; "lib.2.0"; "ocaml.5.4.1" ]
       ()
   in
-  let contains s =
+  let within spec s =
     let n = String.length s in
     let rec at i =
       i + n <= String.length spec && (String.sub spec i n = s || at (i + 1))
     in
     at 0
   in
+  let contains = within spec in
   assert (
-    String.starts_with ~prefix:"((from ocaml/opam:debian-12-ocaml-5.4)" spec);
+    String.starts_with ~prefix:"((from ocaml/opam:debian-13-ocaml-5.4)" spec);
   assert (contains "(env DEPS \"lib.2.0 ocaml.5.4.1\")");
-  assert (contains "opam pin add -yn demo.dev ./");
+  assert (contains "opam pin add -yn demo.dev './'");
   assert (contains "git reset -q --hard abc123");
+  assert (contains "sudo ln -f /usr/bin/opam-2.6 /usr/bin/opam");
+  assert (contains "(workdir /src)");
   assert (not (contains "oxcaml"));
+  (* On Windows, files are copied to native paths and built from Cygwin's. *)
+  let wspec =
+    Spec.v ~variant:win ~opam_repository:"abc123" ~opam_files:[ "demo.opam" ]
+      ~packages:[ "demo.dev"; "lib.2.0" ] ()
+  in
+  assert (within wspec "ln -f /usr/local/bin/opam-2.6 /usr/local/bin/opam");
+  assert (within wspec "(dst /cygwin64/home/opam/src/)");
+  assert (within wspec "(target \"c:\\\\opam\\\\.opam\\\\download-cache\")");
+  assert (within wspec "cd /home/opam/src && opam exec -- dune build");
+  assert (not (within wspec "sudo"));
+  assert (not (within wspec "(workdir"));
   let ox =
     Spec.v ~variant:Variant.oxcaml ~opam_repository:"abc123"
       ~oxcaml_repository:("https://example.org/ox.git", "def456")
@@ -163,10 +208,13 @@ let () =
     }
   in
   assert (Analysis.find (files [ "README.md"; "dune-project" ]) = None);
+  (* Names that are not opam package names never reach a shell. *)
+  assert (
+    Analysis.find (files [ "a;b.opam"; "-x.opam"; ".opam"; "1.opam" ]) = None);
   assert (
     match Analysis.find (files [ "b.opam"; "README.md"; "a.opam" ]) with
     | Some a -> List.map fst a.opam_files = [ "a.opam"; "b.opam" ]
     | None -> false);
   print_endline
-    "ocaml-ci: compiler choice, overlays, avoided versions, test dependencies, \
-     specs and OBuilder log steps passed"
+    "ocaml-ci: compiler choice, platforms, overlays, avoided versions, test \
+     dependencies, specs and OBuilder log steps passed"

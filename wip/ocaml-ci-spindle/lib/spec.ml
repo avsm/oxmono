@@ -28,12 +28,16 @@ let atom s =
     Buffer.add_char b '"';
     Buffer.contents b
 
-let download_cache =
-  "(cache (opam-archives (target /home/opam/.opam/download-cache)))"
+let download_cache (variant : Variant.t) =
+  Printf.sprintf "(cache (opam-archives (target %s)))"
+    (atom
+       (match variant.os with
+       | Linux -> "/home/opam/.opam/download-cache"
+       | Windows -> "c:\\opam\\.opam\\download-cache"))
 
-let run ?(network = false) ?(cache = false) shell =
+let run ?(network = false) ?cache shell =
   Printf.sprintf "(run%s%s (shell %s))"
-    (if cache then " " ^ download_cache else "")
+    (match cache with Some c -> " " ^ c | None -> "")
     (if network then " (network host)" else "")
     (atom shell)
 
@@ -42,16 +46,36 @@ let env k v = Printf.sprintf "(env %s %s)" k (atom v)
 (* A project package is pinned at [dev] from its opam file in the root. *)
 let package_of_file f = Filename.chop_suffix (Filename.basename f) ".opam"
 
-let v ~variant ~opam_repository ?oxcaml_repository ~opam_files ~packages () =
+let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository ~opam_files
+    ~packages () =
+  let cache = download_cache variant in
   let roots = List.map package_of_file opam_files in
   let root_versions = List.map (fun p -> p ^ ".dev") roots in
   let deps = List.filter (fun p -> not (List.mem p root_versions)) packages in
+  let opam = "opam-" ^ String.sub Variant.(variant.vars.opam_version) 0 3 in
+  (* On Windows, OBuilder copies to native paths while the shell is Cygwin's,
+     where the same directory is [/home/opam/src]. *)
+  let link, home, pin_dir, build =
+    match variant.os with
+    | Linux ->
+        ( Printf.sprintf "sudo ln -f /usr/bin/%s /usr/bin/opam" opam,
+          [ "(workdir /src)" ],
+          "./",
+          "opam exec -- dune build @install @check @runtest && rm -rf _build" )
+    | Windows ->
+        ( Printf.sprintf "ln -f /usr/local/bin/%s /usr/local/bin/opam" opam,
+          [],
+          "/cygwin64/home/opam/src/",
+          "cd /home/opam/src && opam exec -- dune build @install @check \
+           @runtest && rm -rf _build" )
+  in
+  let src = match variant.os with Linux -> "/src/" | Windows -> pin_dir in
   let oxcaml =
-    match (variant.Variant.oxcaml, oxcaml_repository) with
+    match (variant.oxcaml, oxcaml_repository) with
     | true, Some (url, commit) ->
         let compiler, version = variant.compiler in
         [
-          run ~network:true ~cache:true
+          run ~network:true ~cache
             (Printf.sprintf
                "opam repository add ox %s --dont-select && opam switch create \
                 ox %s.%s --repositories=ox,default"
@@ -67,39 +91,46 @@ let v ~variant ~opam_repository ?oxcaml_repository ~opam_files ~packages () =
       "(user (uid 1000) (gid 1000))";
       env "CLICOLOR_FORCE" "1";
       env "OPAMCOLOR" "always";
-      "(workdir /src)";
-      run "sudo ln -f /usr/bin/opam-2.3 /usr/bin/opam";
-      run ~network:true ~cache:true
-        (Printf.sprintf
-           "cd ~/opam-repository && (git cat-file -e %s || git fetch origin \
-            master) && git reset -q --hard %s && git log --no-decorate -n1 \
-            --oneline"
-           opam_repository opam_repository);
-      run "opam init --reinit -ni";
     ]
-    @ oxcaml
+    @ home
     @ [
-        run "uname -rs && opam exec -- ocaml -version && opam --version";
-        run "sudo chown opam /src";
-        run ~network:true ~cache:true "opam update -u";
-        Printf.sprintf "(copy (src %s) (dst ./))"
-          (String.concat " " (List.map atom opam_files));
+        run link;
+        run ~network:true ~cache
+          (Printf.sprintf
+             "cd ~/opam-repository && (git cat-file -e %s || git fetch origin \
+              master) && git reset -q --hard %s && git log --no-decorate -n1 \
+              --oneline"
+             opam_repository opam_repository);
+        run "opam init --reinit -ni";
+      ]
+    @ oxcaml
+    @ [ run "uname -rs && opam exec -- ocaml -version && opam --version" ]
+    @ (match variant.os with
+      | Linux -> [ run "sudo chown opam /src" ]
+      | Windows -> [])
+    @ [
+        run ~network:true ~cache "opam update -u";
+        Printf.sprintf "(copy (src %s) (dst %s))"
+          (String.concat " " (List.map atom opam_files))
+          (atom pin_dir);
         run ~network:true
           (String.concat " && "
              (List.map
-                (fun p -> Printf.sprintf "opam pin add -yn %s.dev ./" p)
+                (fun p ->
+                  Printf.sprintf "opam pin add -yn %s.dev %s" p
+                    (Filename.quote pin_dir))
                 roots));
         env "DEPS" (String.concat " " deps);
         env "CI" "true";
         env "OCAMLCI" "true";
-        run ~network:true ~cache:true
+        (* opam 2.6 rejects [--cli=2.6] here, as ocaml/opam#7229 reports. *)
+        run ~network:true ~cache
           (Printf.sprintf
-             "opam update --depexts && opam install --cli=2.3 --depext-only -y \
-              %s $DEPS"
+             "opam update --depexts && opam install --depext-only -y %s $DEPS"
              (String.concat " " root_versions));
-        run ~network:true ~cache:true "opam install $DEPS";
-        "(copy (src .) (dst /src/))";
-        run "opam exec -- dune build @install @check @runtest && rm -rf _build";
+        run ~network:true ~cache "opam install $DEPS";
+        Printf.sprintf "(copy (src .) (dst %s))" (atom src);
+        run build;
       ]
   in
   Printf.sprintf "((from %s)\n %s)\n" (atom variant.image)

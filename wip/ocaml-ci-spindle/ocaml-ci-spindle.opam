@@ -19,6 +19,7 @@ depends: [
   "opam-0install"
   "eio"
   "eio_main"
+  "mtime"
   "fmt"
   "cmdliner"
   "odoc" {with-doc}

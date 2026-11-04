@@ -10,21 +10,12 @@ type platform = {
   opam_version : string;
 }
 
-let debian_12_x86_64 =
-  {
-    os = "linux";
-    os_family = "debian";
-    os_distribution = "debian";
-    os_version = "12";
-    arch = "x86_64";
-    opam_version = "2.3.0";
-  }
-
 type request = {
   platform : platform;
   repositories : string list;
   pins : (string * string) list;
   compiler : string * string;
+  requires : string list;
 }
 
 let ( / ) = Filename.concat
@@ -177,7 +168,8 @@ let solve r =
       }
     in
     let roots =
-      compiler :: List.map OpamPackage.Name.of_string (List.map fst r.pins)
+      compiler
+      :: List.map OpamPackage.Name.of_string (r.requires @ List.map fst r.pins)
     in
     match Solver.solve ctx roots with
     | Ok selections ->
@@ -190,6 +182,8 @@ let solve r =
   | result -> result
   | exception (Failure m | Invalid_argument m) -> Error m
   | exception OpamPp.Bad_format (_, m) -> Error ("bad opam file: " ^ m)
+  | exception ((Out_of_memory | Stack_overflow) as e) -> raise e
+  | exception e -> Error ("bad opam file: " ^ Printexc.to_string e)
 
 let versions packages name =
   sorted_dir (packages / name)

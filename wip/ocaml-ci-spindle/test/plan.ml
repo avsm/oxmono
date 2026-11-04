@@ -26,10 +26,11 @@ let () =
       match
         Solve.solve
           {
-            platform = Solve.debian_12_x86_64;
+            platform = v.vars;
             repositories = [ packages ];
             pins = Analysis.packages a;
             compiler = v.compiler;
+            requires = v.requires;
           }
       with
       | Error why -> Printf.printf "%s: no solution\n%s\n" v.name why
@@ -42,4 +43,15 @@ let () =
             (Spec.v ~variant:v ~opam_repository:"COMMIT"
                ~opam_files:(List.map fst a.opam_files)
                ~packages:solution ()))
-    (Variant.choose ~packages [ "auto" ])
+    (let chosen = Variant.choose ~packages [ "auto" ] in
+     chosen
+     @
+     match chosen with
+     | newest :: _ ->
+         List.filter_map
+           (fun (_, platform) ->
+             match platform with
+             | Variant.Debian X86_64 -> None
+             | platform -> Some (Variant.v ~platform (Variant.version newest)))
+           Variant.platforms
+     | [] -> [])

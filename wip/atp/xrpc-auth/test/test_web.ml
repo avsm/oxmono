@@ -42,6 +42,7 @@ type script = {
   mutable scope : string;
   mutable handle_names : string;
   mutable nonce_on_token : bool;
+  mutable asked : string;  (** The scope a login is expected to ask for. *)
 }
 
 let script =
@@ -51,6 +52,7 @@ let script =
     scope = "atproto";
     handle_names = did;
     nonce_on_token = true;
+    asked = "atproto";
   }
 
 let reset () =
@@ -58,11 +60,13 @@ let reset () =
   script.sub <- did;
   script.scope <- "atproto";
   script.handle_names <- did;
-  script.nonce_on_token <- true
+  script.nonce_on_token <- true;
+  script.asked <- "atproto"
 
 let par = ref []
 let jtis = Hashtbl.create 16
 let revoked = ref []
+let pds_calls = ref []
 let nonces_demanded = ref 0
 let client_public = ref (Jsont.Json.null ())
 
@@ -191,7 +195,7 @@ let server (req : Fetch.Middleware.request) =
           check "S256" (List.assoc "code_challenge_method" params = "S256");
           check "redirect"
             (List.assoc "redirect_uri" params = "https://site.test/callback");
-          check "scope" (List.assoc "scope" params = "atproto");
+          check "scope" (List.assoc "scope" params = script.asked);
           check "state is long" (String.length (List.assoc "state" params) >= 22);
           par := params;
           reply ~status:201 {|{"request_uri":"urn:req:1","expires_in":60}|} req)
@@ -214,6 +218,25 @@ let server (req : Fetch.Middleware.request) =
       with_nonce ~demand:false req (fun params ->
           revoked := List.assoc "token" params :: !revoked;
           reply "{}" req)
+  | "https://pds.test/xrpc/test.echo" ->
+      (* A resource server demands its own nonce, with a 401. *)
+      let claims = verify_proof req in
+      check "token bound to the proof"
+        (Jsonwt.Claims.get_string "ath" claims
+        = Some (Jsonwt.base64url_encode (sha256 "at")));
+      check "DPoP authorization"
+        (Http.Header.get req.headers "authorization" = Some "DPoP at");
+      if Jsonwt.Claims.get_string "nonce" claims <> Some "pds-n" then
+        reply ~status:401
+          ~headers:
+            [
+              ("dpop-nonce", "pds-n");
+              ("www-authenticate", {|DPoP error="use_dpop_nonce"|});
+            ]
+          {|{"error":"use_dpop_nonce"}|} req
+      else (
+        pds_calls := (List.length !revoked, body req) :: !pds_calls;
+        reply {|{"echo":true}|} req)
   | "https://cloudflare-dns.com/dns-query" ->
       (* No TXT record, so handles resolve over HTTPS. *)
       reply {|{"Status":3}|} req
@@ -377,6 +400,52 @@ let () =
   let p, _ = start "https://pds.test" in
   check "no hint" (not (List.mem_assoc "login_hint" !par));
   check "server-first login" ((ok (finish p (good p))).did = did);
+  (* A site may ask for less than its metadata names, never more, and uses
+     the tokens before they are revoked. *)
+  reset ();
+  script.nonce_on_token <- false;
+  let wide =
+    W.Client.v ~client_id:"https://site.test/oauth/client-metadata.json"
+      ~redirect_uri:"https://site.test/callback"
+      ~jwks_uri:"https://site.test/oauth/jwks.json" ~key ~kid:"k1"
+      ~scope:"atproto repo:test.record?action=create" ()
+  in
+  let start_wide scope =
+    W.start ~clock ~http ~plc:"https://plc.test" ~scope wide ~identifier:did
+  in
+  ignore (ok (start_wide "atproto"));
+  (match start_wide "atproto transition:generic" with
+  | Error (`Refused _) -> ()
+  | _ -> failwith "a scope wider than the client's refused");
+  (match start_wide "repo:test.record?action=create" with
+  | Error (`Refused _) -> ()
+  | _ -> failwith "a scope without atproto refused");
+  script.asked <- "atproto repo:test.record?action=create";
+  script.scope <- script.asked;
+  let p, _ = ok (start_wide script.asked) in
+  revoked := [];
+  pds_calls := [];
+  let id, answer =
+    ok
+      (W.finish_with ~clock ~http ~plc:"https://plc.test" wide p
+         ~query:(good p) (fun id call ->
+           check "granted scope given" (id.scope = script.asked);
+           call ~body:{|{"n":1}|} `POST "/xrpc/test.echo"))
+  in
+  check "call answered" (answer = (200, {|{"echo":true}|}));
+  check "called before revocation, with the body"
+    (!pds_calls = [ (0, {|{"n":1}|}) ]);
+  check "revoked after use" (!revoked = [ "rt" ]);
+  check "identity" (id.did = did);
+  let p, _ = ok (start_wide script.asked) in
+  revoked := [];
+  (match
+     W.finish_with ~clock ~http ~plc:"https://plc.test" wide p ~query:(good p)
+       (fun _ call -> call `GET "xrpc/test.echo")
+   with
+  | Error (`Refused _) ->
+      check "revoked after a failed use" (!revoked = [ "rt" ])
+  | _ -> failwith "a relative path refused");
   (* Only HTTPS leaves. *)
   (match W.start ~clock ~http ~plc:"http://plc.test" client ~identifier:did with
   | Error (`Refused _) -> ()

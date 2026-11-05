@@ -1,5 +1,9 @@
 # Changes
 
+- Let a `xrpc-auth.web` login ask for less than the client's scope, and add
+  `finish_with`, which makes requests to the account's PDS with the login's
+  tokens before revoking them.
+
 - Add `Xrpc.Identity.verified_handle` and `handle_of_document`, the
   two-way handle check that `xrpc-auth.web` now uses.
 

@@ -125,6 +125,7 @@ val start :
   http:_ Fetch.t ->
   ?plc:string ->
   ?ttl:float ->
+  ?scope:string ->
   Client.t ->
   identifier:string ->
   (pending * string, error) result
@@ -137,7 +138,11 @@ val start :
     server and lets the person choose the account there. The request is pushed
     with PKCE S256 and a fresh DPoP key, and authenticated with the client's
     assertion. The pending login is accepted for [ttl] seconds, 600 by default.
-*)
+
+    [scope] is the client's scope by default. A narrower one asks for less,
+    so that a site can log in with [atproto] alone and ask for more only for
+    an action that needs it. Each of its words must be in the client's scope,
+    and it must include [atproto]. *)
 
 val finish :
   clock:_ Eio.Time.clock ->
@@ -162,6 +167,30 @@ val finish :
     account's own PDS must name the same authorization server. The tokens are
     then revoked, as far as the server allows, since only the identity is
     wanted. *)
+
+type call = ?body:string -> Http.Method.t -> string -> int * string
+(** A [call] makes requests to the account's PDS on its behalf. [call ?body
+    meth path] sends [meth] to [path], an absolute path with any query on the
+    PDS, with [body] as JSON, and is the status and body of the answer, which
+    is read up to 1 MiB. It does not follow redirects.
+
+    @raise Invalid_argument if [path] does not start with [/]. *)
+
+val finish_with :
+  clock:_ Eio.Time.clock ->
+  http:_ Fetch.t ->
+  ?plc:string ->
+  Client.t ->
+  pending ->
+  query:string ->
+  (identity -> call -> 'a) ->
+  (identity * 'a, error) result
+(** [finish_with ~clock ~http client pending ~query use] is {!finish} that
+    also applies [use] to the identity and a {!call} that carries the access
+    token, before the tokens are revoked. [use] must not keep the call. It
+    should check that [identity.scope] grants what it needs, since an
+    authorization server may grant less than was asked. A [Failure] that
+    [use] raises is returned as [`Refused]. *)
 
 (** {1 Reaching only public hosts} *)
 

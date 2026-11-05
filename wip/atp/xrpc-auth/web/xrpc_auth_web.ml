@@ -207,8 +207,21 @@ let guard f =
   | exception Invalid_argument m -> Error (`Refused m)
   | exception (Eio.Io _ as e) -> Error (`Refused (Printexc.to_string e))
 
-let start ~clock ~http ?plc ?(ttl = 600.) client ~identifier =
+let words s = List.filter (( <> ) "") (String.split_on_char ' ' s)
+
+let start ~clock ~http ?plc ?(ttl = 600.) ?scope client ~identifier =
   guard @@ fun () ->
+  let scope =
+    match scope with
+    | None -> Client.scope client
+    | Some scope ->
+        if not (has_atproto scope) then
+          invalid_arg "The scope must include atproto";
+        let granted = words (Client.scope client) in
+        if not (List.for_all (fun w -> List.mem w granted) (words scope)) then
+          invalid_arg "The scope asks for more than the client's metadata";
+        scope
+  in
   let http = https_only http in
   let expected, pds, hint =
     if String.starts_with ~prefix:"https://" identifier then
@@ -236,7 +249,7 @@ let start ~clock ~http ?plc ?(ttl = 600.) client ~identifier =
       ([
          ("response_type", "code");
          ("redirect_uri", Client.redirect_uri client);
-         ("scope", Client.scope client);
+         ("scope", scope);
          ("state", state);
          ("code_challenge", P.b64 (P.sha256 verifier));
          ("code_challenge_method", "S256");
@@ -256,7 +269,7 @@ let start ~clock ~http ?plc ?(ttl = 600.) client ~identifier =
       pds = (if expected = None then None else Some pds);
       client_id = Client.id client;
       redirect_uri = Client.redirect_uri client;
-      scope = Client.scope client;
+      scope;
       expires_at = Eio.Time.now clock +. ttl;
     }
   in
@@ -299,7 +312,47 @@ let revoke ~clock ~http client dpop server token =
       | Eio.Cancel.Cancelled _ as e -> raise e
       | _ -> ())
 
-let finish ~clock ~http ?plc client pending ~query =
+type call = ?body:string -> Http.Method.t -> string -> int * string
+
+(* Requests to the account's PDS carry the access token and a DPoP proof
+   bound to it, and are sent once more with the nonce a refusal names. *)
+let call ~clock ~http dpop ~pds ~token : call =
+ fun ?body meth path ->
+  if not (String.length path > 0 && path.[0] = '/') then
+    invalid_arg "A PDS request names an absolute path";
+  let url = pds ^ path in
+  let send () =
+    let proof =
+      P.proof (P.dpop_key dpop) ~now:(Eio.Time.now clock)
+        ~meth:(Http.Method.to_string meth) ~url ?nonce:(P.nonce dpop url)
+        ~token ()
+    in
+    let auth =
+      Fetch.Header.[ raw "Authorization" ("DPoP " ^ token); raw "DPoP" proof ]
+    in
+    let headers, body =
+      match body with
+      | None -> (auth, None)
+      | Some b ->
+          ( Fetch.Header.append auth
+              Fetch.Header.[ raw "Content-Type" "application/json" ],
+            Some (Fetch.String b) )
+    in
+    Fetch.with_response ~headers ?body ~redirects:0 ~sensitive:[ "dpop" ] http
+      meth url (fun response ->
+        let headers = Fetch.headers response in
+        P.remember dpop url headers;
+        ( Fetch.status response,
+          P.www_error headers,
+          Fetch.decode ~limit:(1024 * 1024) Fetch.Media.octets response ))
+  in
+  match send () with
+  | 401, Some "use_dpop_nonce", _ ->
+      let status, _, body = send () in
+      (status, body)
+  | status, _, body -> (status, body)
+
+let finish_with ~clock ~http ?plc client pending ~query use =
   let http = https_only http in
   let* params = callback query in
   let param name = List.assoc_opt name params in
@@ -366,13 +419,23 @@ let finish ~clock ~http ?plc client pending ~query =
         P.account_pds ?plc ~http ~issuer:pending.server.issuer
           ~expected:pending.expected ~pds:pending.pds did
       in
-      Ok
+      let identity =
         {
           did;
           handle = Xrpc.Identity.verified_handle ?plc http did;
           pds = P.strip_slash pds;
           scope;
         }
+      in
+      let token = P.required what token "access_token" in
+      let result =
+        use identity (call ~clock ~http dpop ~pds:identity.pds ~token)
+      in
+      Ok (identity, result)
+
+let finish ~clock ~http ?plc client pending ~query =
+  Result.map fst
+    (finish_with ~clock ~http ?plc client pending ~query (fun _ _ -> ()))
 
 module Public_net = struct
   let v4_public (a : string) =

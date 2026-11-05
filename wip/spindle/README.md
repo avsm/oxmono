@@ -333,7 +333,12 @@ an hour. Pictures are read from each account's PDS through the address
 filter and served from `/ui/avatar` as one of a few image types, so pages
 load nothing from elsewhere. The home page also lists the visitor's other
 Tangled repositories, those whose manifests name another spindle or none,
-each with a button that moves it here. A repository names a single
+each with a button that moves it here. That list is kept in the store for
+each user and shown at once. It is looked up in the background when it is
+missing or over an hour old, and by its Refresh button, which waits a few
+seconds for the answer. A lookup reads the user's declarations from their
+PDS and at most 100 manifests from their knots, and one that fails keeps
+the list it had. A repository names a single
 spindle. Logging in asks only for the account's identity. The button starts
 a second authorization that asks the account's PDS for two narrow
 permissions: a service token for `com.atproto.repo.putRecord`, with which

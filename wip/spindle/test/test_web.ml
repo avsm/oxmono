@@ -278,6 +278,24 @@ let () =
     assert (
       code (form cookie ("_csrf=" ^ token ^ "&did=" ^ elsewhere) "/ui/move")
       = 404);
+    (* The user's other repositories come from the store, never looked up
+       while the page waits, and Refresh needs the session's token. *)
+    Store.put store "web-elsewhere" owner
+      (Printf.sprintf
+         ({|{"checked":%f,"repos":[{"did":"%s","name":"faraway",|}
+         ^^ {|"spindle":"did:web:other.test"}]}|})
+         (Eio.Time.now env#clock) elsewhere);
+    let home = M.body (as_owner "/ui") in
+    assert (has home "faraway" && has home "other.test");
+    assert (has home "Checked just now" && has home {|action="/ui/others"|});
+    assert (has home {|action="/ui/move"|});
+    assert (code (form cookie "" "/ui/others") = 403);
+    assert (code (form cookie ("_csrf=" ^ token) "/ui/others") = 303);
+    (* A listed repository may be moved: the login starts, and fails here
+       only because this test has no PLC directory. *)
+    assert (
+      code (form cookie ("_csrf=" ^ token ^ "&did=" ^ elsewhere) "/ui/move")
+      = 400);
     (* Others may neither see nor change them, even with their own token. *)
     let bob_session, bob_csrf = Web.login_as web bob in
     assert (code (as_bob "/ui/members") = 403);

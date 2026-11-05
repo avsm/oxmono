@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Show a user's other repositories at once from the store, instead of
+  looking them up on their PDS and knots while the home page waits. They are
+  looked up in the background when missing or over an hour old, or with a
+  Refresh button, and a failed lookup keeps the previous list.
+
 - Move a repository here from the web pages with a button, instead of a
   `tangled repo set-spindle` command to copy. The button asks the owner's
   PDS for permission to write the repository's manifest and its

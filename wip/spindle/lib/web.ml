@@ -24,8 +24,10 @@ type t = {
   lock : Eio.Mutex.t;
   mutable logins : int;  (** Logins being started or finished now. *)
   identity : Identity.t;
-  elsewhere : (string, float * (string * string * string option) list) Hashtbl.t;
-      (* Each user's repositories, with their names and spindles, briefly. *)
+  sw : Eio.Switch.t;
+  refreshing : (string, unit Eio.Promise.t) Hashtbl.t;
+      (* The users whose other repositories are being looked up now. *)
+  lookups : Eio.Semaphore.t;
   hostname : string;
 }
 
@@ -118,6 +120,60 @@ let move_scope =
     ]
 
 let state_key state = Digestif.SHA256.(to_hex (digest_string state))
+
+(* Each user's own repositories that this spindle does not serve, with their
+   names and spindles, as last looked up, keyed by the user's DID. *)
+let others_ns = "web-elsewhere"
+
+type others = {
+  checked : float;
+  repos : (string * string * string option) list;
+}
+
+let encode_others o =
+  J.encode
+    (J.obj
+       [
+         ("checked", Jsont.Json.number o.checked);
+         ( "repos",
+           J.arr
+             (List.map
+                (fun (did, name, spindle) ->
+                  J.obj
+                    ([ ("did", J.str did); ("name", J.str name) ]
+                    @ J.optional "spindle" J.str spindle))
+                o.repos) );
+       ])
+
+let decode_others raw =
+  match J.decode raw with
+  | j ->
+      Some
+        {
+          checked = J.number (J.required "checked" j);
+          repos =
+            List.map
+              (fun r ->
+                ( J.get "did" r,
+                  J.get "name" r,
+                  Option.map J.string (J.field "spindle" r) ))
+              (J.list (J.required "repos" j));
+        }
+  | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+  | exception _ -> None
+
+let stored_others store user =
+  Option.bind (Store.get store others_ns user) decode_others
+
+(* [drop_other store user repo] forgets [repo] from [user]'s list, once it has
+   moved here. *)
+let drop_other store user repo =
+  Option.iter
+    (fun o ->
+      Store.put store others_ns user
+        (encode_others
+           { o with repos = List.filter (fun (r, _, _) -> r <> repo) o.repos }))
+    (stored_others store user)
 
 (* How long the client's signing key is used before a new one replaces it. *)
 let key_lifetime = 90. *. 86400.
@@ -233,7 +289,9 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
     identity =
       Identity.v ~store ~network:(Catalog.network catalog) ~http ?plc
         ~clock:env#clock ();
-    elsewhere = Hashtbl.create 16;
+    sw;
+    refreshing = Hashtbl.create 16;
+    lookups = Eio.Semaphore.make 4;
     hostname;
   }
   |> fun t ->
@@ -611,7 +669,7 @@ let move t ~user ~repo (identity : Oauth.identity) (call : Oauth.call) =
                        it failed: %d %S\n%!"
                       repo (J.get "uri" written) status answer);
                 Catalog.forget t.catalog repo;
-                Hashtbl.remove t.elsewhere user;
+                drop_other t.store user repo;
                 Ok name
     with
     | Eio.Cancel.Cancelled _ as e -> raise e
@@ -804,63 +862,126 @@ let safe_name name =
        name
   && name.[0] <> '-'
 
-(* The user's own repositories that this spindle does not serve, from the
-   declarations in their PDS and the manifests on their knots, kept for five
-   minutes. *)
+(* [look_elsewhere t user ~previous] is [user]'s own repositories that this
+   spindle does not serve, from the declarations in their PDS and the
+   manifests on their knots. Only those whose manifest names the user, with
+   a name fit to show, are listed. At most 100 are looked up, for at most 30
+   seconds in all. A repository not looked up in time keeps its entry in
+   [previous]. A PDS that cannot be read raises, so that the list it had is
+   kept. *)
+let look_elsewhere t user ~previous =
+  let served = List.map fst (served t) in
+  let repos =
+    match
+      Eio.Time.with_timeout t.clock 10. (fun () ->
+          Ok
+            (Network.records (Catalog.network t.catalog) user
+               "org.tangled.repo.declaration"))
+    with
+    | Ok l ->
+        List.filter_map
+          (fun r -> Option.bind (field "value" r) (text_field "repo"))
+          l
+    | Error `Timeout -> failwith "the PDS did not list the declarations in time"
+  in
+  let candidates =
+    List.sort_uniq String.compare repos
+    |> List.filter (fun repo ->
+        Atp.Did.is_valid repo && not (List.mem repo served))
+    |> List.filteri (fun i _ -> i < 100)
+  in
+  let found = ref [] and decided = ref [] in
+  (match
+     Eio.Time.with_timeout t.clock 30. (fun () ->
+         Eio.Fiber.List.iter ~max_fibers:8
+           (fun repo ->
+             match
+               Eio.Time.with_timeout t.clock 5. (fun () ->
+                   Ok (Catalog.manifest t.catalog repo))
+             with
+             | Ok m ->
+                 decided := repo :: !decided;
+                 (match m with
+                 | Some m when m.owner = user && safe_name m.name ->
+                     found := (repo, m.name, m.spindle) :: !found
+                 | _ -> ())
+             | Error `Timeout -> ()
+             | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+             | exception _ -> decided := repo :: !decided)
+           candidates;
+         Ok ())
+   with
+  | Ok () | Error `Timeout -> ());
+  let kept =
+    List.filter
+      (fun (r, _, _) -> List.mem r candidates && not (List.mem r !decided))
+      previous
+  in
+  List.sort (fun (_, a, _) (_, b, _) -> String.compare a b) (!found @ kept)
+
+(* [refresh_others t user] looks up [user]'s other repositories in the
+   background, once at a time for each user and four at a time in all, and
+   is resolved when the stored list has been replaced or the lookup failed. *)
+let refresh_others t user =
+  match Hashtbl.find_opt t.refreshing user with
+  | Some p -> p
+  | None ->
+      let p, resolve = Eio.Promise.create () in
+      Hashtbl.replace t.refreshing user p;
+      Eio.Fiber.fork ~sw:t.sw (fun () ->
+          Fun.protect
+            ~finally:(fun () ->
+              Hashtbl.remove t.refreshing user;
+              Eio.Promise.resolve resolve ())
+          @@ fun () ->
+          Eio.Semaphore.acquire t.lookups;
+          Fun.protect ~finally:(fun () -> Eio.Semaphore.release t.lookups)
+          @@ fun () ->
+          let previous =
+            match stored_others t.store user with
+            | Some o -> o.repos
+            | None -> []
+          in
+          match look_elsewhere t user ~previous with
+          | repos ->
+              Store.put t.store others_ns user
+                (encode_others { checked = Eio.Time.now t.clock; repos })
+          | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+          | exception e ->
+              Printf.eprintf "spindle web: looking up %s's repositories: %s\n%!"
+                user (Printexc.to_string e));
+      p
+
+(* A list older than an hour is looked up again when a page shows it. *)
+let stale_after = 3600.
+
+(* [elsewhere t user] is [user]'s stored list, without the repositories this
+   spindle now serves, and starts a lookup when it is missing or stale. *)
 let elsewhere t user =
   let now = Eio.Time.now t.clock in
-  match Hashtbl.find_opt t.elsewhere user with
-  | Some (at, l) when now -. at < 300. -> l
-  | _ ->
-      let served = List.map fst (served t) in
-      let repos =
-        match
-          Eio.Time.with_timeout t.clock 5. (fun () ->
-              Ok
-                (Network.records (Catalog.network t.catalog) user
-                   "org.tangled.repo.declaration"))
-        with
-        | Ok l ->
-            List.filter_map
-              (fun r -> Option.bind (field "value" r) (text_field "repo"))
-              l
-        | Error `Timeout -> []
-        | exception (Eio.Cancel.Cancelled _ as e) -> raise e
-        | exception _ -> []
-      in
-      (* At most 50 repositories are looked up, for at most ten seconds in
-         all. Only those whose manifest names the user, with a name fit to
-         show in a command, are listed. *)
-      let candidates =
-        List.sort_uniq String.compare repos
-        |> List.filter (fun repo ->
-            Atp.Did.is_valid repo && not (List.mem repo served))
-        |> List.filteri (fun i _ -> i < 50)
-      in
-      let found = ref [] in
-      (match
-         Eio.Time.with_timeout t.clock 10. (fun () ->
-             Eio.Fiber.List.iter ~max_fibers:8
-               (fun repo ->
-                 match
-                   Eio.Time.with_timeout t.clock 5. (fun () ->
-                       Ok (Catalog.manifest t.catalog repo))
-                 with
-                 | Ok (Some m) when m.owner = user && safe_name m.name ->
-                     found := (repo, m.name, m.spindle) :: !found
-                 | Ok _ | Error `Timeout -> ()
-                 | exception (Eio.Cancel.Cancelled _ as e) -> raise e
-                 | exception _ -> ())
-               candidates;
-             Ok ())
-       with
-      | Ok () | Error `Timeout -> ());
-      let l =
-        List.sort (fun (_, a, _) (_, b, _) -> String.compare a b) !found
-      in
-      if Hashtbl.length t.elsewhere > 1000 then Hashtbl.reset t.elsewhere;
-      Hashtbl.replace t.elsewhere user (now, l);
-      l
+  let stored = stored_others t.store user in
+  (match stored with
+  | Some o when now -. o.checked < stale_after -> ()
+  | _ -> ignore (refresh_others t user));
+  let served = List.map fst (served t) in
+  Option.map
+    (fun o ->
+      {
+        o with
+        repos = List.filter (fun (r, _, _) -> not (List.mem r served)) o.repos;
+      })
+    stored
+
+let ago t at =
+  let s = Eio.Time.now t.clock -. at in
+  if s < 60. then "just now"
+  else if s < 3600. then
+    let m = int_of_float (s /. 60.) in
+    Printf.sprintf "%d minute%s ago" m (if m = 1 then "" else "s")
+  else if s < 86400. then
+    let h = int_of_float (s /. 3600.) in
+    Printf.sprintf "%d hour%s ago" h (if h = 1 then "" else "s")
+  else "on " ^ S.time (Option.value ~default:Ptime.epoch (Ptime.of_float_s at))
 
 (* Whether [v] holds [sub], which is lower case, ignoring case. *)
 let rec contains (v @ local) sub i =
@@ -913,7 +1034,25 @@ let home t s (respond @ local) =
       seen
   in
   let others = elsewhere t user in
+  let checking = Hashtbl.mem t.refreshing user in
   let csrf = (Session.csrf_field, Session.csrf_token s) in
+  let status =
+    Htmlit.El.p
+      ~at:[ Htmlit.At.class' "sk-others-status" ]
+      [
+        S.text
+          (match (others, checking) with
+          | None, _ ->
+              "Looking for your other repositories on Tangled. Reload this \
+               page in a moment to see them. "
+          | Some o, true ->
+              "Checked " ^ ago t o.checked ^ ", checking again now. "
+          | Some o, false -> "Checked " ^ ago t o.checked ^ ". ");
+        S.post_button
+          ~action:(S.Url.path [ "ui"; "others" ])
+          ~hidden:[ csrf ] ~label:"Refresh";
+      ]
+  in
   html respond
     (page t ~session:s ~title:"Repositories"
        ((if rows = [] then
@@ -924,11 +1063,14 @@ let home t s (respond @ local) =
                [ ("Repository", `Text); ("Owner", `Text); ("Latest", `Text) ]
                rows;
            ])
+       @ [ Htmlit.El.h2 [ S.text "Your other repositories" ]; status ]
        @
-       if others = [] then []
-       else
+       match others with
+       | None -> []
+       | Some { repos = []; _ } ->
+           [ paragraph "You have no other repositories on Tangled." ]
+       | Some { repos = others; _ } ->
          [
-           Htmlit.El.h2 [ S.text "Your other repositories" ];
            paragraph
              "A repository runs CI on the one spindle its settings name. \
               Moving one here asks your account's server for permission to \
@@ -1449,14 +1591,36 @@ let start_move t s (req @ local) (respond @ local) =
   check_form t s req;
   let user = Session.subject s in
   match Req.form_param req "did" with
-  | Some repo when List.exists (fun (r, _, _) -> r = repo) (elsewhere t user)
-    -> (
+  | Some repo
+    when match stored_others t.store user with
+         | Some o -> List.exists (fun (r, _, _) -> r = repo) o.repos
+         | None -> false -> (
       match
         authorize t ~identifier:user ~scope:move_scope ~move:(Some repo)
       with
       | Error text -> moved t s respond ~status:Status.Bad_request text
       | Ok (cookie, link) -> continue t ~session:s ~cookie respond link)
   | _ -> raise Missing
+
+(* Refreshing the list waits a few seconds for the lookup, so that the page
+   it returns to usually shows the result. A list checked in the last
+   twenty seconds is not looked up again. *)
+let refresh_list t s (req @ local) (respond @ local) =
+  check_form t s req;
+  let user = Session.subject s in
+  let recent =
+    match stored_others t.store user with
+    | Some o -> Eio.Time.now t.clock -. o.checked < 20.
+    | None -> false
+  in
+  if not recent then begin
+    let p = refresh_others t user in
+    match
+      Eio.Time.with_timeout t.clock 8. (fun () -> Ok (Eio.Promise.await p))
+    with
+    | Ok () | Error `Timeout -> ()
+  end;
+  see_other respond "/ui"
 
 let handle t name (req @ local) (respond @ local) =
   try
@@ -1484,6 +1648,7 @@ let handle t name (req @ local) (respond @ local) =
             | "member-remove" -> remove_member t s req respond
             | "avatar" -> avatar t s req respond
             | "move" -> start_move t s req respond
+            | "others" -> refresh_list t s req respond
             | _ -> raise Missing))
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
@@ -1522,6 +1687,9 @@ let routes () =
       post
         (s "ui" / s "members" / s "remove")
         (fun env req respond -> env "web:member-remove" req respond);
+      post
+        (s "ui" / s "others")
+        (fun env req respond -> env "web:others" req respond);
       post
         (s "ui" / s "move")
         (fun env req respond -> env "web:move" req respond);

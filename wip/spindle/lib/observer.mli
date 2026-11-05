@@ -1,9 +1,11 @@
 (** Pull requests and assignment changes from a Jetstream source. *)
 
-val wanted : Settings.t -> Jsont.json -> bool
-(** [wanted settings event] holds for a Jetstream commit to a followed
-    collection, and for an account event that makes an owner with accepted
-    repositories inactive. Other events are not stored. *)
+val wanted : Settings.t -> self:string -> Jsont.json -> bool
+(** [wanted settings ~self event] holds for a Jetstream commit to a followed
+    collection of a repository this spindle knows, for a manifest whose record
+    names [self], this spindle's DID, and for an account event that makes an
+    owner with accepted repositories deleted, taken down or suspended. Other
+    events are not stored. *)
 
 val groups : (string * string) list -> (string * string) list list
 (** [groups ready] splits inbox items by the repository DID of their event,
@@ -23,13 +25,15 @@ val run :
     [org.tangled.track.ticket] records until cancelled.
 
     A manifest change drops the repository's cached acceptance, and one naming
-    this spindle registers the repository. A repository registered with no
-    pipeline gets one for the head of its default branch, as a push of that
-    branch by its owner. A deleted manifest whose knot reports
-    the repository deleted calls [wipe] on it. An account that becomes
-    deleted, deactivated, taken down or suspended, as its PDS confirms, calls
-    [wipe] on each repository it owns. Other network-wide events are not
-    stored. A malformed frame is reported and passed over.
+    this spindle registers the repository, once the owner it claims is
+    admitted, so that a stranger's manifest costs no request. A repository
+    accepted for the first time with no pipeline gets one for the head of its
+    default branch, as a push of that branch by its owner. A deleted manifest
+    whose knot reports the repository deleted calls [wipe] on it. An account
+    that becomes deleted, taken down or suspended, as its PDS confirms, calls
+    [wipe] on each repository it owns. A deactivated account, which may come
+    back or be moving to another PDS, keeps them. Other network-wide events
+    are not stored. A malformed frame is reported and passed over.
 
     A new patch on an open pull request of an accepted repository dispatches it
     as [opened] or [synchronize], and a change of its ticket's state as

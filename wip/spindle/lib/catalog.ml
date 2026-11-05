@@ -242,6 +242,7 @@ let current t (repo : repo) =
    authority through a cache. *)
 let authorized t (repo : repo) actor =
   if repo.owner = actor then true
+  else if not (Atp.Did.is_valid actor) then false
   else if Option.is_some t.static && repo.knot = "" then false
   else
     Network.record t.network ~service:repo.knot ~did:repo.did

@@ -38,16 +38,33 @@ let cursor store (policy : Operations.t) ~now =
    whatever the wanted collections. Only an owner whose account went inactive
    concerns this spindle. *)
 (* A relay also marks an account inactive while it is throttled or out of
-   sync, which passes. *)
+   sync, which passes. A deactivated account may come back, and is
+   deactivated on its old PDS whenever it moves to a new one, so it keeps
+   what it had. *)
 let lasting = function
-  | Some ("deleted" | "deactivated" | "takendown" | "suspended") -> true
+  | Some ("deleted" | "takendown" | "suspended") -> true
   | _ -> false
 
-let wanted settings event =
+(* Anyone can publish records in the followed collections, so only those of
+   repositories this spindle knows are kept, and manifests that name this
+   spindle, [self]. *)
+let wanted settings ~self event =
   try
     match get "kind" event with
     | "commit" ->
-        List.mem (get "collection" (required "commit" event)) collections
+        let commit = required "commit" event in
+        let collection = get "collection" commit in
+        let known () =
+          Settings.owner_of settings (did (get "did" event)) <> None
+        in
+        if collection = manifest then
+          known ()
+          ||
+          match field "record" commit with
+          | Some record ->
+              Option.map string (field "spindle" record) = Some self
+          | None -> false
+        else List.mem collection collections && known ()
     | "account" ->
         let account = required "account" event in
         field "active" account = Some (Jsont.Json.bool false)
@@ -56,7 +73,7 @@ let wanted settings event =
     | _ -> false
   with Invalid _ -> false
 
-let connect ~system ~store ~settings ~url ~health ~policy =
+let connect ~system ~store ~settings ~self ~url ~health ~policy =
   let source = "jetstream" in
   let cursor = cursor store policy ~now:(Eio.Time.now system#clock) in
   let url =
@@ -87,7 +104,7 @@ let connect ~system ~store ~settings ~url ~health ~policy =
            so that it cannot stall the stream. *)
             let id =
               try
-                if not (wanted settings event) then None
+                if not (wanted settings ~self event) then None
                 else
                   Some
                     (String.concat "/"
@@ -419,7 +436,26 @@ let assignment engine ~wipe ~repo ~operation commit =
   else
     match field "record" commit with
     | Some record when Catalog.names_self catalog record ->
-        Option.iter (first_run engine) (Catalog.managed catalog repo)
+        (* The owner the record claims is checked first, so that a stranger's
+           manifest costs no request to hosts the stranger chooses. The
+           lookup then checks every claim against its host. *)
+        let claimed =
+          match field "declaration" record with
+          | Some d -> (try Some (did (get "owner" d)) with Invalid _ -> None)
+          | None -> None
+        in
+        let admitted =
+          match claimed with
+          | Some owner ->
+              Catalog.admitted catalog owner
+              && not (Settings.banned (Engine.settings engine) owner)
+          | None -> false
+        in
+        let was_known = Catalog.known catalog repo in
+        if admitted || was_known then
+          Option.iter
+            (fun r -> if not was_known then first_run engine r)
+            (Catalog.managed catalog repo)
     | _ -> ()
 
 (* An owner whose account is deactivated, suspended or deleted loses what is
@@ -435,10 +471,11 @@ let account engine network ~wipe event =
            (pds ^ "/xrpc/com.atproto.sync.getRepoStatus")
            [ ("did", owner) ])
     in
-    field "active" status = Some (Jsont.Json.bool false)
+    (field "active" status = Some (Jsont.Json.bool false)
+    && lasting (Option.map string (field "status" status)))
     || List.mem
          (Option.fold ~none:"" ~some:string (field "error" status))
-         [ "RepoNotFound"; "RepoDeactivated"; "RepoTakendown"; "RepoSuspended" ]
+         [ "RepoNotFound"; "RepoTakendown"; "RepoSuspended" ]
   in
   if inactive then (
     Printf.eprintf
@@ -629,5 +666,6 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
   in
   Eio.Fiber.both work (fun () ->
       retry (fun () ->
-          connect ~system ~store ~settings:(Engine.settings engine) ~url ~health
-            ~policy))
+          connect ~system ~store ~settings:(Engine.settings engine)
+            ~self:(Catalog.self (Engine.catalog engine))
+            ~url ~health ~policy))

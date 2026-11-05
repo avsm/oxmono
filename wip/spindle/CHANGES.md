@@ -6,6 +6,15 @@
 
 ## Unreleased
 
+- Store only Jetstream patches and tickets of known repositories, and
+  manifests of known repositories or naming this spindle, so that records
+  anyone can publish cannot flood the inbox. Check a manifest's claimed owner
+  against admission before looking the repository up, give a first run only
+  when a repository is accepted for the first time, and keep a deactivated
+  owner's settings, since moving PDS deactivates the old account.
+- Refuse a collaborator check for an actor that is not a DID without asking
+  the knot.
+
 - Limit each token issuer to 1024 unexpired replay nonces, so that one DID
   minting tokens cannot lock every caller out, and keep the table's size
   without counting it on each request.

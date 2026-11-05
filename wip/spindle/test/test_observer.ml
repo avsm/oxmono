@@ -22,6 +22,7 @@ let () =
   let owner = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa" in
   let other = "did:plc:bbbbbbbbbbbbbbbbbbbbbbbb" in
   let repo = "did:plc:rrrrrrrrrrrrrrrrrrrrrrrr" in
+  let self = "did:web:spindle.test" in
   Spindle__Settings.note_owner settings ~repo ~owner;
   let commit collection =
     obj
@@ -42,19 +43,52 @@ let () =
             @ if active then [] else [ ("status", str status) ]) );
       ]
   in
-  (* Only followed collections and an inactive owner with repositories are
-     kept. *)
-  assert (Observer.wanted settings (commit "org.tangled.review.patch"));
-  assert (not (Observer.wanted settings (commit "app.bsky.feed.post")));
-  assert (Observer.wanted settings (account owner false));
-  assert (not (Observer.wanted settings (account owner true)));
-  (* A relay's passing states are not an account going away. *)
+  (* Only followed collections of known repositories, manifests naming this
+     spindle, and an owner with repositories going away for good are kept. *)
+  let stranger ?record collection =
+    obj
+      [
+        ("kind", str "commit");
+        ("did", str other);
+        ( "commit",
+          obj
+            ([ ("collection", str collection) ]
+            @ match record with Some r -> [ ("record", r) ] | None -> []) );
+      ]
+  in
   assert (
-    not (Observer.wanted settings (account ~status:"throttled" owner false)));
-  assert (not (Observer.wanted settings (account other false)));
+    not (Observer.wanted settings ~self (stranger "org.tangled.review.patch")));
+  assert (
+    not (Observer.wanted settings ~self (stranger "org.tangled.track.ticket")));
   assert (
     not
-      (Observer.wanted settings
+      (Observer.wanted settings ~self
+         (stranger ~record:(obj [ ("spindle", str "did:web:other.test") ])
+            "org.tangled.repo.manifest")));
+  assert (
+    Observer.wanted settings ~self
+      (stranger
+         ~record:(obj [ ("spindle", str self) ])
+         "org.tangled.repo.manifest"));
+  assert (Observer.wanted settings ~self (commit "org.tangled.repo.manifest"));
+  assert (
+    not
+      (Observer.wanted settings ~self
+         (account ~status:"deactivated" owner false)));
+  assert (Observer.wanted settings ~self (commit "org.tangled.review.patch"));
+  assert (not (Observer.wanted settings ~self (commit "app.bsky.feed.post")));
+  assert (
+    Observer.wanted settings ~self (account ~status:"deleted" owner false));
+  assert (not (Observer.wanted settings ~self (account owner true)));
+  (* A relay's passing states are not an account going away. *)
+  assert (
+    not
+      (Observer.wanted settings ~self
+         (account ~status:"throttled" owner false)));
+  assert (not (Observer.wanted settings ~self (account other false)));
+  assert (
+    not
+      (Observer.wanted settings ~self
          (obj [ ("kind", str "identity"); ("did", str owner) ])));
   (* A repository's events stay in order of their keys, apart from other
      repositories'. *)

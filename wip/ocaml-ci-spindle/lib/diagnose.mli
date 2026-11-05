@@ -38,9 +38,10 @@ val url : t -> string
 val prompt :
   files:Spindle.Executor.files -> passed:string list -> failure list -> string
 (** [prompt ~files ~passed failures] is the question about [failures]: the tail
-    of each one's failed step, the names of the builds that [passed], and the
-    root opam and dune files with up to six files the logs name, read from
-    [files]. Each log is cut to 24 KiB and each file over 32 KiB is left out. *)
+    of each one's failed step, the names of the builds that [passed], and up
+    to eight root opam and dune files with up to six files the logs name,
+    read from [files]. Each log is cut to 24 KiB, each file over 32 KiB is
+    left out, and files stop being added once the prompt reaches 256 KiB. *)
 
 val ask : t -> prompt:string -> (string, string) result
 (** [ask t ~prompt] is the model's Markdown answer to [prompt], without any

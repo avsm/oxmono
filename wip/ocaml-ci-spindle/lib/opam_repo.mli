@@ -37,7 +37,17 @@ val remotes :
 (** [remotes process clock ~dir] is an empty set of remotes, cloned under
     [dir]. *)
 
-val remote : remotes -> url:string -> ?branch:string -> unit -> t option
-(** [remote r ~url ~branch ()] is the repository [url] at [branch], made on
-    first use and kept, or [None] when [r] already holds 64 others. Git
-    reaches it only over https. *)
+val remote :
+  remotes -> url:string -> host:string -> ?branch:string -> unit -> t option
+(** [remote r ~url ~host ~branch ()] is the repository [url], whose host is
+    [host], at [branch], made on first use and kept, or [None] when [r]
+    already holds 64 others.
+
+    Each fetch first resolves [host] and refuses it unless every address is
+    public, and git then reaches only that address, over https, with no
+    redirects and none of the host's git configuration. The clone holds only
+    the [packages] directory, and makes no symbolic links. *)
+
+val forget : remotes -> t -> unit
+(** [forget r t] drops [t] from [r] if it was never fetched, so that a remote
+    that fails does not hold one of the 64 places. *)

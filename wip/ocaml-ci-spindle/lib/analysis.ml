@@ -31,7 +31,7 @@ let packages t =
     (fun (f, text) -> (Filename.chop_suffix f ".opam", text))
     t.opam_files
 
-type remote = { url : string; branch : string option }
+type remote = { url : string; host : string; branch : string option }
 
 let max_remotes = 4
 
@@ -41,36 +41,54 @@ let safe_url_char = function
       true
   | _ -> false
 
+(* Git's own rules for a ref name (git check-ref-format), restricted to
+   characters a shell and an opam URL read literally. *)
 let safe_branch b =
-  b <> ""
-  && String.length b <= 200
-  && b.[0] <> '-'
-  && b.[0] <> '/'
-  && (not (String.ends_with ~suffix:"/" b))
-  && (not (String.ends_with ~suffix:".lock" b))
-  && String.for_all
-       (function
-         | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '.' | '_' | '/' -> true
-         | _ -> false)
-       b
-  &&
+  let component c =
+    c <> ""
+    && c.[0] <> '.'
+    && (not (String.ends_with ~suffix:".lock" c))
+    && String.for_all
+         (function
+           | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '.' | '_' -> true
+           | _ -> false)
+         c
+  in
   let rec no_dots i =
     i + 1 >= String.length b
     || ((b.[i] <> '.' || b.[i + 1] <> '.') && no_dots (i + 1))
   in
-  no_dots 0
+  b <> ""
+  && String.length b <= 200
+  && b.[0] <> '-'
+  && (not (String.ends_with ~suffix:"." b))
+  && List.for_all component (String.split_on_char '/' b)
+  && no_dots 0
 
-(* A host is named, not given as an address, and is not one of the names
-   that only a local network resolves. *)
-let local_host h =
-  let h = String.lowercase_ascii h in
-  h = "localhost"
-  || (not (String.contains h '.'))
-  || String.for_all (function '0' .. '9' | '.' -> true | _ -> false) h
-  || String.contains h '['
-  || List.exists
-       (fun s -> String.ends_with ~suffix:s h)
-       [ ".localhost"; ".local"; ".internal"; ".lan"; ".home.arpa" ]
+(* A host is a name of letters, digits and hyphens whose last label has a
+   letter, so that no spelling of an address passes, and is not one of the
+   names that only a local network resolves. Where it resolves is checked
+   again when it is fetched. *)
+let public_name h =
+  let labels = String.split_on_char '.' h in
+  let label l =
+    l <> ""
+    && String.length l <= 63
+    && l.[0] <> '-'
+    && l.[String.length l - 1] <> '-'
+    && String.for_all
+         (function 'a' .. 'z' | '0' .. '9' | '-' -> true | _ -> false)
+         l
+  in
+  List.length labels >= 2
+  && List.for_all label labels
+  && String.exists
+       (function 'a' .. 'z' -> true | _ -> false)
+       (List.nth labels (List.length labels - 1))
+  && not
+       (List.exists
+          (fun s -> h = s || String.ends_with ~suffix:("." ^ s) h)
+          [ "localhost"; "local"; "internal"; "lan"; "home.arpa"; "test"; "invalid" ])
 
 let remote_of_string s =
   let s =
@@ -97,25 +115,18 @@ let remote_of_string s =
       | Some i -> String.sub rest 0 i
       | None -> rest
     in
-    let host =
-      match String.rindex_opt authority '@' with
-      | Some i -> String.sub authority (i + 1) (String.length authority - i - 1)
-      | None -> authority
-    in
-    let host =
-      match String.index_opt host ':' with
-      | Some i -> String.sub host 0 i
-      | None -> host
-    in
+    let host = String.lowercase_ascii authority in
     if String.contains authority '@' then
       Error "a remote may not carry credentials"
-    else if local_host host then Error "the host must be a public name"
+    else if String.contains authority ':' then
+      Error "a remote is reached on the https port, without naming one"
+    else if not (public_name host) then Error "the host must be a public name"
     else
       match branch with
       | Some b when not (safe_branch b) ->
           Error "the branch name is not one git allows"
-      | Some "" | None -> Ok { url; branch = None }
-      | Some b -> Ok { url; branch = Some b }
+      | Some "" | None -> Ok { url; host; branch = None }
+      | Some b -> Ok { url; host; branch = Some b }
 
 let field_strings (v : OpamParserTypes.FullPos.value) =
   match v.pelem with

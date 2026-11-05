@@ -36,6 +36,24 @@ let rec snapshots repos f =
       Opam_repo.with_snapshot repo (fun ~commit ~packages ->
           snapshots rest (fun l -> f ((repo, commit, packages) :: l)))
 
+(* [available ~skip remotes f] is [f] applied to the snapshots of those of
+   [remotes] that can be fetched, held still while [f] runs. One that cannot
+   is passed to [skip] with the reason and left out. *)
+let rec available ~skip remotes f =
+  match remotes with
+  | [] -> f []
+  | repo :: rest -> (
+      let entered = ref false in
+      match
+        Opam_repo.with_snapshot repo (fun ~commit ~packages ->
+            entered := true;
+            available ~skip rest (fun l -> f ((repo, commit, packages) :: l)))
+      with
+      | v -> v
+      | exception Failure why when not !entered ->
+          skip repo why;
+          available ~skip rest f)
+
 let env_of (v : Variant.t) =
   [ (variant_var, v.name); (pool_var, v.pool) ]
   @ if v.day10 then [ (day10_var, "1") ] else []
@@ -304,8 +322,8 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                 if r.branch = None && List.exists (same r.url) base then None
                 else
                   match
-                    Opam_repo.remote config.remotes ~url:r.url ?branch:r.branch
-                      ()
+                    Opam_repo.remote config.remotes ~url:r.url ~host:r.host
+                      ?branch:r.branch ()
                   with
                   | Some t -> Some t
                   | None ->
@@ -316,7 +334,27 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                       None)
               wanted
           in
-          snapshots (base @ remotes) @@ fun snaps ->
+          (* Remotes are locked before the shared repositories, in the order
+             of their names, so that no two plans wait on each other and a
+             slow remote holds up only the plans that name it. *)
+          let by_name =
+            List.sort
+              (fun a b -> String.compare (Opam_repo.name a) (Opam_repo.name b))
+              remotes
+          in
+          let skip repo why =
+            logf ctx "Ignoring x-opam-repositories remote %s: %s.\n"
+              (Opam_repo.url repo) why;
+            Opam_repo.forget config.remotes repo
+          in
+          available ~skip by_name @@ fun fetched ->
+          let fetched =
+            List.filter_map
+              (fun r -> List.find_opt (fun (q, _, _) -> q == r) fetched)
+              remotes
+          in
+          snapshots base @@ fun base_fetched ->
+          let snaps = base_fetched @ fetched in
           logf ctx "Solving with opam-0install against:\n";
           List.iteri
             (fun i (repo, commit, _) ->

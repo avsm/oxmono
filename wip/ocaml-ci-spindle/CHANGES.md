@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fetch `x-opam-repositories` remotes only at a public address, checked when
+  each is fetched and pinned for git, with no redirects, no explicit port,
+  no symbolic links in the checkout, none of the host's git configuration,
+  and only the `packages` directory. A remote that cannot be fetched is
+  logged and skipped, and is not tried again for ten minutes. Remotes are
+  fetched before the shared repositories are locked, so a slow one delays
+  only the plans that name it.
+- Bound the diagnosis prompt to eight root files and 256 KiB.
+
 - Layer the opam repositories named in a project's `x-opam-repositories`
   fields over opam-repository, the union across its opam files. Each branch
   is resolved to a commit for the solve, and builds add the repositories at

@@ -11,16 +11,17 @@ val find : Spindle.Executor.files -> t option
 val packages : t -> (string * string) list
 (** [packages t] is each package's name and opam file text. *)
 
-type remote = { url : string; branch : string option }
-(** An opam repository a project names: an [https] address and maybe a
-    branch. *)
+type remote = { url : string; host : string; branch : string option }
+(** An opam repository a project names: an [https] address, its host, and
+    maybe a branch. *)
 
 val remote_of_string : string -> (remote, string) result
 (** [remote_of_string s] is the remote that [s] names, as
     [[git+]https://HOST/PATH[#BRANCH]], or why it is not used: another
-    protocol, credentials in the address, a host given as an address or one
-    that only a local network resolves, or a branch name that git refuses or
-    that a shell would read specially. *)
+    protocol, credentials or a port in the address, a host that is not a
+    domain name or is one that only a local network resolves, or a branch
+    name that git refuses or that a shell would read specially. The host's
+    addresses are not checked here, but when {!Opam_repo} fetches it. *)
 
 val remotes : t -> remote list * (string * string) list
 (** [remotes t] is the union of the remotes that the [x-opam-repositories]

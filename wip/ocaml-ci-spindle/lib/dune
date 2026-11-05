@@ -11,6 +11,7 @@
   eio.unix
   fetch
   fetch-httpz
+  xrpc-auth.web
   jsont
   jsont.bytesrw
   mtime

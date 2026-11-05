@@ -289,10 +289,16 @@ let () =
   let remote s = Analysis.remote_of_string s in
   assert (
     remote "git+https://github.com/x/opam-repo.git#dev"
-    = Ok { url = "https://github.com/x/opam-repo.git"; branch = Some "dev" });
+    = Ok
+        {
+          url = "https://github.com/x/opam-repo.git";
+          host = "github.com";
+          branch = Some "dev";
+        });
   assert (
     remote "https://tangled.org/a.b/repo"
-    = Ok { url = "https://tangled.org/a.b/repo"; branch = None });
+    = Ok
+        { url = "https://tangled.org/a.b/repo"; host = "tangled.org"; branch = None });
   List.iter
     (fun s -> assert (Result.is_error (remote s)))
     [
@@ -310,6 +316,18 @@ let () =
       "https://github.com/x#a b";
       "https://github.com/x y";
       "https://github.com/x';rm -rf /";
+      "https://localhost./x";
+      "https://github.com./x";
+      "https://0x7f.0.0.1/x";
+      "https://127.1/x";
+      "https://github.com:8443/x";
+      "https://GITHUB.COM:443/x";
+      "https://a.test/x";
+      "https://github.com/x#.hidden";
+      "https://github.com/x#a//b";
+      "https://github.com/x#a.";
+      "https://github.com/x#a/.b";
+      "https://github.com/x#a.lock";
     ];
   let project opams : Spindle.Executor.files =
     {

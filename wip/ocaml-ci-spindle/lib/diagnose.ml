@@ -25,6 +25,11 @@ let max_log = 24 * 1024
 let max_source = 32 * 1024
 let max_sources = 6
 
+(* A repository may hold any number of root files, so they are bounded too,
+   as is the whole prompt, which goes to a paid API. *)
+let max_root = 8
+let max_prompt = 256 * 1024
+
 let tail n s =
   if String.length s <= n then s
   else "...\n" ^ String.sub s (String.length s - n) n
@@ -100,15 +105,20 @@ let prompt ~(files : Spindle.Executor.files) ~passed failures =
         Filename.check_suffix f ".opam" || f = "dune-project" || f = "dune")
   in
   let mentioned = List.concat_map (fun f -> mentioned f.log) failures in
+  let root =
+    List.sort_uniq String.compare root |> List.filteri (fun i _ -> i < max_root)
+  in
   let sources =
-    List.sort_uniq String.compare root
-    @ List.filter (fun f -> not (List.mem f root)) mentioned
-    |> List.filteri (fun i _ -> i < max_sources + List.length root)
+    root
+    @ (List.filter (fun f -> not (List.mem f root)) mentioned
+      |> List.filteri (fun i _ -> i < max_sources))
   in
   List.iter
     (fun path ->
       match files.read path with
-      | Some text when String.length text <= max_source ->
+      | Some text
+        when String.length text <= max_source
+             && Buffer.length b + String.length text < max_prompt ->
           add "# File %s\n\n```\n%s\n```\n\n" path text
       | _ -> ())
     sources;

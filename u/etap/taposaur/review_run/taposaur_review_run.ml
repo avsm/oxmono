@@ -107,8 +107,8 @@ let execute ?(max_members=100000) store catalog
 let snapshot ?(publishers=[]) ?(abstracts=[]) ?(max_members=100000) ?(max_bytes=256 * 1024 * 1024)
     ?(capture_seconds=60.) store catalog ~run_id ~parent ~label ~actor =
   budget max_members;
-  if max_bytes < 1 || max_bytes > 900 * 1024 * 1024 then
-    invalid_arg "Snapshot byte budget must be 1..900 MiB";
+  if max_bytes < 1 || max_bytes > 4 * 1024 * 1024 * 1024 then
+    invalid_arg "Snapshot byte budget must be 1..4 GiB";
   if not (capture_seconds > 0. && capture_seconds <= 3600.) then
     invalid_arg "Capture time budget must be 0..3600 seconds";
   let members = S.members store run_id in

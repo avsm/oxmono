@@ -57,6 +57,17 @@ let browse_schema db =
   exec db "CREATE TABLE snapshot_browse_ready (snapshot_id INTEGER PRIMARY KEY \
     REFERENCES snapshots(id))";
   exec db "PRAGMA user_version=2"
+(* Review schema 3: a cached export larger than one SQLite blob can hold
+   is stored as ordered parts; the exports row then points at a descriptor
+   carrying the whole export's digest and size. *)
+let parts_schema db =
+  exec db "CREATE TABLE IF NOT EXISTS export_parts (snapshot_id INTEGER NOT NULL, \
+    format TEXT NOT NULL, part INTEGER NOT NULL, \
+    blob TEXT NOT NULL REFERENCES objects(sha), \
+    PRIMARY KEY(snapshot_id,format,part), \
+    FOREIGN KEY(snapshot_id,format) REFERENCES exports(snapshot_id,format))";
+  exec db "PRAGMA user_version=3"
+let schema_version = 3
 let open_db ?audit ~sw ~readonly path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000
     ?mode:(if readonly then Some `READONLY else None) path in
@@ -71,10 +82,14 @@ let open_db ?audit ~sw ~readonly path =
         "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
         [] (fun s -> Q.column_int s 0) |> one in
       if tables <> 0 then failwith "Refusing nonempty review database";
-      transaction db (fun () -> exec db Schema.sql; browse_schema db)
-    end else if (version <> 1 && version <> 2) || app <> 1414682198 then
+      transaction db (fun () -> exec db Schema.sql; browse_schema db;
+        parts_schema db)
+    end else if version < 1 || version > schema_version || app <> 1414682198 then
       failwith "Unsupported review database";
-    if version = 1 && not readonly then transaction db (fun () -> browse_schema db);
+    if version >= 1 && version < schema_version && not readonly then
+      transaction db (fun () ->
+        if version < 2 then browse_schema db;
+        parts_schema db);
     exec db "PRAGMA foreign_keys=ON";
     if readonly then exec db "PRAGMA query_only=ON"
     else exec db "PRAGMA journal_mode=WAL");
@@ -276,10 +291,61 @@ let with_facet_writer db id f =
       bind s [int id;text o.doi;text (R.Statistics.publisher o);int flags];
       done_ s));
   command db "INSERT OR IGNORE INTO snapshot_browse_ready VALUES(?)" [int id]
-let publish_snapshot ?(max_bytes=256 * 1024 * 1024) t
-    ~run_id ~parent ~label ~actor observations =
-  if max_bytes < 1 || max_bytes > 900 * 1024 * 1024 then
-    invalid_arg "Snapshot byte budget must be 1..900 MiB";
+let max_budget = 4 * 1024 * 1024 * 1024
+let default_chunk = 64 * 1024 * 1024
+type descriptor = { sha256 : string; bytes : int; parts : int }
+let descriptor_jsont =
+  Jsont.Object.map ~kind:"Export parts" (fun sha256 bytes parts ->
+    {sha256; bytes; parts})
+  |> Jsont.Object.mem "sha256" Jsont.string ~enc:(fun d -> d.sha256)
+  |> Jsont.Object.mem "bytes" Jsont.int ~enc:(fun d -> d.bytes)
+  |> Jsont.Object.mem "parts" Jsont.int ~enc:(fun d -> d.parts)
+  |> Jsont.Object.finish
+(* An export at most [chunk_bytes] long is one object; a longer one is
+   stored as parts behind a descriptor, and the exports row's blob is the
+   descriptor. The manifest always carries the digest of the whole export. *)
+let put_export db ~chunk_bytes id format body =
+  let n = String.length body in
+  if n <= chunk_bytes then begin
+    let sha = put db body in
+    command db "INSERT INTO exports VALUES(?,?,?)" [int id;text format;text sha]
+  end else begin
+    let parts = (n + chunk_bytes - 1) / chunk_bytes in
+    let descriptor = put db (R.encode descriptor_jsont
+      {sha256 = R.digest body; bytes = n; parts}) in
+    command db "INSERT INTO exports VALUES(?,?,?)"
+      [int id;text format;text descriptor];
+    for part = 0 to parts - 1 do
+      let start = part * chunk_bytes in
+      let sha = put db (String.sub body start (min chunk_bytes (n - start))) in
+      command db "INSERT INTO export_parts VALUES(?,?,?,?)"
+        [int id;text format;int part;text sha]
+    done
+  end
+let read_export db id format =
+  let schema = query db "PRAGMA user_version" [] (fun s -> Q.column_int s 0)
+    |> one in
+  let body = query db "SELECT o.body FROM exports e JOIN objects o \
+    ON o.sha=e.blob WHERE e.snapshot_id=? AND e.format=?"
+    [int id;text format] (fun s -> Q.column_blob s 0) |> one in
+  let parts = if schema < 3 then [] else query db
+    "SELECT o.body FROM export_parts p JOIN objects o ON o.sha=p.blob \
+     WHERE p.snapshot_id=? AND p.format=? ORDER BY p.part"
+    [int id;text format] (fun s -> Q.column_blob s 0) in
+  if parts = [] then body else begin
+    let d = from_json descriptor_jsont body in
+    let whole = String.concat "" parts in
+    if List.length parts <> d.parts || String.length whole <> d.bytes ||
+       R.digest whole <> d.sha256 then
+      failwith "Cached export parts do not match their descriptor";
+    whole
+  end
+let publish_snapshot ?(max_bytes=256 * 1024 * 1024)
+    ?(chunk_bytes=default_chunk) t ~run_id ~parent ~label ~actor observations =
+  if max_bytes < 1 || max_bytes > max_budget then
+    invalid_arg "Snapshot byte budget must be 1..4 GiB";
+  if chunk_bytes < 1 || chunk_bytes > 512 * 1024 * 1024 then
+    invalid_arg "Export chunk size must be 1..512 MiB";
   required "label" label; required "actor" actor;
   let observations = List.sort (fun (a : R.observation) b ->
     String.compare a.doi b.doi) observations in
@@ -314,8 +380,8 @@ let publish_snapshot ?(max_bytes=256 * 1024 * 1024) t
     let id = query db "SELECT coalesce(max(id),0)+1 FROM snapshots" []
       (fun s -> Q.column_int s 0) |> one in
     let statistics = R.Statistics.collect (fun f -> List.iter f observations) in
-    let exports = ("statistics-v1",put db (R.encode R.Statistics.jsont statistics))
-      :: List.map (fun (f,s) -> R.export_name f,put db s) exports in
+    let exports = ("statistics-v1",R.encode R.Statistics.jsont statistics)
+      :: List.map (fun (f,s) -> R.export_name f,s) exports in
     let encoded = List.map (fun (doi,s) -> doi,put db s) encoded in
     let quote s = R.encode Jsont.string s in
     let definition = query db
@@ -324,8 +390,8 @@ let publish_snapshot ?(max_bytes=256 * 1024 * 1024) t
     let rows_hash = R.digest (String.concat "" (List.map (fun (doi,sha) ->
       doi ^ "\000" ^ sha ^ "\n") encoded)) in
     let definition_json = get_blob db definition in
-    let object_fields = List.map (fun (name,sha) ->
-      quote name ^ ":" ^ quote sha)
+    let object_fields = List.map (fun (name,body) ->
+      quote name ^ ":" ^ quote (R.digest body))
       exports |> String.concat "," in
     let manifest = Printf.sprintf
       {|{"version":1,"snapshot":%d,"review":%s,"title":%s,
@@ -354,8 +420,7 @@ let publish_snapshot ?(max_bytes=256 * 1024 * 1024) t
       "INSERT INTO snapshot_rows VALUES(?,?,?)" [int id;text doi;text sha])
       encoded;
     with_facet_writer db id (fun insert -> List.iter insert observations);
-    List.iter (fun (format,sha) -> command db
-      "INSERT INTO exports VALUES(?,?,?)" [int id;text format;text sha])
+    List.iter (fun (format,body) -> put_export db ~chunk_bytes id format body)
       exports;
     id))
 let rows ?(after="") ?(limit=50) t id =
@@ -366,9 +431,7 @@ let rows ?(after="") ?(limit=50) t id =
       ORDER BY s.doi LIMIT ?" [int id;text after;int limit]
       (fun s -> from_json R.observation_jsont (Q.column_blob s 0)))
 let export t id format = access t (fun db ->
-  query db "SELECT o.body FROM exports e JOIN objects o ON o.sha=e.blob \
-    WHERE e.snapshot_id=? AND e.format=?"
-    [int id;text (R.export_name format)] (fun s -> Q.column_blob s 0) |> one)
+  read_export db id (R.export_name format))
 let statistics t id = access t (fun db ->
   ignore (snapshot_db db id);
   query db "SELECT o.body FROM exports e JOIN objects o ON o.sha=e.blob \
@@ -467,10 +530,10 @@ let publish_run t (revision : revision) ~actor inputs =
     ~action:"review.run.publish" ~subject:("review:" ^ revision.review.slug)
     ["revision",string_of_int revision.number]
     (fun () -> publish_run t revision ~actor inputs)
-let publish_snapshot ?max_bytes t ~run_id ~parent ~label ~actor observations =
+let publish_snapshot ?max_bytes ?chunk_bytes t ~run_id ~parent ~label ~actor observations =
   audited t ~actor ~result_details:(fun n -> ["snapshot_id",string_of_int n])
     ~action:"review.snapshot.publish" ~subject:("run:" ^ string_of_int run_id)
     ["members",string_of_int (List.length observations)]
-    (fun () -> publish_snapshot ?max_bytes t ~run_id ~parent ~label ~actor observations)
+    (fun () -> publish_snapshot ?max_bytes ?chunk_bytes t ~run_id ~parent ~label ~actor observations)
 let cache_statistics t id = audited t ~action:"review.statistics.cache"
   ~subject:("snapshot:" ^ string_of_int id) [] (fun () -> cache_statistics t id)

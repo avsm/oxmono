@@ -503,8 +503,10 @@ Inputs are bounded to 32 MiB each and 64 MiB combined. The default budget is
 100,000 source occurrences or snapshot members. `run --max-members` and
 `snapshot --max-members` allow up to 2,000,000. Snapshots default to 256 MiB
 of encoded observations and a 60-second capture deadline. Explicit
-`snapshot --max-bytes` and `--capture-seconds` allow up to 900 MiB and
-3,600 seconds. Large captures need proportionally more memory and retain a
+`snapshot --max-bytes` and `--capture-seconds` allow up to 4 GiB and
+3,600 seconds. A cached export longer than 64 MiB is stored in parts behind
+a descriptor (review schema 3), because one SQLite blob holds at most a
+billion bytes; reads reassemble and verify it against the manifest digest. Large captures need proportionally more memory and retain a
 catalogue WAL read transaction during capture. `blob --max-bytes` permits
 retaining larger original evidence files. Exceeding a budget fails rather
 than truncating a result.

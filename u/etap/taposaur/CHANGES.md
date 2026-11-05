@@ -1,5 +1,9 @@
 # Changes
 
+- Review schema 3 stores a cached snapshot export longer than 64 MiB as
+  ordered parts behind a descriptor, since one SQLite blob holds at most a
+  billion bytes; reads reassemble and verify the whole export against the
+  manifest digest, and the snapshot observation budget rises to 4 GiB.
 - Export a review snapshot as a corpus: `taposaur review corpus` writes
   flat JSON Lines rows with the frozen bibliography and provenance, the
   holdings, and the body prose of the preferred TEI read from the archive

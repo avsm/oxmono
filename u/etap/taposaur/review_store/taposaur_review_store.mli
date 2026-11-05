@@ -52,11 +52,16 @@ val publish_run : write t -> revision -> actor:string ->
 val run : 'a t -> int -> run
 val runs : 'a t -> slug:string -> run list
 val members : 'a t -> int -> R.member list
-val publish_snapshot : ?max_bytes:int -> write t -> run_id:int -> parent:int option ->
+val publish_snapshot : ?max_bytes:int -> ?chunk_bytes:int -> write t -> run_id:int -> parent:int option ->
   label:string -> actor:string -> R.observation list -> int
 (** [publish_snapshot store ... rows] verifies exact run membership, freezes
     review context and publishes rows, manifest and three cached exports in
-    one transaction. [parent] must belong to the same run. *)
+    one transaction. [parent] must belong to the same run. [max_bytes]
+    bounds the encoded observations (1..4 GiB, default 256 MiB). A cached
+    export longer than [chunk_bytes] (1..512 MiB, default 64 MiB) is stored
+    as ordered parts behind a descriptor, since one SQLite blob holds at
+    most a billion bytes; the manifest checksum is always that of the
+    whole export, and {!export} reassembles and verifies it. *)
 val snapshot : 'a t -> int -> snapshot
 val snapshots : 'a t -> slug:string -> snapshot list
 val rows : ?after:string -> ?limit:int -> 'a t -> int -> R.observation list

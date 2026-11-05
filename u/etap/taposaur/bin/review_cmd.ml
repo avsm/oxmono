@@ -70,7 +70,7 @@ let partial = Arg.(value & flag & info ["partial"]
 let max_members = Arg.(value & opt int 100000 & info ["max-members"]
   ~doc:"Explicit occurrence or snapshot member budget (maximum 2000000).")
 let max_bytes = Arg.(value & opt int (256 * 1024 * 1024) & info ["max-bytes"]
-  ~doc:"Frozen observation byte budget (maximum 900 MiB).")
+  ~doc:"Frozen observation byte budget (maximum 4 GiB).")
 let capture_seconds = Arg.(value & opt float 60. & info ["capture-seconds"]
   ~doc:"Consistent snapshot capture deadline (maximum 3600 seconds).")
 let cmd name doc term = Cmd.v (Cmd.info name ~doc) term

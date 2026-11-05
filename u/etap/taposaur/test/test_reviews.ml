@@ -193,8 +193,31 @@ let snapshots () = with_temp (fun _ sw root path ->
   let membership_diff = S.compare store ~before:first ~after:next_snapshot in
   count "new membership addition" 1 membership_diff.added;
   count "new membership removal" 1 membership_diff.removed;
+  (* A long export is stored in parts; the bytes and the manifest digest
+     are those of the whole export. *)
+  let chunked = S.publish_snapshot ~chunk_bytes:16 store ~run_id:next_run
+    ~parent:(Some next_snapshot) ~label:"Chunked" ~actor:"agent"
+    (S.rows store next_snapshot) in
+  equal "chunked export reassembled" (S.export store next_snapshot R.Jsonl)
+    (S.export store chunked R.Jsonl);
+  check "chunked manifest digest" true (includes
+    (S.blob store (S.snapshot store chunked).manifest)
+    (R.digest (S.export store chunked R.Csv)));
+  check "parts stored" true (
+    let reader = Sqlite3.db_open (path ^ "/reviews.db") in
+    Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close reader)) (fun () ->
+      let n = ref 0 in
+      Sqlite3.Rc.check (Sqlite3.exec reader ~cb:(fun row _ ->
+        n := int_of_string (Option.get row.(0)))
+        (Printf.sprintf "SELECT count(*) FROM export_parts WHERE snapshot_id=%d" chunked));
+      !n > 3));
+  check "chunk bound" true (rejects (fun () -> ignore
+    (S.publish_snapshot ~chunk_bytes:0 store ~run_id:next_run ~parent:None
+      ~label:"Bad" ~actor:"agent" [])));
   let reopened = S.open_read ~sw (root / "reviews.db") in
   equal "reopen export byte for byte" original (S.export reopened first R.Csv);
+  equal "reopen chunked export" (S.export store chunked R.Jsonl)
+    (S.export reopened chunked R.Jsonl);
   let manifest = S.blob reopened (S.snapshot reopened first).manifest in
   check "manifest valid JSON" true (Result.is_ok (R.decode Jsont.json manifest));
   check "manifest export checksum" true (includes manifest (R.digest original)))

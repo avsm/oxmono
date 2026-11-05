@@ -481,8 +481,13 @@ duckdb -c "COPY (SELECT * FROM read_json('snapshot-7.jsonl',
   (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 10000)"
 ```
 
-Members the snapshot did not find in the catalogue are written without an
-archive lookup. Each row names the TEI file, its converter, SHA-256 and
+`--live CATALOG` replays the snapshot's catalogue-then-input policy against
+the live catalogue, so nonblank current values, holdings and presence
+supersede the frozen ones with source `catalogue`; `--abstracts` fills a
+still-blank abstract from the configured evidence store with the evidence
+label as source. Both leave the snapshot untouched and are for exports that
+must carry metadata gathered since the capture. Members the export does not
+find in the catalogue are written without an archive lookup. Each row names the TEI file, its converter, SHA-256 and
 size, so the text can be traced to an archive artifact; `text_error`
 records a TEI that could not be read or parsed. Body text is the TEI
 body's headings, paragraphs and list items with figures, notes, tables,

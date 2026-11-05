@@ -409,6 +409,26 @@ let corpus () = with_temp (fun env sw root _ ->
     (Printf.sprintf "\"snapshot\":%d" snap));
   let back = get (R.decode Taposaur_corpus.row_jsont line) in
   check "round trip" true (back = b);
+  load c [{ (make_index "10.1000/a") with title=Some "Updated title";
+    abstract=Some ""; journal=Some "Live journal"}];
+  let evidence = {Abstract_evidence.doi="10.1000/b";abstract="Evidence abstract";
+    provider="openalex";endpoint="works";sha256=String.make 64 'b';retrieved=0.} in
+  let abstracts d = if Doi.to_string d = "10.1000/b" then Some evidence else None in
+  let live = ref [] in
+  ignore (Taposaur_corpus.export ~catalogue:catalog ~abstracts ~archive ~store
+    ~snapshot:snap (fun row -> live := row :: !live));
+  let la = List.nth (List.rev !live) 0 and lb = List.nth (List.rev !live) 1 in
+  equal "live title supersedes" "Updated title" (Option.get la.title);
+  equal "live journal added" "Live journal" (Option.get la.journal);
+  equal "blank live field keeps frozen" "Frozen abstract" (Option.get la.abstract);
+  equal "live source" "catalogue" (Option.get la.title_source);
+  equal "evidence abstract" "Evidence abstract" (Option.get lb.abstract);
+  equal "evidence source" (Abstract_evidence.label evidence)
+    (Option.get lb.abstract_source);
+  check "unheld stays unheld" true (not lb.in_catalogue && lb.text = None);
+  check "frozen rows unchanged" true
+    (List.length (S.rows store snap) = 2 &&
+     (List.hd (S.rows store snap)).bibliography.title = Some "Held paper");
   let pool = Eio.Executor_pool.create ~sw ~domain_count:2
     (Eio.Stdenv.domain_mgr env) in
   let pooled = ref [] in

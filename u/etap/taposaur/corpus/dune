@@ -4,6 +4,7 @@
  (libraries
   taposaur
   taposaur.archive
+  taposaur.catalog
   taposaur.document
   taposaur.review
   taposaur.review-store

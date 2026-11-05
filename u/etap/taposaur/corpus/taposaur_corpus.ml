@@ -149,6 +149,54 @@ let text_of_paper ?max_bytes ?max_output paper =
         | _ -> Some t) rest in
   go None candidates
 
+module C = Taposaur_catalog
+
+(* The snapshot's catalogue-then-input policy, replayed against the live
+   catalogue: a nonblank live value supersedes the frozen one and its
+   evidence entry; blank live fields leave the frozen value in place. *)
+let refresh ?catalogue ?abstracts (o : R.observation) =
+  let uid = match Uid.of_input o.doi with
+    | Ok u -> u | Error e -> invalid_arg e in
+  let o = match Option.bind catalogue (fun c -> C.find c uid) with
+    | None -> o
+    | Some (s : Summary.t) ->
+      let evidence = ref o.evidence in
+      let take field present value frozen =
+        if present value then begin
+          evidence := {R.field; source = "catalogue"} ::
+            List.filter (fun (e : R.evidence) -> e.field <> field) !evidence;
+          value
+        end else frozen in
+      let text field value frozen =
+        take field (fun v -> nonblank v <> None) (nonblank value) frozen in
+      let b = s.bibliography and f = o.bibliography in
+      let bibliography = {
+        Bibliography.title = text "title" b.title f.title;
+        abstract = text "abstract" b.abstract f.abstract;
+        authors = take "authors" ((<>) []) b.authors f.authors;
+        journal = text "journal" b.journal f.journal;
+        publisher = text "publisher" b.publisher f.publisher;
+        published = text "published" b.published f.published;
+        year = take "year" Option.is_some b.year f.year;
+        volume = text "volume" b.volume f.volume;
+        issue = text "issue" b.issue f.issue;
+        pages = text "pages" b.pages f.pages;
+        issn = text "issn" b.issn f.issn;
+        doi = f.doi;
+        pmcid = text "pmcid" b.pmcid f.pmcid;
+        pmid = text "pmid" b.pmid f.pmid } in
+      {o with bibliography; holdings = s.holdings; in_catalogue = true;
+       evidence = List.rev !evidence} in
+  match abstracts, nonblank o.bibliography.abstract, Uid.doi uid with
+  | Some find, None, Some doi ->
+    (match find doi with
+     | Some (e : Abstract_evidence.t) when String.trim e.abstract <> "" ->
+       {o with bibliography = {o.bibliography with abstract = Some e.abstract};
+        evidence = o.evidence @
+          [{R.field = "abstract"; source = Abstract_evidence.label e}]}
+     | _ -> o)
+  | _ -> o
+
 type summary = {
   rows : int; held : int; texts : int; errors : int; characters : int;
 }
@@ -165,8 +213,8 @@ let summary_jsont =
 
 let page_size = 100
 
-let export ?pool ?(fibers = 8) ?max_bytes ?max_output ~archive ~store
-    ~snapshot emit =
+let export ?pool ?(fibers = 8) ?max_bytes ?max_output ?catalogue ?abstracts
+    ~archive ~store ~snapshot emit =
   if fibers < 1 || fibers > 256 then invalid_arg "fibers must be 1..256";
   let totals = ref {rows = 0; held = 0; texts = 0; errors = 0; characters = 0} in
   let lookup (o : R.observation) =
@@ -185,6 +233,8 @@ let export ?pool ?(fibers = 8) ?max_bytes ?max_output ~archive ~store
      lets archive latency overlap; members the snapshot did not find in
      the catalogue are not looked up. *)
   let build (o : R.observation) =
+    let o = if catalogue = None && abstracts = None then o
+      else refresh ?catalogue ?abstracts o in
     let held, text =
       if not o.in_catalogue then false, None
       else match pool with

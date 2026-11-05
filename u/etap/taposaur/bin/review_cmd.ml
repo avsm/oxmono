@@ -199,9 +199,14 @@ let command = Cmd.group (Cmd.info "review"
         "jsonl","jsonl";"manifest","manifest"]) "csv" & info ["format"]) $
       Arg.(value & opt (some string) None & info ["output"]));
   cmd "corpus" "Write snapshot rows joined with archive body text as JSON lines."
-    Term.(const (fun path id root output domains -> execute ~action:"cli.review.corpus" (fun env sw _audit ->
+    Term.(const (fun path id root output domains live abstracts -> execute ~action:"cli.review.corpus" (fun env sw _audit ->
       if domains < 1 || domains > 100 then invalid_arg "domains must be 1..100";
       let store = read_store env sw path in
+      let catalogue = Option.map (catalogue env sw) live in
+      let abstracts = if not abstracts then None else
+        match Taposaur_abstracts.open_configured ~sw ~fs:env#fs with
+        | None -> invalid_arg "--abstracts needs TAPOSAUR_ABSTRACTS_DB or taposaur-abstracts.db"
+        | Some evidence -> Some (Taposaur_abstracts.find evidence) in
       let archive = Taposaur_archive.open_root ~sw (env#fs / root) in
       let pool = if domains = 1 then None else Some (Eio.Executor_pool.create
         ~sw ~domain_count:domains (Eio.Stdenv.domain_mgr env)) in
@@ -209,7 +214,8 @@ let command = Cmd.group (Cmd.info "review"
       let written = ref 0 in
       let summary = Eio.Path.with_open_out ~create:(`Exclusive 0o600)
         (env#fs / output) (fun flow -> Eio.Buf_write.with_flow flow (fun w ->
-          K.export ?pool ~fibers ~archive ~store ~snapshot:id (fun row ->
+          K.export ?pool ~fibers ?catalogue ?abstracts ~archive ~store
+            ~snapshot:id (fun row ->
             Eio.Buf_write.string w (K.encode_row row);
             Eio.Buf_write.char w '\n';
             incr written;
@@ -222,7 +228,11 @@ let command = Cmd.group (Cmd.info "review"
       Arg.(required & opt (some string) None & info ["output"] ~docv:"FILE"
         ~doc:"JSON Lines file to create; an existing file is refused.") $
       Arg.(value & opt int 16 & info ["domains"]
-        ~doc:"Domains reading the archive concurrently (1..100). The io_uring backend needs locked memory per domain; set EIO_BACKEND=posix for large counts."));
+        ~doc:"Domains reading the archive concurrently (1..100). The io_uring backend needs locked memory per domain; set EIO_BACKEND=posix for large counts.") $
+      Arg.(value & opt (some string) None & info ["live"] ~docv:"CATALOG"
+        ~doc:"Catalogue whose nonblank values, holdings and presence supersede the frozen ones (source \"catalogue\").") $
+      Arg.(value & flag & info ["abstracts"]
+        ~doc:"Fill still-blank abstracts from the configured abstract evidence store (TAPOSAUR_ABSTRACTS_DB)."));
   cmd "cache-statistics" "Cache coverage from frozen snapshot observations."
     Term.(const (fun path id -> execute ~action:"cli.review.cache-statistics" (fun env sw audit ->
       S.cache_statistics (write_store ?audit env sw path) id;

@@ -70,15 +70,28 @@ type summary = {
 }
 val summary_jsont : summary Jsont.t
 
+val refresh : ?catalogue:_ Taposaur_catalog.t ->
+  ?abstracts:(Taposaur.Doi.t -> Taposaur.Abstract_evidence.t option) ->
+  Taposaur_review.observation -> Taposaur_review.observation
+(** [refresh ~catalogue ~abstracts o] supersedes frozen values with the
+    live catalogue's nonblank fields, holdings and presence, with evidence
+    source "catalogue", and fills a still-blank abstract from
+    [abstracts] with the evidence label as source. Without either argument
+    the observation is returned unchanged. The snapshot itself is never
+    modified. *)
+
 val export : ?pool:Eio.Executor_pool.t -> ?fibers:int -> ?max_bytes:int ->
-  ?max_output:int -> archive:Taposaur_archive.t ->
-  store:_ Taposaur_review_store.t -> snapshot:int -> (row -> unit) -> summary
+  ?max_output:int -> ?catalogue:_ Taposaur_catalog.t ->
+  ?abstracts:(Taposaur.Doi.t -> Taposaur.Abstract_evidence.t option) ->
+  archive:Taposaur_archive.t -> store:_ Taposaur_review_store.t ->
+  snapshot:int -> (row -> unit) -> summary
 (** [export ~archive ~store ~snapshot emit] reads the snapshot's frozen
-    rows in DOI order, looks up members the snapshot found in the catalogue
-    in the archive, extracts body text with up to [fibers] concurrent
-    readers (1..256, default 8) and calls [emit] for each row in order.
-    Reads run on [pool] when given: regular-file reads block the calling
-    domain, so a pool of domains is what overlaps archive latency.
-    Bibliographic values and holdings are the snapshot's; text and its
-    digest are the archive's at export time. Archive read failures become
+    rows in DOI order, applies {!refresh} when [catalogue] or [abstracts]
+    is given, looks up members found in the catalogue in the archive,
+    extracts body text with up to [fibers] concurrent readers (1..256,
+    default 8) and calls [emit] for each row in order. Reads run on [pool]
+    when given: regular-file reads block the calling domain, so a pool of
+    domains is what overlaps archive latency. Bibliographic values and
+    holdings are the snapshot's unless refreshed; text and its digest are
+    the archive's at export time. Archive read failures become
     [text_error] and never stop the export. *)

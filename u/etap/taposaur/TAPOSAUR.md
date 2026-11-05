@@ -638,6 +638,37 @@ writer in OCaml would remove the duckdb step and is the obvious follow-up;
 reading paper manifests from the catalogue instead of the archive would
 halve the metadata operations per paper.
 
+### Overnight results and the snapshot budget (2026-11-05, 07:45 UTC)
+
+The snapshot 3 corpus finished at 23:25 UTC after 2 h 20 min: 610,180
+rows, 344,185 held, 274,322 with body text, 1,903 text errors (empty or
+non-TEI files that report "expected root element"), 5.70 G characters;
+`ce-butterflies-snapshot-3.jsonl` is 6.5 GB and the Parquet file 1.93 GB,
+copied to `/data/papers/taposaur/reviews/ce-butterflies/`. The OpenAlex
+fetch ended at 21:23 UTC with 207,053 member abstracts in the store, and
+the review-scoped enrichment ended at 04:34 UTC with all 342,427 listed
+papers examined (68,204 partial). The catalogue now holds 345,263 members,
+331,005 with a title and 322,665 with an abstract (289,505 at capture).
+
+Both pipeline snapshots failed with "Snapshot exceeds its byte budget":
+snapshot 3 already encoded to 746 MB of observations (1,223 bytes a row),
+and about 200,000 added abstracts push the new capture past the 900 MiB
+cap shared by the CLI, `Taposaur_review_run.snapshot` and
+`publish_snapshot`. Raising the cap alone is not enough: the cached JSONL
+export is one SQLite blob (747 MB for snapshot 3) and SQLite refuses
+blobs over 1,000,000,000 bytes, so a larger snapshot needs chunked or
+compressed cached exports in the review store. That is the next piece of
+work; until then the review has no new snapshot.
+
+To deliver the metadata anyway, `review corpus` gained `--live CATALOG`
+and `--abstracts`, which replay the snapshot policy against the live
+catalogue and the evidence store without touching the snapshot. The
+refreshed export `ce-butterflies-snapshot-3-live-20261105` (PID in
+`corpus-live.pid`, log `corpus-live.log`, finisher `corpus-live-finish.sh`)
+started at 07:50 UTC and should take about 2.5 hours; expect roughly
+510,000 abstracts of 610,180 and body text for a few thousand more papers
+than the first file.
+
 ### Remaining before a bulk run
 
 Run the pilot. Confirm live publisher entitlements and converter health.

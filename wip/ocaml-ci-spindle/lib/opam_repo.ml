@@ -5,31 +5,59 @@ type t = {
   clock : Eio.Time.Mono.ty Eio.Resource.t;
   name : string;
   url : string;
+  branch : string option;
+  restricted : bool;
+      (* A remote a project names, which git reaches only over https. *)
   dir : string;
   lock : Eio.Mutex.t;
   mutable commit : string option;
   mutable fetched : int64;
 }
 
-let v process clock ~dir ~name url =
+let make ~restricted process clock ~dir ~name ?branch url =
   {
     process :> Eio_unix.Process.mgr_ty Eio.Resource.t;
     clock :> Eio.Time.Mono.ty Eio.Resource.t;
     name;
     url;
+    branch;
+    restricted;
     dir = Filename.concat dir name;
     lock = Eio.Mutex.create ();
     commit = None;
     fetched = 0L;
   }
 
+let v process clock ~dir ~name ?branch url =
+  make ~restricted:false process clock ~dir ~name ?branch url
+
 let name t = t.name
 let url t = t.url
-let git t args = Eio.Process.run t.process ("git" :: args)
+let branch t = t.branch
+
+(* Git never waits for credentials. A remote that a project names is reached
+   only over https, whatever protocol a server or submodule names. *)
+let git_env =
+  Array.append (Unix.environment ())
+    [|
+      "GIT_TERMINAL_PROMPT=0";
+      "GIT_ASKPASS=/bin/false";
+      "SSH_ASKPASS=/bin/false";
+    |]
+
+let git_args t args =
+  ("git" :: "-c" :: "credential.helper=" :: [])
+  @ (if t.restricted then
+       [ "-c"; "protocol.allow=never"; "-c"; "protocol.https.allow=always" ]
+     else [])
+  @ args
+
+let git t args = Eio.Process.run t.process ~env:git_env (git_args t args)
 
 let git_out t args =
   String.trim
-    (Eio.Process.parse_out t.process Eio.Buf_read.take_all ("git" :: args))
+    (Eio.Process.parse_out t.process ~env:git_env Eio.Buf_read.take_all
+       (git_args t args))
 
 (* Only the newest commit is needed to solve, so the clone is shallow. It is
    made beside [dir] and moved into place, so an interrupted clone is never
@@ -41,10 +69,17 @@ let fetch t =
     Eio_unix.run_in_systhread (fun () ->
         if not (Sys.file_exists (Filename.dirname t.dir)) then
           Sys.mkdir (Filename.dirname t.dir) 0o755);
-    git t [ "clone"; "-q"; "--depth=1"; "--single-branch"; t.url; partial ];
+    git t
+      ([ "clone"; "-q"; "--depth=1"; "--single-branch" ]
+      @ (match t.branch with Some b -> [ "--branch"; b ] | None -> [])
+      @ [ "--"; t.url; partial ]);
     Eio_unix.run_in_systhread (fun () -> Sys.rename partial t.dir))
   else (
-    git t [ "-C"; t.dir; "fetch"; "-q"; "--depth=1"; "origin"; "HEAD" ];
+    git t
+      [
+        "-C"; t.dir; "fetch"; "-q"; "--depth=1"; "origin";
+        Option.value ~default:"HEAD" t.branch;
+      ];
     git t [ "-C"; t.dir; "reset"; "-q"; "--hard"; "FETCH_HEAD" ]);
   git_out t [ "-C"; t.dir; "rev-parse"; "HEAD" ]
 
@@ -76,6 +111,44 @@ let with_snapshot ?(max_age = 600.) t f =
   let commit =
     match t.commit with
     | Some c -> c
-    | None -> failwith ("opam repository " ^ t.name ^ " was never fetched")
+    | None ->
+        failwith
+          (Printf.sprintf "the opam repository %s%s could not be fetched" t.url
+             (match t.branch with Some b -> " at branch " ^ b | None -> ""))
   in
   f ~commit ~packages:(Filename.concat t.dir "packages")
+
+type remotes = {
+  r_process : Eio_unix.Process.mgr_ty Eio.Resource.t;
+  r_clock : Eio.Time.Mono.ty Eio.Resource.t;
+  r_dir : string;
+  known : (string * string option, t) Hashtbl.t;
+}
+
+let remotes process clock ~dir =
+  {
+    r_process = (process :> Eio_unix.Process.mgr_ty Eio.Resource.t);
+    r_clock = (clock :> Eio.Time.Mono.ty Eio.Resource.t);
+    r_dir = dir;
+    known = Hashtbl.create 16;
+  }
+
+(* Each remote has its own clone, kept for later builds, so their number is
+   bounded. *)
+let max_remotes = 64
+
+let remote r ~url ?branch () =
+  match Hashtbl.find_opt r.known (url, branch) with
+  | Some t -> Some t
+  | None when Hashtbl.length r.known >= max_remotes -> None
+  | None ->
+      let key = url ^ "#" ^ Option.value ~default:"" branch in
+      let name =
+        "remote-" ^ String.sub (Digest.to_hex (Digest.string key)) 0 16
+      in
+      let t =
+        make ~restricted:true r.r_process r.r_clock ~dir:r.r_dir ~name ?branch
+          url
+      in
+      Hashtbl.replace r.known (url, branch) t;
+      Some t

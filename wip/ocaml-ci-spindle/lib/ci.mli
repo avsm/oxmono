@@ -17,6 +17,8 @@ type config = {
   opam_repository : Opam_repo.t;
   oxcaml_repository : Opam_repo.t option;
       (** Adds an OxCaml build, solved against this overlay. *)
+  remotes : Opam_repo.remotes;
+      (** The opam repositories that projects name in [x-opam-repositories]. *)
   compilers : string list;
       (** OCaml minor versions to build with on Debian 13 x86_64, or [["auto"]].
           See {!Variant.choose}. *)

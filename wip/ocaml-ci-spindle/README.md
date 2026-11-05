@@ -40,6 +40,15 @@ Every push, pull request or manual run starts an `ocaml-ci` workflow:
    minutes, and solves the project's packages, with their test
    dependencies, for each compiler using opam-0install. The OxCaml build
    solves against the OxCaml repository layered over opam-repository.
+   Opam repositories that the project's opam files name in
+   `x-opam-repositories` are layered over both. The build uses the union of
+   all its opam files' entries, in order of first appearance and at most
+   four. Each is `[git+]https://HOST/PATH[#BRANCH]` on a public host name.
+   Its branch, or default branch, is resolved to a commit when the solve
+   fetches it, and the build adds it with `opam repository add` at that
+   commit. Other entries are logged and ignored. A project with such
+   repositories builds with OBuilder rather than day10, which takes one
+   repository.
 3. A workflow is spawned for every compiler with a solution, such as
    `5.4.1:x86_64:Debian-13`. Its first step carries the OBuilder
    spec as its command.

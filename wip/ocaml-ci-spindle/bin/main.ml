@@ -136,6 +136,7 @@ let () =
                  (repo "oxcaml-repository"
                     "https://github.com/oxcaml/opam-repository.git")
              else None);
+          remotes = Opam_repo.remotes env#process_mgr env#mono_clock ~dir:cache;
           compilers;
           platforms =
             (let p, _, _ = platforms in

@@ -5,6 +5,7 @@ val v :
   variant:Variant.t ->
   opam_repository:string ->
   ?oxcaml_repository:string * string ->
+  ?remotes:(string * string) list ->
   opam_files:string list ->
   packages:string list ->
   unit ->
@@ -13,7 +14,9 @@ val v :
     S-expression, that resets [~/opam-repository] to commit [opam_repository],
     pins the project's [opam_files], installs the solved [packages] and runs
     [dune build @install @check @runtest] on the source. An OxCaml [variant]
-    first adds [oxcaml_repository], a URL and commit, and creates its switch. *)
+    first adds [oxcaml_repository], a URL and commit, and creates its switch.
+    [remotes], URLs and commits, none by default, are then added above every
+    other repository, the first highest. *)
 
 val day10 :
   variant:Variant.t ->

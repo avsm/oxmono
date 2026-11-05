@@ -132,6 +132,7 @@ let () =
         Opam_repo.v env#process_mgr env#mono_clock ~dir:cache
           ~name:"opam-repository" ("file://" ^ root);
       oxcaml_repository = None;
+      remotes = Opam_repo.remotes env#process_mgr env#mono_clock ~dir:cache;
       compilers = [ "auto" ];
       platforms = [ Debian Arm64; Debian X86_64 ];
       full_platforms = [ Windows ];

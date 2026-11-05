@@ -46,8 +46,8 @@ let env k v = Printf.sprintf "(env %s %s)" k (atom v)
 (* A project package is pinned at [dev] from its opam file in the root. *)
 let package_of_file f = Filename.chop_suffix (Filename.basename f) ".opam"
 
-let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository ~opam_files
-    ~packages () =
+let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
+    ?(remotes = []) ~opam_files ~packages () =
   let cache = download_cache variant in
   let roots = List.map package_of_file opam_files in
   let root_versions = List.map (fun p -> p ^ ".dev") roots in
@@ -85,6 +85,18 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository ~opam_files
         ]
     | _ -> []
   in
+  (* A project's own remotes go above every other repository, as its solve
+     read them, each added at the top in reverse, at the commit solved
+     against. *)
+  let remotes =
+    List.rev
+      (List.mapi
+         (fun i (url, commit) ->
+           run ~network:true ~cache
+             (Printf.sprintf "opam repository add x%d %s --rank=1" (i + 1)
+                (Filename.quote ("git+" ^ url ^ "#" ^ commit))))
+         remotes)
+  in
   let ops =
     [
       Printf.sprintf "(comment %s)" (atom variant.name);
@@ -104,6 +116,7 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository ~opam_files
         run "opam init --reinit -ni";
       ]
     @ oxcaml
+    @ remotes
     @ [ run "uname -rs && opam exec -- ocaml -version && opam --version" ]
     @ (match variant.os with
       | Linux -> [ run "sudo chown opam /src" ]

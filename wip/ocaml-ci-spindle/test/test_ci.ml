@@ -193,6 +193,34 @@ let () =
   assert (contains "sudo ln -f /usr/bin/opam-2.6 /usr/bin/opam");
   assert (contains "(workdir /src)");
   assert (not (contains "oxcaml"));
+  assert (not (contains "opam repository add"));
+  (* A project's remotes go above opam-repository, the first highest, each at
+     the commit solved against. *)
+  let rspec =
+    Spec.v ~variant:(Variant.v "5.4.1") ~opam_repository:"abc123"
+      ~remotes:
+        [
+          ("https://github.com/x/one.git", "c1");
+          ("https://github.com/x/two", "c2");
+        ]
+      ~opam_files:[ "demo.opam" ] ~packages:[ "demo.dev" ] ()
+  in
+  let index s =
+    let n = String.length s in
+    let rec at i =
+      if i + n > String.length rspec then raise Not_found
+      else if String.sub rspec i n = s then i
+      else at (i + 1)
+    in
+    at 0
+  in
+  let two =
+    index "opam repository add x2 'git+https://github.com/x/two#c2' --rank=1"
+  and one =
+    index
+      "opam repository add x1 'git+https://github.com/x/one.git#c1' --rank=1"
+  in
+  assert (two < one && one < index "opam update -u");
   (* On Windows, files are copied to native paths and built from Cygwin's. *)
   let wspec =
     Spec.v ~variant:win ~opam_repository:"abc123" ~opam_files:[ "demo.opam" ]
@@ -256,6 +284,77 @@ let () =
     match Analysis.find (files [ "b.opam"; "README.md"; "a.opam" ]) with
     | Some a -> List.map fst a.opam_files = [ "a.opam"; "b.opam" ]
     | None -> false);
+  (* A project's remotes are https addresses of public hosts, with a branch
+     git allows, and the union of its opam files' in order of appearance. *)
+  let remote s = Analysis.remote_of_string s in
+  assert (
+    remote "git+https://github.com/x/opam-repo.git#dev"
+    = Ok { url = "https://github.com/x/opam-repo.git"; branch = Some "dev" });
+  assert (
+    remote "https://tangled.org/a.b/repo"
+    = Ok { url = "https://tangled.org/a.b/repo"; branch = None });
+  List.iter
+    (fun s -> assert (Result.is_error (remote s)))
+    [
+      "git+ssh://github.com/x/y.git";
+      "file:///etc";
+      "git://github.com/x/y";
+      "https://localhost/x";
+      "https://10.0.0.1/x";
+      "https://[::1]/x";
+      "https://intranet/x";
+      "https://svc.internal/x";
+      "https://user:pw@github.com/x";
+      "https://github.com/x#-upload-pack=evil";
+      "https://github.com/x#a..b";
+      "https://github.com/x#a b";
+      "https://github.com/x y";
+      "https://github.com/x';rm -rf /";
+    ];
+  let project opams : Spindle.Executor.files =
+    {
+      list = (fun _ -> List.map fst opams);
+      read = (fun f -> List.assoc_opt f opams);
+    }
+  in
+  let opam repos =
+    Printf.sprintf "opam-version: \"2.0\"\nx-opam-repositories: [%s]\n"
+      (String.concat " " (List.map (Printf.sprintf "%S") repos))
+  in
+  let a =
+    Option.get
+      (Analysis.find
+         (project
+            [
+              ( "a.opam",
+                opam
+                  [
+                    "git+https://github.com/x/one.git#main";
+                    "file:///tmp/r";
+                    "https://github.com/x/two";
+                  ] );
+              ( "b.opam",
+                opam
+                  [
+                    "https://github.com/x/two";
+                    "https://github.com/x/three";
+                    "https://github.com/x/four";
+                    "https://github.com/x/five";
+                  ] );
+              ("c.opam", "opam-version: \"2.0\"\n");
+            ]))
+  in
+  let used, ignored = Analysis.remotes a in
+  assert (
+    List.map (fun (r : Analysis.remote) -> (r.url, r.branch)) used
+    = [
+        ("https://github.com/x/one.git", Some "main");
+        ("https://github.com/x/two", None);
+        ("https://github.com/x/three", None);
+        ("https://github.com/x/four", None);
+      ]);
+  assert (
+    List.map fst ignored = [ "file:///tmp/r"; "https://github.com/x/five" ]);
   (* A model's reasoning is dropped, and only project paths are read. *)
   assert (Diagnose.strip_thinking "<think>a\nb</think>\n\n- fix" = "- fix");
   assert (Diagnose.strip_thinking " - fix " = "- fix");

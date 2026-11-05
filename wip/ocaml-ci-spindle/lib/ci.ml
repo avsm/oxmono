@@ -5,6 +5,7 @@ type config = {
   clock : Eio.Time.Mono.ty Eio.Resource.t;
   opam_repository : Opam_repo.t;
   oxcaml_repository : Opam_repo.t option;
+  remotes : Opam_repo.remotes;
   compilers : string list;
   platforms : Variant.platform list;
   full_platforms : Variant.platform list;
@@ -274,23 +275,83 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
     (fun (a : Analysis.t) ->
       let builds = ref [] and later = ref [] in
       ctx.step ~command:"opam-0install" "solve" (fun () ->
-          let repos =
+          let base =
             config.opam_repository :: Option.to_list config.oxcaml_repository
           in
-          snapshots repos @@ fun snaps ->
-          logf ctx "Solving with opam-0install against:\n";
+          (* The project's own remotes, from [x-opam-repositories]. *)
+          let wanted, ignored = Analysis.remotes a in
           List.iter
-            (fun (repo, commit, _) ->
-              logf ctx "  %s %s (%s)\n" (Opam_repo.name repo)
+            (fun (entry, why) ->
+              logf ctx "Ignoring x-opam-repositories entry %S: %s.\n" entry why)
+            ignored;
+          let same url repo =
+            let norm u =
+              let u = String.lowercase_ascii u in
+              let u =
+                if String.ends_with ~suffix:"/" u then
+                  String.sub u 0 (String.length u - 1)
+                else u
+              in
+              if String.ends_with ~suffix:".git" u then
+                String.sub u 0 (String.length u - 4)
+              else u
+            in
+            norm url = norm (Opam_repo.url repo)
+          in
+          let remotes =
+            List.filter_map
+              (fun (r : Analysis.remote) ->
+                if r.branch = None && List.exists (same r.url) base then None
+                else
+                  match
+                    Opam_repo.remote config.remotes ~url:r.url ?branch:r.branch
+                      ()
+                  with
+                  | Some t -> Some t
+                  | None ->
+                      logf ctx
+                        "Ignoring x-opam-repositories remote %s: this spindle \
+                         holds too many remotes already.\n"
+                        r.url;
+                      None)
+              wanted
+          in
+          snapshots (base @ remotes) @@ fun snaps ->
+          logf ctx "Solving with opam-0install against:\n";
+          List.iteri
+            (fun i (repo, commit, _) ->
+              logf ctx "  %s %s (%s)\n"
+                (if i < List.length base then Opam_repo.name repo
+                 else
+                   "x-opam-repositories"
+                   ^ match Opam_repo.branch repo with
+                     | Some b -> " " ^ b
+                     | None -> "")
                 (String.sub commit 0 (min 7 (String.length commit)))
                 (Opam_repo.url repo))
             snaps;
           logf ctx "\n";
-          let _, default_commit, default = List.hd snaps in
-          let oxcaml = List.nth_opt snaps 1 in
+          let n = List.length base in
+          let base_snaps = List.filteri (fun i _ -> i < n) snaps
+          and remote_snaps = List.filteri (fun i _ -> i >= n) snaps in
+          let _, default_commit, default = List.hd base_snaps in
+          let oxcaml = List.nth_opt base_snaps 1 in
+          (* Remotes are pinned at the commits solved against. day10 takes
+             one repository, so a project with remotes builds on OBuilder. *)
+          let pinned =
+            List.map
+              (fun (repo, commit, _) -> (Opam_repo.url repo, commit))
+              remote_snaps
+          in
+          if pinned <> [] && config.day10 <> [] then
+            logf ctx
+              "Built with OBuilder rather than day10, which takes one opam \
+               repository.\n\n";
+          let day10 = if pinned = [] then config.day10 else [] in
           let solve (v : Variant.t) =
             let repositories =
-              (match (v.oxcaml, oxcaml) with
+              List.map (fun (_, _, packages) -> packages) remote_snaps
+              @ (match (v.oxcaml, oxcaml) with
                 | true, Some (_, _, packages) -> [ packages ]
                 | _ -> [])
               @ [ default ]
@@ -353,6 +414,7 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                 Some
                   ( v,
                     Spec.v ~variant:v ~opam_repository:default_commit
+                      ~remotes:pinned
                       ?oxcaml_repository:
                         (Option.map
                            (fun (repo, commit, _) ->
@@ -368,7 +430,7 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
           let variants =
             (Variant.choose ~packages:default config.compilers
             @ match oxcaml with Some _ -> [ Variant.oxcaml ] | None -> [])
-            |> List.map (Variant.use_day10 ~arches:config.day10)
+            |> List.map (Variant.use_day10 ~arches:day10)
           in
           builds := List.filter_map solve variants;
           (* [choose] puts the newest OCaml first. *)
@@ -381,7 +443,7 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                 List.filter_map
                   (fun platform ->
                     let v =
-                      Variant.use_day10 ~arches:config.day10
+                      Variant.use_day10 ~arches:day10
                         (Variant.v ~platform (Variant.version primary))
                     in
                     if

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Layer the opam repositories named in a project's `x-opam-repositories`
+  fields over opam-repository, the union across its opam files. Each branch
+  is resolved to a commit for the solve, and builds add the repositories at
+  those commits. Only https remotes on public hosts are fetched.
+
 - Show the solve as a short summary: the repositories by short commit, each
   installable build with its package count and the versions chosen for the
   project's direct dependencies, and each other build with one reason, such

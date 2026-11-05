@@ -134,6 +134,9 @@ let () =
       has metadata
         {|"client_id":"https://spindle.test/oauth-client-metadata.json"|});
     assert (has metadata "private_key_jwt");
+    (* The metadata names what moving a repository here asks for. *)
+    assert (has metadata "rpc:com.atproto.repo.putRecord?aud=*");
+    assert (has metadata "repo:org.tangled.graph.attestation?action=create");
     let jwks = M.body (get "/oauth/jwks.json") in
     assert (has jwks {|"kty":"EC"|} && not (has jwks {|"d":|}));
     assert (
@@ -262,6 +265,19 @@ let () =
               ("_csrf=" ^ token ^ "&handle=not%20a%20handle")
               "/ui/members/add"))
         "Could not add");
+    (* Moving a repository here needs a form from this site with the
+       session's token, for a repository the page lists as the user's. *)
+    let elsewhere = "did:plc:eeeeeeeeeeeeeeeeeeeeeeee" in
+    assert (code (form cookie ("did=" ^ elsewhere) "/ui/move") = 403);
+    assert (
+      code
+        (form ~origin:"https://evil.test" cookie
+           ("_csrf=" ^ token ^ "&did=" ^ elsewhere)
+           "/ui/move")
+      = 403);
+    assert (
+      code (form cookie ("_csrf=" ^ token ^ "&did=" ^ elsewhere) "/ui/move")
+      = 404);
     (* Others may neither see nor change them, even with their own token. *)
     let bob_session, bob_csrf = Web.login_as web bob in
     assert (code (as_bob "/ui/members") = 403);

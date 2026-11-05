@@ -333,8 +333,13 @@ an hour. Pictures are read from each account's PDS through the address
 filter and served from `/ui/avatar` as one of a few image types, so pages
 load nothing from elsewhere. The home page also lists the visitor's other
 Tangled repositories, those whose manifests name another spindle or none,
-with the `tangled repo set-spindle` command that moves each here. A
-repository names a single spindle. Admins also get a jobs tab, at
+each with a button that moves it here. A repository names a single
+spindle. Logging in asks only for the account's identity. The button starts
+a second authorization that asks the account's PDS for two narrow
+permissions: a service token for `com.atproto.repo.putRecord`, with which
+the spindle writes the repository's manifest on its knot, and the creation
+of an `org.tangled.graph.attestation` record, which attests the write as
+`tangled repo set-spindle` does. The tokens are used once and then revoked. Admins also get a jobs tab, at
 `/ui/jobs`, showing the Duraml queue: how many jobs are in each state, those
 running, the newest activity, and for each job its timeline and the
 workflow it runs. A members tab, at `/ui/members`, lists the accounts

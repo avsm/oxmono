@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Move a repository here from the web pages with a button, instead of a
+  `tangled repo set-spindle` command to copy. The button asks the owner's
+  PDS for permission to write the repository's manifest and its
+  attestation, uses it once, and revokes it.
+
 - Require `--hostname`, which defaulted to a test name. Report a bad port,
   workflow timeout, concurrency, retention limit, quota or `--repo` without
   `--source` as a usage error before starting. Quotas name one of the

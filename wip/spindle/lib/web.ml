@@ -1,4 +1,5 @@
 (* SPDX-License-Identifier: ISC *)
+module J = Json
 open Proffer
 module Status = Httpz.Res
 module S = Sitekit
@@ -88,14 +89,33 @@ let session_store store : Session.Store.t =
   }
 
 (* A login in progress, keyed by the hash of its OAuth state, bound to the
-   browser that started it by the hash of a cookie's nonce. *)
-type login = { pending : Oauth.pending; nonce : string }
+   browser that started it by the hash of a cookie's nonce. A login that
+   moves a repository here names the repository. *)
+type login = { pending : Oauth.pending; nonce : string; move : string option }
 
 let login_jsont =
-  Jsont.Object.map ~kind:"login" (fun pending nonce -> { pending; nonce })
+  Jsont.Object.map ~kind:"login" (fun pending nonce move ->
+      { pending; nonce; move })
   |> Jsont.Object.mem "pending" Oauth.pending_jsont ~enc:(fun l -> l.pending)
   |> Jsont.Object.mem "nonce" Jsont.string ~enc:(fun l -> l.nonce)
+  |> Jsont.Object.opt_mem "move" Jsont.string ~enc:(fun l -> l.move)
   |> Jsont.Object.finish
+
+(* Logging in needs only the account's identity. Moving a repository here
+   needs a service token from the owner's PDS, to write the repository's
+   manifest on its knot, and an attestation of that write in the owner's
+   account, so only that asks for these. *)
+let login_scope = "atproto"
+let manifest_collection = "org.tangled.repo.manifest"
+let attestation_collection = "org.tangled.graph.attestation"
+
+let move_scope =
+  String.concat " "
+    [
+      login_scope;
+      "rpc:com.atproto.repo.putRecord?aud=*";
+      "repo:" ^ attestation_collection ^ "?action=create";
+    ]
 
 let state_key state = Digestif.SHA256.(to_hex (digest_string state))
 
@@ -167,7 +187,7 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
       ~jwks_uri:(origin ^ "/oauth/jwks.json")
       (* Bluesky's authorization server requires the client's address to be a
          parent of its client ID, which the spec does not. *)
-      ~key ~kid ~client_name:hostname ~client_uri:origin ()
+      ~key ~kid ~scope:move_scope ~client_name:hostname ~client_uri:origin ()
   in
   let http =
     match http with
@@ -366,6 +386,50 @@ let limited t f =
 
 let busy = "The spindle is busy with other logins. Try again in a minute."
 
+(* [authorize t ~identifier ~scope ~move] starts a login and keeps it, and is
+   the login cookie and the link to the account's login page, or a message
+   for the visitor. *)
+let authorize t ~identifier ~scope ~move =
+  if List.length (Store.list t.store "web-login") >= max_pending then (
+    sweep t;
+    Error busy)
+  else
+    match
+      limited t (fun () ->
+          (Oauth.start ~clock:t.clock ~http:t.http ?plc:t.plc ~scope t.client
+             ~identifier
+            :> (_, [ Oauth.error | `Timeout ]) result))
+    with
+    | None -> Error busy
+    | Some (Error e) ->
+        (* Details of other servers stay in the log, not on the page. *)
+        Printf.eprintf "spindle web login %s: %s\n%!" identifier
+          (match e with
+          | `Timeout -> "timed out"
+          | #Oauth.error as e -> Oauth.error_to_string e);
+        Error
+          "The login could not start. Check the handle, or try again later."
+    | Some (Ok (pending, url)) -> (
+        match S.Url.external_ url with
+        | None -> Error "The account's server is unusable."
+        | Some link ->
+            let nonce, cookie = Session.Login.start t.sessions in
+            Store.put t.store "web-login"
+              (state_key (Oauth.pending_state pending))
+              (encode login_jsont
+                 { pending; nonce = Session.Login.hash nonce; move });
+            Ok (cookie, link))
+
+(* A redirect after a form may only go to this site, under the pages'
+   form-action policy, so the browser follows a link. *)
+let continue t ?session ~cookie (respond @ local) link =
+  html ~cookies:[ cookie ] respond
+    (page t ?session ~title:"Log in"
+       [
+         paragraph "Continuing to your account's login page.";
+         S.follow link "Continue";
+       ])
+
 let login t (req @ local) (respond @ local) =
   (* A login form posted from another site could log the browser in to an
      account the visitor did not choose. *)
@@ -391,43 +455,10 @@ let login t (req @ local) (respond @ local) =
   then
     login_page t respond
       ~error:"That is not a handle, a DID or an https:// server address."
-  else if List.length (Store.list t.store "web-login") >= max_pending then (
-    sweep t;
-    login_page t respond ~error:busy)
   else
-    match
-      limited t (fun () ->
-          (Oauth.start ~clock:t.clock ~http:t.http ?plc:t.plc t.client
-             ~identifier
-            :> (_, [ Oauth.error | `Timeout ]) result))
-    with
-    | None -> login_page t respond ~error:busy
-    | Some (Error e) ->
-        (* Details of other servers stay in the log, not on the page. *)
-        Printf.eprintf "spindle web login %s: %s\n%!" identifier
-          (match e with
-          | `Timeout -> "timed out"
-          | #Oauth.error as e -> Oauth.error_to_string e);
-        login_page t respond
-          ~error:
-            "The login could not start. Check the handle, or try again \
-             later."
-    | Some (Ok (pending, url)) -> (
-        match S.Url.external_ url with
-        | None -> login_page t respond ~error:"The account's server is unusable."
-        | Some link ->
-            let nonce, cookie = Session.Login.start t.sessions in
-            Store.put t.store "web-login"
-              (state_key (Oauth.pending_state pending))
-              (encode login_jsont { pending; nonce = Session.Login.hash nonce });
-            (* A redirect after a form may only go to this site, under the
-               pages' form-action policy, so the browser follows a link. *)
-            html ~cookies:[ cookie ] respond
-              (page t ~title:"Log in"
-                 [
-                   paragraph "Continuing to your account's login page.";
-                   S.follow link "Continue";
-                 ]))
+    match authorize t ~identifier ~scope:login_scope ~move:None with
+    | Error error -> login_page t respond ~error
+    | Ok (cookie, link) -> continue t ~cookie respond link
 
 let failed t (respond @ local) text =
   html ~status:Status.Bad_request
@@ -435,6 +466,196 @@ let failed t (respond @ local) text =
     respond
     (page t ~title:"Log in"
        [ paragraph text; S.link (S.Url.path [ "ui" ]) "Try again" ])
+
+(* The knot stamps [x-tngl-*] fields on the records it serves, which are not
+   part of a record and must not be written back. *)
+let strip_stamps = function
+  | Jsont.Object (fields, meta) ->
+      Jsont.Object
+        ( List.filter
+            (fun ((n, _), _) -> not (String.starts_with ~prefix:"x-tngl-" n))
+            fields,
+          meta )
+  | v -> v
+
+let set_member name value = function
+  | Jsont.Object (fields, meta) ->
+      Jsont.Object
+        ( Jsont.Json.mem (name, Jsont.Meta.none) value
+          :: List.filter (fun ((n, _), _) -> n <> name) fields,
+          meta )
+  | _ -> J.invalid "a record is not an object"
+
+let read_answer r =
+  (Fetch.status r, Fetch.decode ~limit:(1024 * 1024) Fetch.Media.octets r)
+
+(* [move t ~user ~repo identity call] names this spindle in the manifest of
+   [user]'s repository [repo], as the Tangled CLI's [repo set-spindle] does,
+   and is the repository's name, or a message for the visitor. The write
+   goes to the knot with a service token from [user]'s PDS, swapping the
+   manifest that was read, and is then attested in [user]'s account. *)
+let move t ~user ~repo (identity : Oauth.identity) (call : Oauth.call) =
+  let granted = String.split_on_char ' ' identity.scope in
+  let fail what detail =
+    Printf.eprintf "spindle web move %s for %s: %s\n%!" repo user detail;
+    Error what
+  in
+  if
+    not
+      (List.for_all
+         (fun w -> List.mem w granted)
+         (String.split_on_char ' ' move_scope))
+  then
+    Error "Your account's server did not grant the permissions the move needs."
+  else
+    try
+      let knot = Catalog.knot_origin t.catalog repo in
+      match
+        Network.record (Catalog.network t.catalog) ~service:knot ~did:repo
+          ~collection:manifest_collection ~rkey:"self"
+      with
+      | None -> Error "The repository's knot has no manifest for it."
+      | Some manifest ->
+          let value = J.required "value" manifest in
+          let declaration = J.required "declaration" value in
+          let name = J.get "name" declaration in
+          let self = Catalog.self t.catalog in
+          if J.get "owner" declaration <> user then
+            Error "Only the repository's owner can move it."
+          else if Option.map J.string (J.field "spindle" value) = Some self
+          then Ok name
+          else
+            let record =
+              strip_stamps value
+              |> set_member "spindle" (J.str self)
+              |> set_member "$type" (J.str manifest_collection)
+            in
+            let status, answer =
+              call `GET
+                ("/xrpc/com.atproto.server.getServiceAuth?"
+                ^ Xrpc_auth_protocol.encode_query
+                    [
+                      ("aud", repo);
+                      ( "exp",
+                        Printf.sprintf "%.0f" (Eio.Time.now t.clock +. 60.) );
+                      ("lxm", "com.atproto.repo.putRecord");
+                    ])
+            in
+            if status <> 200 then
+              fail "Your account's server would not vouch for the change."
+                (Printf.sprintf "getServiceAuth %d %S" status answer)
+            else
+              let token = J.get "token" (J.decode answer) in
+              let input =
+                J.obj
+                  [
+                    ("repo", J.str repo);
+                    ("collection", J.str manifest_collection);
+                    ("rkey", J.str "self");
+                    ("swapRecord", J.str (J.get "cid" manifest));
+                    ("record", record);
+                  ]
+              in
+              let status, answer =
+                Fetch.with_response
+                  ~headers:
+                    Fetch.Header.
+                      [
+                        raw "Authorization" ("Bearer " ^ token);
+                        raw "Content-Type" "application/json";
+                      ]
+                  ~body:(Fetch.String (J.encode input))
+                  ~redirects:0 t.http `POST
+                  (knot ^ "/xrpc/com.atproto.repo.putRecord")
+                  read_answer
+              in
+              if status <> 200 then
+                fail "The repository's knot refused the change."
+                  (Printf.sprintf "putRecord %d %S" status answer)
+              else
+                let written = J.decode answer in
+                let created =
+                  Ptime.to_rfc3339 ~frac_s:3 ~tz_offset_s:0
+                    (Option.value ~default:Ptime.epoch
+                       (Ptime.of_float_s (Eio.Time.now t.clock)))
+                in
+                let attestation =
+                  J.obj
+                    [
+                      ("repo", J.str user);
+                      ("collection", J.str attestation_collection);
+                      ( "record",
+                        J.obj
+                          [
+                            ("$type", J.str attestation_collection);
+                            ( "subject",
+                              J.obj
+                                [
+                                  ("uri", J.str (J.get "uri" written));
+                                  ("cid", J.str (J.get "cid" written));
+                                ] );
+                            ("createdAt", J.str created);
+                          ] );
+                    ]
+                in
+                (* The manifest is written by now, so a failure to attest
+                   it is reported rather than undoing the move. *)
+                (match
+                   call ~body:(J.encode attestation) `POST
+                     "/xrpc/com.atproto.repo.createRecord"
+                 with
+                | 200, _ -> ()
+                | status, answer ->
+                    Printf.eprintf
+                      "spindle web move %s: the knot wrote %s, but attesting \
+                       it failed: %d %S\n%!"
+                      repo (J.get "uri" written) status answer);
+                Catalog.forget t.catalog repo;
+                Hashtbl.remove t.elsewhere user;
+                Ok name
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
+    | e -> fail "The move failed. Try again later." (Printexc.to_string e)
+
+let moved t s (respond @ local) ?(status = Status.Success) text =
+  html ~status ~cookies:[ Session.Login.clear t.sessions ] respond
+    (page t ~session:s ~title:"Move a repository"
+       [
+         paragraph text;
+         S.link (S.Url.path [ "ui" ]) "Back to your repositories";
+       ])
+
+(* The end of a login that moves a repository here, which must come back to
+   the session that started it, for the same account. *)
+let finish_move t (req @ local) (respond @ local) l ~query repo =
+  match Session.find t.sessions req with
+  | None -> failed t respond "Your session ended. Log in and try again."
+  | Some s -> (
+      let user = Session.subject s in
+      match
+        limited t (fun () ->
+            (Oauth.finish_with ~clock:t.clock ~http:t.http ?plc:t.plc t.client
+               l.pending ~query (fun identity call ->
+                 if identity.did <> user then
+                   Error "You authorized another account than this one."
+                 else move t ~user ~repo identity call)
+              :> (_, [ Oauth.error | `Timeout ]) result))
+      with
+      | None -> moved t s respond ~status:Status.Bad_request busy
+      | Some (Error e) ->
+          Printf.eprintf "spindle web move callback: %s\n%!"
+            (match e with
+            | `Timeout -> "timed out"
+            | #Oauth.error as e -> Oauth.error_to_string e);
+          moved t s respond ~status:Status.Bad_request
+            "The move was not authorized. Try again."
+      | Some (Ok (_, Error text)) ->
+          moved t s respond ~status:Status.Bad_request text
+      | Some (Ok (_, Ok name)) ->
+          moved t s respond
+            (name
+           ^ " now runs CI on this spindle. Its pipelines appear here from \
+              its next push."))
 
 let callback t (req @ local) (respond @ local) =
   match Req.query_param req "state" with
@@ -455,6 +676,9 @@ let callback t (req @ local) (respond @ local) =
             failed t respond "This login was started in another browser."
           else
             let query = Xrpc_auth_protocol.encode_query (Req.query req) in
+            match l.move with
+            | Some repo -> finish_move t req respond l ~query repo
+            | None -> (
             match
               limited t (fun () ->
                   (Oauth.finish ~clock:t.clock ~http:t.http ?plc:t.plc
@@ -495,7 +719,7 @@ let callback t (req @ local) (respond @ local) =
                      cleared one of the same name. *)
                   see_other
                     ~cookies:(ended @ [ Session.Login.clear t.sessions; cookie ])
-                    respond "/ui"))
+                    respond "/ui")))
 
 let logout t s (req @ local) (respond @ local) =
   (* Logging out changes state, so only a POST from this site with the
@@ -689,6 +913,7 @@ let home t s (respond @ local) =
       seen
   in
   let others = elsewhere t user in
+  let csrf = (Session.csrf_field, Session.csrf_token s) in
   html respond
     (page t ~session:s ~title:"Repositories"
        ((if rows = [] then
@@ -705,12 +930,13 @@ let home t s (respond @ local) =
          [
            Htmlit.El.h2 [ S.text "Your other repositories" ];
            paragraph
-             "A repository runs CI on the one spindle its settings name. To \
-              move one here, run the command beside it with the Tangled CLI.";
+             "A repository runs CI on the one spindle its settings name. \
+              Moving one here asks your account's server for permission to \
+              change that setting once.";
            S.table
              [ ("Repository", `Text); ("Spindle", `Text); ("Move it here", `Text) ]
              (List.map
-                (fun (_, name, spindle) ->
+                (fun (repo, name, spindle) ->
                   [
                     S.cell [ S.text name ];
                     S.cell
@@ -725,16 +951,10 @@ let home t s (respond @ local) =
                       ];
                     S.cell
                       [
-                        Htmlit.El.code
-                          [
-                            S.text
-                              (Printf.sprintf
-                                 "tangled repo set-spindle -r %s/%s %s"
-                                 (match Identity.handle t.identity user with
-                                 | Some h -> h
-                                 | None -> user)
-                                 name t.hostname);
-                          ];
+                        S.post_button
+                          ~action:(S.Url.path [ "ui"; "move" ])
+                          ~hidden:[ csrf; ("did", repo) ]
+                          ~label:"Move here";
                       ];
                   ])
                 others);
@@ -1223,6 +1443,21 @@ let remove_member t s (req @ local) (respond @ local) =
       see_other respond "/ui/members"
   | _ -> raise Missing
 
+(* Moving one of the user's repositories here starts a login that asks for
+   the permissions to do so. Only a repository the page lists may be moved. *)
+let start_move t s (req @ local) (respond @ local) =
+  check_form t s req;
+  let user = Session.subject s in
+  match Req.form_param req "did" with
+  | Some repo when List.exists (fun (r, _, _) -> r = repo) (elsewhere t user)
+    -> (
+      match
+        authorize t ~identifier:user ~scope:move_scope ~move:(Some repo)
+      with
+      | Error text -> moved t s respond ~status:Status.Bad_request text
+      | Ok (cookie, link) -> continue t ~session:s ~cookie respond link)
+  | _ -> raise Missing
+
 let handle t name (req @ local) (respond @ local) =
   try
     match name with
@@ -1248,6 +1483,7 @@ let handle t name (req @ local) (respond @ local) =
             | "member-add" -> add_member t s req respond
             | "member-remove" -> remove_member t s req respond
             | "avatar" -> avatar t s req respond
+            | "move" -> start_move t s req respond
             | _ -> raise Missing))
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
@@ -1286,6 +1522,9 @@ let routes () =
       post
         (s "ui" / s "members" / s "remove")
         (fun env req respond -> env "web:member-remove" req respond);
+      post
+        (s "ui" / s "move")
+        (fun env req respond -> env "web:move" req respond);
       post
         (s "ui" / s "login")
         (fun env req respond -> env "web:login" req respond);

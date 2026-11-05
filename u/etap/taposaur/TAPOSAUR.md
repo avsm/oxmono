@@ -669,6 +669,25 @@ started at 07:50 UTC and should take about 2.5 hours; expect roughly
 510,000 abstracts of 610,180 and body text for a few thousand more papers
 than the first file.
 
+### Snapshot 6 and review schema 3 (2026-11-05, 07:55 to 08:05 UTC)
+
+The review store now stores a cached export longer than 64 MiB as ordered
+parts behind a descriptor (`export_parts`, review schema 3, migrated in
+place on open; `reviews.db` was backed up first to
+`reviews.db.pre-schema3.bak`), and the snapshot observation budget allows
+4 GiB. Snapshot 6 of run 3 (parent 3, label "Body-derived and OpenAlex
+abstracts after review-scoped enrichment; publisher acquisitions in
+progress") published at 08:01 UTC after a five-minute capture: 610,180
+members, 331,012 titles, 508,630 abstracts (289,505 in snapshot 3),
+345,270 held. Its JSONL export is 1.15 GB in 18 parts and its CSV 755 MB
+in 12 parts; `review export` and the website reassemble and verify them.
+The website was restarted on the schema 3 binary by
+`corpus-new-finish.sh`, which then waits for the refreshed snapshot 3
+export and exports snapshot 6 as `ce-butterflies-snapshot-6` (JSON Lines,
+Parquet and summary, copied to `/data/papers/taposaur/reviews/ce-butterflies/`).
+Snapshot 6 is the canonical source for the corpus; the refreshed snapshot 3
+export carries the same metadata policy applied at export time.
+
 ### Remaining before a bulk run
 
 Run the pilot. Confirm live publisher entitlements and converter health.

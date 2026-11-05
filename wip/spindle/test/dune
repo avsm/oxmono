@@ -22,7 +22,7 @@
 (test
  (name test_catalog)
  (modules test_catalog)
- (libraries spindle atp uriz eio_main))
+ (libraries spindle atp uriz eio_main base64))
 
 (test
  (name test_runner)

@@ -238,7 +238,11 @@ default, admits the owner, `--admin` DIDs and the allow-list. `--admission=open`
 admits anyone. Acceptance is cached for `--reconcile-seconds`, and a manifest
 change seen on Jetstream drops it at once. While a rename leaves the owner
 with no declaration, a repository served before stays served under its old
-name.
+name. A repository that starts being served with no pipelines, as a manifest
+naming this spindle arrives on Jetstream, gets a first run: a push of the
+head of its default branch, by its owner, read from the knot's
+`org.tangled.git.refs` record. It is started once for each repository and
+commit.
 
 A push is accepted only from the knot that the repository DID's PLC document
 names. Pushes outside `refs/heads/` and `refs/tags/`, deletions and pushes

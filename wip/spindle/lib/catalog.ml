@@ -357,13 +357,40 @@ let pull_labels t (repo : repo) ~pull =
           (Printexc.to_string e);
         []
 
-let default_branch t (repo : repo) =
+let refs t (repo : repo) =
   if repo.knot = "" then None
   else
-    match
-      Network.record t.network ~service:repo.knot ~did:repo.did
-        ~collection:"org.tangled.git.refs" ~rkey:"self"
-    with
-    | None -> None
-    | Some record ->
-        Option.map string (field "defaultBranch" (required "value" record))
+    Option.map (required "value")
+      (Network.record t.network ~service:repo.knot ~did:repo.did
+         ~collection:"org.tangled.git.refs" ~rkey:"self")
+
+let default_branch t repo =
+  Option.bind (refs t repo) (fun r ->
+      Option.map string (field "defaultBranch" r))
+
+(* The refs are bytes, which atproto's JSON writes as unpadded base64 under
+   [$bytes], holding [git show-ref] lines: an object ID and a ref name. *)
+let default_head t repo =
+  match refs t repo with
+  | None -> None
+  | Some r -> (
+      match field "defaultBranch" r, field "refs" r with
+      | Some branch, Some bytes -> (
+          let branch = string branch in
+          let wanted = "refs/heads/" ^ branch in
+          match
+            Option.map
+              (fun b -> Base64.decode ~pad:false (string b))
+              (field "$bytes" bytes)
+          with
+          | None | Some (Error _) -> None
+          | Some (Ok text) ->
+              String.split_on_char '\n' text
+              |> List.find_map (fun line ->
+                  match String.split_on_char ' ' (String.trim line) with
+                  | [ oid; name ] when name = wanted -> (
+                      match sha oid with
+                      | oid -> Some (branch, oid)
+                      | exception Invalid _ -> None)
+                  | _ -> None))
+      | _ -> None)

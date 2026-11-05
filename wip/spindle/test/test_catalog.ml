@@ -331,6 +331,36 @@ let () =
       corrupt := true;
       assert (labels () = []);
       corrupt := false;
+      (* The default branch's head comes from the refs record's show-ref
+         lines, which atproto writes as unpadded base64. *)
+      let r = Option.get (Catalog.managed catalog repo) in
+      assert (Catalog.default_head catalog r = None);
+      let head = String.make 40 'c' in
+      let refs lines =
+        obj
+          [
+            ("defaultBranch", str "trunk");
+            ( "refs",
+              obj
+                [
+                  ( "$bytes",
+                    str
+                      (Base64.encode_string ~pad:false
+                         (String.concat "\n" lines)) );
+                ] );
+          ]
+      in
+      set repo "org.tangled.git.refs" "self"
+        (refs
+           [
+             String.make 40 'a' ^ " refs/heads/feature";
+             head ^ " refs/heads/trunk";
+             String.make 40 'b' ^ " refs/tags/v1";
+           ]);
+      assert (Catalog.default_head catalog r = Some ("trunk", head));
+      set repo "org.tangled.git.refs" "self"
+        (refs [ head ^ " refs/heads/feature"; "nothex refs/heads/trunk" ]);
+      assert (Catalog.default_head catalog r = None);
       assert (not (Catalog.deleted catalog repo));
       gone := true;
       assert (Catalog.deleted catalog repo));

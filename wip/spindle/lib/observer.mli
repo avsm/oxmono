@@ -23,7 +23,9 @@ val run :
     [org.tangled.track.ticket] records until cancelled.
 
     A manifest change drops the repository's cached acceptance, and one naming
-    this spindle registers the repository. A deleted manifest whose knot reports
+    this spindle registers the repository. A repository registered with no
+    pipeline gets one for the head of its default branch, as a push of that
+    branch by its owner. A deleted manifest whose knot reports
     the repository deleted calls [wipe] on it. An account that becomes
     deleted, deactivated, taken down or suspended, as its PDS confirms, calls
     [wipe] on each repository it owns. Other network-wide events are not

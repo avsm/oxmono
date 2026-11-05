@@ -141,3 +141,8 @@ val manifest : t -> string -> manifest option
 val default_branch : t -> repo -> string option
 (** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]
     record names. *)
+
+val default_head : t -> repo -> (string * string) option
+(** [default_head t repo] is the default branch and the object ID at its head,
+    from the knot's [org.tangled.git.refs] record, or [None] when the record,
+    the branch or a valid object ID for it is missing. *)

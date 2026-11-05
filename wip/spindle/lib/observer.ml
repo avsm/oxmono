@@ -372,9 +372,45 @@ let lifecycle engine network hooks ~repo ~rkey ~round =
                 save_seen engine uri seen
               end))
 
+(* A repository with no pipeline yet gets one for the head of its default
+   branch, as if that branch had just been pushed, so that it has a first
+   run. It is recorded once for each repository and commit, so a replayed or
+   retried manifest event starts nothing more. *)
+let first_run engine (r : Catalog.repo) =
+  let none =
+    list
+      (required "pipelines"
+         (Engine.query engine ~repo:r.did ~limit:1 ~cursor:None ~triggers:[]
+            ~commits:[]))
+    = []
+  in
+  if none then
+    match Catalog.default_head (Engine.catalog engine) r with
+    | None ->
+        Printf.eprintf
+          "spindle observer: %s has no default branch head to run\n%!" r.did
+    | Some (branch, head) ->
+        let event =
+          obj
+            [
+              ("$type", str Engine.push);
+              ("repo", str r.did);
+              ("ref", str ("refs/heads/" ^ branch));
+              ("oldSha", str (String.make (String.length head) '0'));
+              ("newSha", str head);
+              ("actor", str r.owner);
+            ]
+        in
+        ignore
+          (Engine.create engine
+             ~dedup:(String.concat "/" [ "first"; r.did; head ])
+             ~automatic:true ~default_ref:true ~actor:r.owner
+             (obj [ ("repo", str r.did); ("trigger", event) ]))
+
 (* A manifest naming this spindle registers its repository at once, so that
-   its pull requests are followed. A deleted repository's settings and
-   history are wiped, as the reference spindle wipes them. *)
+   its pull requests are followed, and gives it a first run. A deleted
+   repository's settings and history are wiped, as the reference spindle
+   wipes them. *)
 let assignment engine ~wipe ~repo ~operation commit =
   let catalog = Engine.catalog engine in
   Catalog.forget catalog repo;
@@ -383,7 +419,7 @@ let assignment engine ~wipe ~repo ~operation commit =
   else
     match field "record" commit with
     | Some record when Catalog.names_self catalog record ->
-        ignore (Catalog.managed catalog repo)
+        Option.iter (first_run engine) (Catalog.managed catalog repo)
     | _ -> ()
 
 (* An owner whose account is deactivated, suspended or deleted loses what is

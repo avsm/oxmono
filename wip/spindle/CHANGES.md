@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Give a newly registered repository with no pipelines a first run, for the
+  head of its default branch as a push of that branch by its owner.
+
 - Show a user's other repositories at once from the store, instead of
   looking them up on their PDS and knots while the home page waits. They are
   looked up in the background when missing or over an hour old, or with a

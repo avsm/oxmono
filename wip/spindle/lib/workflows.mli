@@ -13,7 +13,9 @@ val valid_name : string -> bool
 
 val matches : string -> string list -> bool
 (** [matches name patterns] holds if a doublestar glob in [patterns] matches
-    [name]. *)
+    [name]. Brace groups expand to at most 256 globs. A pattern over 1 KiB,
+    an expanded glob over 256 bytes, or a name over 1 KiB matches nothing,
+    so that matching takes little time and memory whatever the patterns. *)
 
 val definitions :
   repo:string -> commit:string -> (string * string) list -> Jsont.json list

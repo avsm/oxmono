@@ -29,47 +29,58 @@ and printable name =
   in
   go 0
 
-(* [braces p] is [p] with each [{a,b}] group expanded, at most 256
-   patterns, or [None] for more. A group without its closing brace is
-   literal text. *)
+(* Patterns and names longer than these never match, which bounds the work
+   one constraint costs. *)
+let max_pattern = 256
+let max_name = 1024
+let max_patterns = 256
+
+(* [braces p] is [p] with each [{a,b}] group expanded, at most
+   [max_patterns] patterns, or [None] for more. The count is checked before
+   a group is expanded, so a group of many alternatives costs nothing. A
+   group without its closing brace is literal text. *)
 let braces p =
-  let rec expand acc = function
+  let rec expand acc n = function
     | [] -> Some (List.rev acc)
     | p :: rest -> (
-        if List.length acc > 256 then None
-        else
-          match String.index_opt p '{' with
-          | None -> expand (p :: acc) rest
-          | Some open_ -> (
-              match String.index_from_opt p open_ '}' with
-              | None -> expand (p :: acc) rest
-              | Some close ->
+        match String.index_opt p '{' with
+        | None -> expand (p :: acc) n rest
+        | Some open_ -> (
+            match String.index_from_opt p open_ '}' with
+            | None -> expand (p :: acc) n rest
+            | Some close ->
+                let alts =
+                  String.split_on_char ','
+                    (String.sub p (open_ + 1) (close - open_ - 1))
+                in
+                let n = n - 1 + List.length alts in
+                if n > max_patterns then None
+                else
                   let before = String.sub p 0 open_
                   and after =
                     String.sub p (close + 1) (String.length p - close - 1)
                   in
-                  let alts =
-                    String.split_on_char ','
-                      (String.sub p (open_ + 1) (close - open_ - 1))
-                  in
-                  expand acc (List.map (fun a -> before ^ a ^ after) alts @ rest)
-              ))
+                  expand acc n (List.map (fun a -> before ^ a ^ after) alts @ rest)))
   in
-  expand [] [ p ]
+  expand [] 1 [ p ]
 
 (* Glob matching as doublestar does it: [*] and [?] stay within a path
    segment, a [**] segment crosses them, and [\[...\]] selects. Each pair of
-   positions is decided once, so matching takes time quadratic in the
-   lengths, whatever the pattern. *)
+   positions is decided once in constant time, apart from a class, so
+   matching takes time and space proportional to the product of the
+   lengths. *)
 let glob p s =
   let pl = String.length p and sl = String.length s in
-  let memo = Hashtbl.create 64 in
+  (* 0 undecided, 1 matches, 2 does not. *)
+  let memo = Bytes.make ((pl + 1) * (sl + 1)) '\000' in
   let rec go pi si =
-    match Hashtbl.find_opt memo (pi, si) with
-    | Some r -> r
-    | None ->
+    let k = (pi * (sl + 1)) + si in
+    match Bytes.get memo k with
+    | '\001' -> true
+    | '\002' -> false
+    | _ ->
         let r = step pi si in
-        Hashtbl.replace memo (pi, si) r;
+        Bytes.set memo k (if r then '\001' else '\002');
         r
   and step pi si =
     if pi = pl then si = sl
@@ -82,23 +93,14 @@ let glob p s =
              && (pi + 2 = pl || p.[pi + 2] = '/') ->
           (* A whole [**] segment matches any number of segments, and the
              rest of the pattern starts at a segment boundary. *)
-          if pi + 2 = pl then true
-          else
-            let rest = pi + 3 in
-            let rec try_from i =
-              i <= sl
-              && (((i = si || s.[i - 1] = '/') && go rest i) || try_from (i + 1))
-            in
-            try_from si
+          pi + 2 = pl
+          || ((si = 0 || s.[si - 1] = '/') && go (pi + 3) si)
+          || (si < sl && go pi (si + 1))
       | '*' ->
           let next =
             if pi + 1 < pl && p.[pi + 1] = '*' then pi + 2 else pi + 1
           in
-          let rec try_from i =
-            i <= sl
-            && (go next i || (i < sl && s.[i] <> '/' && try_from (i + 1)))
-          in
-          try_from si
+          go next si || (si < sl && s.[si] <> '/' && go pi (si + 1))
       | '?' -> si < sl && s.[si] <> '/' && go (pi + 1) (si + 1)
       | '[' -> (
           match String.index_from_opt p (pi + 1) ']' with
@@ -126,11 +128,15 @@ let glob p s =
           si < sl && s.[si] = p.[pi + 1] && go (pi + 2) (si + 1)
       | c -> si < sl && s.[si] = c && go (pi + 1) (si + 1)
   in
-  go 0 0
+  pl <= max_pattern && sl <= max_name && go 0 0
 
+(* A pattern is limited before its groups are expanded too, so that its
+   expansions stay small. *)
 let matches name patterns =
   List.exists
     (fun p ->
+      String.length p <= 4 * max_pattern
+      &&
       match braces p with
       | Some ps -> List.exists (fun p -> glob p name) ps
       | None -> false)

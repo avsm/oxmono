@@ -24,6 +24,19 @@ let () =
   assert (Unix.gettimeofday () -. t0 < 1.);
   assert (
     not (W.matches "a" [ String.concat "" (List.init 10 (fun _ -> "{a,b}")) ]));
+  (* One group of many alternatives is refused before it is expanded, and a
+     run of stars costs no more than one. *)
+  let t0 = Unix.gettimeofday () in
+  assert (
+    not
+      (W.matches "x"
+         [ "{" ^ String.make 60_000 ',' ^ "}" ^ String.make 60_000 'x' ]));
+  assert (not (W.matches "x" [ "{" ^ String.make 300 ',' ^ "}x" ]));
+  assert (W.matches "x" [ "{" ^ String.make 200 ',' ^ "}x" ]);
+  assert (not (W.matches (String.make 1000 'a') [ String.make 250 '*' ^ "X" ]));
+  assert (W.matches "main" [ String.make 250 '*' ]);
+  assert (not (W.matches "main" [ String.make 300 '*' ]));
+  assert (Unix.gettimeofday () -. t0 < 1.);
   let push ref_ =
     J.obj [ ("$type", J.str "org.tangled.event.push"); ("ref", J.str ref_) ]
   in

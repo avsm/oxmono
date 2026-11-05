@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Bound workflow branch and tag patterns: brace groups are counted before
+  they are expanded, patterns and names have length limits, and glob matching
+  takes time and memory proportional to the two lengths, so a workflow file
+  in a pull request cannot exhaust the spindle's memory.
+
 - Give a newly registered repository with no pipelines a first run, for the
   head of its default branch as a push of that branch by its owner.
 

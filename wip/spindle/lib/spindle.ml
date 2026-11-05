@@ -45,7 +45,7 @@ type state = {
   settings : Settings.t;
   hooks : Hooks.t;
   web : Web.t option;
-  streams : Eio.Semaphore.t;  (** Log streams that may be open at once. *)
+  streams : int Atomic.t;  (** Log streams open now. *)
 }
 
 exception Not_ready of Jsont.json
@@ -63,9 +63,12 @@ let fields req name =
     (Req.headers req);
   !values
 
+(* The scheme is case-insensitive (RFC 9110, section 11.1). *)
 let bearer req =
   match fields req "authorization" with
-  | [ s ] when String.starts_with ~prefix:"Bearer " s ->
+  | [ s ]
+    when String.length s > 7
+         && String.lowercase_ascii (String.sub s 0 7) = "bearer " ->
       String.sub s 7 (String.length s - 7)
   | _ -> raise Service_auth.Rejected
 
@@ -149,7 +152,8 @@ let logs state (p : Engine.pipeline) names socket =
         raise exn
   in
   let ws =
-    W.create ~role:Server ~max_message:(1024 * 1024) ~with_write_lock
+    (* A client sends only control frames. *)
+    W.create ~role:Server ~max_message:4096 ~with_write_lock
       ~read:(fun bytes ~off ~len ->
         Eio.Time.with_timeout_exn state.system#clock 90. (fun () ->
             Body.Socket.read socket bytes ~off ~len))
@@ -227,8 +231,11 @@ let origin_allowed state req =
       || List.exists
            (fun scheme ->
              origin = scheme ^ String.lowercase_ascii state.config.hostname)
-           [ "https://"; "http://" ]
+           ("https://"
+           :: (if state.config.allow_http then [ "http://" ] else []))
   | _ -> false
+
+let max_streams = 256
 
 let upgrade state req respond =
   if Req.meth req <> Method.Get then invalid "logs require GET";
@@ -240,7 +247,9 @@ let upgrade state req respond =
   let names = query_list req "workflows" in
   if List.length names > 100 then
     invalid "a stream follows at most 100 workflows, ask for fewer";
-  if Eio.Semaphore.get_value state.streams = 0 then
+  (* Unknown workflows are refused while an error can still be answered. *)
+  ignore (Engine.select_workflows p names);
+  if Atomic.get state.streams >= max_streams then
     reject Status.Service_unavailable "Unavailable"
       "too many log streams are open, try again later";
   let fields = ref [] in
@@ -266,11 +275,16 @@ let upgrade state req respond =
              fields)
       in
       (* A stream lasts at most twelve hours. *)
+      (* Upgrades that passed the check at once may together pass the
+         limit, so a stream that finds it full ends at once rather than
+         waiting with its socket open. *)
       Resp.upgrade respond ~protocol:"websocket" ~headers (fun socket ->
+          if Atomic.fetch_and_add state.streams 1 >= max_streams then
+            Atomic.decr state.streams
+          else
           try
-            Eio.Semaphore.acquire state.streams;
             Fun.protect
-              ~finally:(fun () -> Eio.Semaphore.release state.streams)
+              ~finally:(fun () -> Atomic.decr state.streams)
               (fun () ->
                 Eio.Time.with_timeout_exn state.system#clock 43200. (fun () ->
                     logs state p names socket))
@@ -339,19 +353,37 @@ let workflows state =
 
 (* [static config repo] is the local clone of the static repository [repo].
    It is read with Git, since it has no knot. *)
-let static ~process config repo =
+(* At most [limit] bytes of a reader's input, or [Failure] past them. *)
+let bounded limit r =
+  let b = Buffer.create 4096 in
+  let rec loop () =
+    match Eio.Buf_read.ensure r 1 with
+    | () ->
+        let n = Eio.Buf_read.buffered_bytes r in
+        if Buffer.length b + n > limit then failwith "output too large";
+        Buffer.add_string b (Eio.Buf_read.take n r);
+        loop ()
+    | exception End_of_file -> Buffer.contents b
+  in
+  loop ()
+
+let static ~process ~clock config repo =
   match config.repo with
   | Some (did, source)
     when did = repo
          && (not (Filename.is_relative source))
          && Sys.file_exists source ->
-      (* Git's output, at most 4 MiB, or nothing when it fails. *)
+      (* Git's output, at most 4 MiB within 30 seconds, or nothing when it
+         fails. *)
       Some
         (fun args ->
           try
-            Eio.Process.parse_out process Eio.Buf_read.take_all
-              ~stderr:(Eio.Flow.buffer_sink (Buffer.create 64))
-              ("git" :: "-C" :: source :: args)
+            Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 30.)
+              (fun () ->
+                Eio.Process.parse_out process
+                  (bounded (4 * 1024 * 1024))
+                  ~stderr:(Eio.Flow.buffer_sink (Buffer.create 64))
+                  ("git" :: "-C" :: source :: args))
           with
           | Eio.Cancel.Cancelled _ as e -> raise e
           | _ -> "")
@@ -359,8 +391,9 @@ let static ~process config repo =
 
 (* A repository is read through its knot, or a static repository through its
    clone, at one commit. Nothing is checked out. *)
-let tree ~process config catalog network ~did:repo ~commit : Executor.files =
-  match (config.repo, static ~process config repo) with
+let tree ~process ~clock config catalog network ~did:repo ~commit :
+    Executor.files =
+  match (config.repo, static ~process ~clock config repo) with
   | Some (did, _), None when did = repo ->
       { list = (fun _ -> []); read = (fun _ -> None) }
   | _, Some git ->
@@ -428,8 +461,8 @@ let tree ~process config catalog network ~did:repo ~commit : Executor.files =
       }
 
 (* Repository workflows are the files of [.tangled/workflows]. *)
-let read_files ~process config catalog network ~did ~commit =
-  let files = tree ~process config catalog network ~did ~commit in
+let read_files ~process ~clock config catalog network ~did ~commit =
+  let files = tree ~process ~clock config catalog network ~did ~commit in
   let dir = Workflows.directory in
   let names = files.list dir in
   if List.length names > 32 then
@@ -443,13 +476,16 @@ let read_files ~process config catalog network ~did ~commit =
 
 let resolve_commit state repo ref_ =
   if
-    String.length ref_ >= 40
+    (String.length ref_ = 40 || String.length ref_ = 64)
     && String.for_all
          (function '0' .. '9' | 'a' .. 'f' -> true | _ -> false)
          ref_
   then Some ref_
   else
-    match static ~process:state.system#process_mgr state.config repo with
+    match
+      static ~process:state.system#process_mgr ~clock:state.system#mono_clock
+        state.config repo
+    with
     | Some git -> (
         match
           String.trim
@@ -473,7 +509,7 @@ let resolve_commit state repo ref_ =
                [ ("repo", repo); ("ref", ref_); ("limit", "1") ])
         in
         match field "commits" commits with
-        | Some (Jsont.Array (c :: _, _)) -> Some (get "hash" c)
+        | Some (Jsont.Array (c :: _, _)) -> Some (sha (get "hash" c))
         | _ -> None)
 
 (* A spindle that runs only its own workflows lists none of a repository's. *)
@@ -485,7 +521,8 @@ let repository_definitions state repo ref_ =
     | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
     | Some commit ->
         Workflows.definitions ~repo ~commit
-          (read_files ~process:state.system#process_mgr state.config
+          (read_files ~process:state.system#process_mgr
+             ~clock:state.system#mono_clock state.config
              (Engine.catalog state.engine)
              state.network ~did:repo ~commit)
 
@@ -521,9 +558,11 @@ let notify state req ~issuer body =
         (* Only the knot named by the repository's DID document reports its
            pushes. *)
         if issuer <> Catalog.knot_did (Engine.catalog engine) repo then
-          raise Service_auth.Rejected;
+          reject Status.Forbidden "AccessControl"
+            "only the repository's knot may report its pushes";
         let actor = did (get "actor" event) in
         let new_sha = sha (get "newSha" event) in
+        let before = sha (get "oldSha" event) in
         let ref_ = get "ref" event in
         let changes_ref =
           (String.starts_with ~prefix:"refs/heads/" ref_
@@ -538,10 +577,11 @@ let notify state req ~issuer body =
           (if changes_ref then
              match Catalog.managed (Engine.catalog engine) repo with
              | Some r when Catalog.admitted (Engine.catalog engine) r.owner ->
-                 let before = get "oldSha" event in
+                 (* The ref, which holds slashes, comes last, after fields
+                    that hold none, so that no two pushes share a key. *)
                  if
                    Engine.first engine "push-hook"
-                     (String.concat "/" [ repo; ref_; before; new_sha ])
+                     (String.concat "/" [ repo; before; new_sha; ref_ ])
                  then
                    Hooks.push state.hooks r ~actor ~ref_ ~before ~after:new_sha
              | _ -> ());
@@ -552,7 +592,6 @@ let notify state req ~issuer body =
           | None -> None
           | Some _ when not (runnable_push event) -> None
           | Some managed ->
-              let ref_ = get "ref" event in
               let default_ref =
                 match
                   Catalog.default_branch (Engine.catalog engine) managed
@@ -562,8 +601,7 @@ let notify state req ~issuer body =
               in
               Engine.create engine
                 ~dedup:
-                  (String.concat "/"
-                     [ "push"; repo; ref_; get "oldSha" event; new_sha ])
+                  (String.concat "/" [ "push"; repo; before; new_sha; ref_ ])
                 ~automatic:true ~default_ref ~actor
                 (obj [ ("repo", str repo); ("trigger", event) ]))
     | t when t = Engine.manual -> (
@@ -607,7 +645,7 @@ let served state req =
 
 let require_admin state actor =
   if not (Catalog.admin (Engine.catalog state.engine) actor) then
-    reject Status.Unauthorized "AccessControl"
+    reject Status.Forbidden "AccessControl"
       ("DID does not have sufficient access permissions for this operation: "
      ^ actor)
 
@@ -1186,9 +1224,13 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       ~executor:config.executor
       ?read_workflows:
         (if config.repository_workflows then
-           Some (read_files ~process:system#process_mgr config catalog network)
+           Some
+             (read_files ~process:system#process_mgr ~clock:system#mono_clock
+                config catalog network)
          else None)
-      ~tree:(tree ~process:system#process_mgr config catalog network)
+      ~tree:
+        (tree ~process:system#process_mgr ~clock:system#mono_clock config
+           catalog network)
       ~concurrency:config.concurrency ~durable:jobs ~system ~directory ~sw ()
   in
   Engine.migrate engine config.repo;
@@ -1212,7 +1254,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       settings;
       hooks;
       web;
-      streams = Eio.Semaphore.make 256;
+      streams = Atomic.make 0;
     }
   in
   Eio.Fiber.fork ~sw (fun () ->
@@ -1232,15 +1274,24 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
         | Eio.Cancel.Cancelled _ as exn -> raise exn
         | exn ->
             Printf.eprintf "spindle retention: %s\n%!" (Printexc.to_string exn);
-            Store.put store "health" "maintenance"
-              (encode
-                 (obj
-                    [
-                      ("lastFailureAt", Jsont.Json.number now);
-                      (* The report is public, so the details stay in the
-                         log. *)
-                      ("error", str "maintenance failed, see the spindle's log");
-                    ])));
+            (* A failure to record the failure stays in the log too, rather
+               than ending the server. *)
+            try
+              Store.put store "health" "maintenance"
+                (encode
+                   (obj
+                      [
+                        ("lastFailureAt", Jsont.Json.number now);
+                        (* The report is public, so the details stay in the
+                           log. *)
+                        ( "error",
+                          str "maintenance failed, see the spindle's log" );
+                      ]))
+            with
+            | Eio.Cancel.Cancelled _ as exn -> raise exn
+            | exn ->
+                Printf.eprintf "spindle retention report: %s\n%!"
+                  (Printexc.to_string exn));
         Eio.Time.sleep system#clock
           (float_of_int operations.maintenance_seconds)
       done);

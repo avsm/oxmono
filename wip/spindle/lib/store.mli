@@ -126,8 +126,9 @@ val logs : t -> pipeline:string -> workflow:string -> (int64 * string) list
 val consume :
   t -> now:float -> issuer:string -> jti:string -> expires:float -> bool
 (** [consume store ~now ~issuer ~jti ~expires] accepts a nonce once, retaining
-    it until expiry. Expired rows are removed. Capacity exhaustion fails closed.
-*)
+    it until expiry. Expired rows are removed. It refuses a nonce when
+    [issuer] already holds 1024 unexpired ones, or when 262144 are held in
+    all, so that one issuer cannot exhaust what the others need. *)
 
 val enqueue :
   t -> source:string -> cursor:string -> key:string -> value:string -> unit

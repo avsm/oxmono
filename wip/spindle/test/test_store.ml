@@ -23,6 +23,14 @@ let () =
              if consume store "issuer-a" "nonce" then incr accepted));
       assert (!accepted = 1);
       assert (consume store "issuer-b" "nonce");
+      (* One issuer holds at most 1024 live nonces, and filling its share
+         leaves the others theirs. *)
+      for i = 1 to 1023 do
+        assert (consume store "issuer-flood" (string_of_int i))
+      done;
+      assert (consume store "issuer-flood" "1024");
+      assert (not (consume store "issuer-flood" "1025"));
+      assert (consume store "issuer-c" "nonce");
       Store.enqueue store ~source:"knot" ~cursor:"1234567890123456789"
         ~key:"event" ~value:"payload";
       assert (Store.get store "inbox" "event" = Some "payload");
@@ -98,6 +106,7 @@ let () =
       let store = Store.open_ ~sw directory in
       assert (not (consume store "issuer-a" "nonce"));
       assert (not (consume store "issuer-b" "nonce"));
+      assert (not (consume store "issuer-flood" "fresh"));
       assert (Store.get store "dispatch" "event" = Some "id");
       assert (Store.get store "pipeline" "id" = Some "result");
       let seq =

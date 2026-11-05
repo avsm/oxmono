@@ -5,6 +5,7 @@ type t = {
   lock : Eio.Mutex.t;
   mutable inbox_limit : int;
   mutable inbox_bytes : int;
+  mutable nonces : int;  (** Rows in [replay], kept so as not to count them. *)
 }
 
 exception Inbox_full
@@ -40,6 +41,11 @@ let text s = Sqlite3.Data.TEXT s
 let string = Sqlite3.Data.to_string_exn
 let locked t f = Lock.protect t.lock f
 
+let count_rows t sql args =
+  match rows t sql args with
+  | [ row ] -> Sqlite3.Data.to_int_exn row.(0)
+  | _ -> assert false
+
 let open_ ~sw directory =
   let db =
     Sqlite3_eio.open_path ~sw ~busy_timeout:5000
@@ -51,6 +57,7 @@ let open_ ~sw directory =
       lock = Eio.Mutex.create ();
       inbox_limit = 10000;
       inbox_bytes = 64 * 1024 * 1024;
+      nonces = 0;
     }
   in
   check
@@ -101,6 +108,7 @@ let open_ ~sw directory =
       DELETE FROM workflow_log WHERE pipeline=OLD.key;
     END;
   |});
+  t.nonces <- count_rows t "SELECT count(*) FROM replay" [];
   t
 
 let get t namespace key =
@@ -354,6 +362,12 @@ let touch_ref t ~repo ~ref_ =
          ref=?"
         [ text repo; text ref_ ])
 
+(* Anyone with a DID can sign tokens, so each issuer has its own share of
+   the nonces it may hold, and one issuer filling the table cannot lock out
+   the knots and owners. *)
+let issuer_nonces = 1024
+let total_nonces = 262144
+
 (* Checking and consuming are one transaction. Failed verification never
    reaches this function, and an accepted nonce survives process restart. *)
 let consume t ~now ~issuer ~jti ~expires =
@@ -362,19 +376,20 @@ let consume t ~now ~issuer ~jti ~expires =
       match
         execute t "DELETE FROM replay WHERE expires<=?"
           [ Sqlite3.Data.FLOAT now ];
-        let count =
-          match rows t "SELECT count(*) FROM replay" [] with
-          | [ row ] -> Sqlite3.Data.to_int_exn row.(0)
-          | _ -> assert false
-        in
+        t.nonces <- max 0 (t.nonces - Sqlite3.changes (Sqlite3_eio.db t.db));
         let accepted =
-          if count >= 65536 then false
-          else (
-            execute t "INSERT OR IGNORE INTO replay VALUES(?,?,?)"
-              [ text issuer; text jti; Sqlite3.Data.FLOAT expires ];
-            Sqlite3.changes (Sqlite3_eio.db t.db) = 1)
+          t.nonces < total_nonces
+          && count_rows t "SELECT count(*) FROM replay WHERE issuer=?"
+               [ text issuer ]
+             < issuer_nonces
+          && begin
+               execute t "INSERT OR IGNORE INTO replay VALUES(?,?,?)"
+                 [ text issuer; text jti; Sqlite3.Data.FLOAT expires ];
+               Sqlite3.changes (Sqlite3_eio.db t.db) = 1
+             end
         in
         check (Sqlite3_eio.exec t.db "COMMIT");
+        if accepted then t.nonces <- t.nonces + 1;
         accepted
       with
       | accepted -> accepted

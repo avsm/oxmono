@@ -6,6 +6,18 @@
 
 ## Unreleased
 
+- Limit each token issuer to 1024 unexpired replay nonces, so that one DID
+  minting tokens cannot lock every caller out, and keep the table's size
+  without counting it on each request.
+- Bound open log streams without letting upgrades queue for a slot, refuse
+  unknown workflows before the upgrade, and accept only small frames.
+- Bound Git's output for the static repository to 4 MiB and 30 seconds.
+- Validate a push's old object ID and a commit hash from the knot, treat only
+  40- and 64-digit refs as commit IDs, and build deduplication keys that two
+  pushes cannot share. Answer 403 for a non-admin or a push from another
+  knot, read the `Bearer` scheme case-insensitively, and accept a plain-http
+  `Origin` only with `--allow-http`.
+
 - Bound workflow branch and tag patterns: brace groups are counted before
   they are expanded, patterns and names have length limits, and glob matching
   takes time and memory proportional to the two lengths, so a workflow file

@@ -342,12 +342,68 @@ let person ?avatar:a name =
     ((match a with Some u -> [ avatar u ~alt:"" ] | None -> [])
     @ [ text name ])
 
-let account ?avatar:a ~name ~logout ~csrf () =
+(* The first letter of a name, after any leading @, for an account with no
+   picture. A name starting with a character outside ASCII shows its first
+   byte's character only if it is ASCII, else a dot. *)
+let initial name =
+  let s =
+    if String.length name > 1 && name.[0] = '@' then
+      String.sub name 1 (String.length name - 1)
+    else name
+  in
+  match s with
+  | "" -> "?"
+  | s -> (
+      match s.[0] with
+      | ('a' .. 'z' | 'A' .. 'Z' | '0' .. '9') as c ->
+          String.make 1 (Char.uppercase_ascii c)
+      | _ -> "\u{2022}")
+
+(* A menu is a [details] element, so that it opens without the script. The
+   script closes it on a click elsewhere or on Escape. *)
+let account ?avatar:a ?(links = []) ~name ~logout ~csrf () =
+  let face =
+    match a with
+    | Some u -> avatar ~size:28 u ~alt:""
+    | None ->
+        el "span"
+          ~at:[ ("class", "sk-initial"); ("aria-hidden", "true") ]
+          [ text (initial name) ]
+  in
   [
-    el "span"
-      ~at:[ ("class", "sk-who") ]
-      [ text "Signed in as "; el "strong" [ person ?avatar:a name ] ];
-    post_button ~action:logout ~hidden:[ csrf ] ~label:"Log out";
+    el "details"
+      ~at:[ ("class", "sk-menu") ]
+      [
+        el "summary"
+          [
+            face;
+            el "span" ~at:[ ("class", "sk-sr") ] [ text ("Account menu for " ^ name) ];
+            el "span" ~at:[ ("class", "sk-caret"); ("aria-hidden", "true") ] [ text "\u{25be}" ];
+          ];
+        el "div"
+          ~at:[ ("class", "sk-menu-panel") ]
+          (el "p"
+             ~at:[ ("class", "sk-menu-head") ]
+             [ el "span" [ text "Signed in as" ]; el "strong" [ text name ] ]
+          :: List.map
+               (fun (label, u) -> el "a" ~at:[ ("href", Url.to_string u) ] [ text label ])
+               links
+          @ [
+              el "form"
+                ~at:
+                  [
+                    ("class", "sk-menu-form");
+                    ("method", "post");
+                    ("action", Url.to_string logout);
+                  ]
+                [
+                  el "input"
+                    ~at:[ ("type", "hidden"); ("name", fst csrf); ("value", snd csrf) ]
+                    [];
+                  el "button" ~at:[ ("type", "submit") ] [ text "Log out" ];
+                ];
+            ]);
+      ];
   ]
 
 let badge ?(tone = `Neutral) label =

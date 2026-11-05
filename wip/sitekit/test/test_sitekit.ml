@@ -179,6 +179,22 @@ let pages () =
     has page {|<main id="main" class="sk-main"><h1>All &lt;repos&gt;</h1>|});
   assert (has page {|<input type="hidden" name="csrf" value="t0k&quot;en">|});
   assert (has page {|method="post" action="/logout"|});
+  (* The account is a menu that opens without the script, showing the
+     account's initial when it has no picture. *)
+  assert (has page {|<details class="sk-menu"><summary>|});
+  assert (has page {|<span aria-hidden="true" class="sk-initial">A</span>|});
+  assert (has page "Account menu for @alice.example");
+  let menu =
+    String.concat ""
+      (List.map
+         (Htmlit.El.to_string ~doctype:false)
+         (S.account ~avatar:(S.Url.path [ "me.png" ])
+            ~links:[ ("Settings", S.Url.path [ "settings" ]) ]
+            ~name:"bob" ~logout:(S.Url.path [ "logout" ]) ~csrf:("c", "t") ()))
+  in
+  assert (has menu {|src="/me.png"|} && has menu {|width="28"|});
+  assert (has menu {|<a href="/settings">Settings</a>|});
+  assert (not (has menu "sk-initial"));
   assert (has page (Printf.sprintf {|<link rel="stylesheet" href="%s">|} path));
   assert (has page {|defer|});
   assert ((not (has page "<style")) && not (has page "style="));

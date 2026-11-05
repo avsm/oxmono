@@ -71,3 +71,19 @@
     document.addEventListener('DOMContentLoaded', follow);
   else follow();
 })();
+// An open account menu closes on a click outside it, or on Escape, which
+// returns focus to its trigger.
+(() => {
+  document.addEventListener('click', event => {
+    document.querySelectorAll('details.sk-menu[open]').forEach(menu => {
+      if (!menu.contains(event.target)) menu.open = false;
+    });
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('details.sk-menu[open]').forEach(menu => {
+      menu.open = false;
+      menu.querySelector('summary')?.focus();
+    });
+  });
+})();

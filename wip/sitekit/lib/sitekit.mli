@@ -200,14 +200,19 @@ val person : ?avatar:Url.t -> string -> html
 
 val account :
   ?avatar:Url.t ->
+  ?links:(string * Url.t) list ->
   name:string ->
   logout:Url.t ->
   csrf:string * string ->
   unit ->
   html list
-(** [account ~name ~logout ~csrf] is ["Signed in as NAME"] with a button that
-    posts a form to [logout], holding the hidden field [csrf] as
-    [(name, value)]. *)
+(** [account ~name ~logout ~csrf ()] is an account menu for the end of the
+    header. Its trigger is the account's [avatar], 28 pixels square, or the
+    first letter of [name] without it. It opens a panel saying ["Signed in as
+    NAME"], the [links], as [(label, url)] pairs, none by default, and a
+    button that posts a form to [logout] holding the hidden field [csrf] as
+    [(name, value)]. The menu opens without the script, which closes it on a
+    click elsewhere or on Escape. *)
 
 (** {1 Components} *)
 

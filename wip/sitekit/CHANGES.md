@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Make `account` a menu opened from the account's picture, or its initial
+  without one, at the end of the header. It lists who is signed in, the new
+  `?links`, and Log out, opens without the script, and closes on a click
+  elsewhere or on Escape. Floating panels take the new `--sk-float` shadow.
+
 - Add `avatar` and `person`, an account's picture and its name after it, and
   give `account` an optional picture. `account` now takes a final unit.
 

@@ -35,7 +35,11 @@ module Url : sig
 
   val path : ?query:(string * string) list -> string list -> t
   (** [path ~query segments] is [/segment/segment?key=value], with every
-      segment, key and value percent-encoded. [path []] is [/]. *)
+      segment, key and value percent-encoded. [path []] is [/].
+
+      @raise Invalid_argument
+        if a segment is empty, [.] or [..], which would leave the site or
+        climb its path. *)
 
   val of_path : string -> t option
   (** [of_path s] is [s] if it is a same-site path: it starts with [/] but not

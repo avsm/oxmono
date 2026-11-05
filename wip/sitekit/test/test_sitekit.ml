@@ -23,6 +23,13 @@ let urls () =
     S.Url.to_string (S.Url.path ~query:[ ("q", "a&b=c d") ] [ "jobs"; "x/y" ])
     = "/jobs/x%2Fy?q=a%26b%3Dc%20d");
   assert (S.Url.to_string (S.Url.path []) = "/");
+  (* An empty or dot segment could leave the site or climb its path. *)
+  List.iter
+    (fun segments ->
+      match S.Url.path segments with
+      | _ -> assert false
+      | exception Invalid_argument _ -> ())
+    [ [ ""; "evil.example" ]; [ "a"; ".." ]; [ "." ] ];
   List.iter
     (fun bad -> assert (S.Url.of_path bad = None))
     [

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Refuse an empty, `.` or `..` segment in `Url.path`, since an empty first
+  segment made a protocol-relative link to another site.
+
 - Add `breadcrumbs`, a trail down to the current page with a house on its
   first link and chevrons drawn by the stylesheet, and `page ~crumbs`, which
   shows one above the title.

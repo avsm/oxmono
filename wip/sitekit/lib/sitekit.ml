@@ -22,8 +22,15 @@ module Url = struct
 
   let encode = Uriz.pct_encode ~component:`Unreserved
 
+  (* An empty segment would make [//host], another site, and a dot segment
+   would climb out of the path, so neither is accepted. *)
+  let segment s =
+    match s with
+    | "" | "." | ".." -> invalid_arg ("Sitekit.Url.path: bad segment " ^ s)
+    | s -> encode s
+
   let path ?(query = []) segments =
-    let p = "/" ^ String.concat "/" (List.map encode segments) in
+    let p = "/" ^ String.concat "/" (List.map segment segments) in
     let q =
       match query with
       | [] -> ""

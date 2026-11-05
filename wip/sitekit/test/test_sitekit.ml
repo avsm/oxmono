@@ -195,6 +195,16 @@ let pages () =
   assert (has menu {|src="/me.png"|} && has menu {|width="28"|});
   assert (has menu {|<a href="/settings">Settings</a>|});
   assert (not (has menu "sk-initial"));
+  (* A trail above the title ends at the page, which is no link. *)
+  let crumbed =
+    S.page site ~current:"/repos" ~title:"Pipeline <1>"
+      ~crumbs:[ ("Repositories", S.Url.path [ "repos" ]); ("demo", S.Url.path [ "repos"; "demo" ]) ]
+      []
+  in
+  assert (has crumbed {|<nav aria-label="Breadcrumb" class="sk-crumbs"><ol><li><a href="/repos"><svg|});
+  assert (has crumbed {|<li><a href="/repos/demo">demo</a></li>|});
+  assert (has crumbed {|<li><span aria-current="page">Pipeline &lt;1&gt;</span></li></ol></nav><h1>|});
+  assert (not (has page "sk-crumbs"));
   assert (has page (Printf.sprintf {|<link rel="stylesheet" href="%s">|} path));
   assert (has page {|defer|});
   assert ((not (has page "<style")) && not (has page "style="));

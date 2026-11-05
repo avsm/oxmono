@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `breadcrumbs`, a trail down to the current page with a house on its
+  first link and chevrons drawn by the stylesheet, and `page ~crumbs`, which
+  shows one above the title.
+
 - Make `account` a menu opened from the account's picture, or its initial
   without one, at the end of the header. It lists who is signed in, the new
   `?links`, and Log out, opens without the script, and closes on a click

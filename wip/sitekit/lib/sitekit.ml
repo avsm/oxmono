@@ -228,7 +228,40 @@ let follow u label =
     ~at:[ href u; ("class", "sk-button"); ("data-sk-follow", "") ]
     [ text label ]
 
-let page site ~current ?(account = []) ?kind ~title body =
+(* The trail's first crumb carries a house drawn like the state icons. Its
+   separators are drawn by the stylesheet, so they are not read aloud. *)
+let breadcrumbs trail ~current =
+  let home =
+    el "svg"
+      ~at:
+        [
+          ("class", "sk-crumb-home");
+          ("viewBox", "0 0 24 24");
+          ("aria-hidden", "true");
+          ("focusable", "false");
+        ]
+      [
+        el "path" ~at:[ ("d", "M3.5 11 12 4l8.5 7") ] [];
+        el "path" ~at:[ ("d", "M5.5 9.5V20h4.5v-5.5h4V20h4.5V9.5") ] [];
+      ]
+  in
+  el "nav"
+    ~at:[ ("class", "sk-crumbs"); ("aria-label", "Breadcrumb") ]
+    [
+      el "ol"
+        (List.mapi
+           (fun i (label, u) ->
+             el "li"
+               [
+                 el "a"
+                   ~at:[ ("href", Url.to_string u) ]
+                   ((if i = 0 then [ home ] else []) @ [ text label ]);
+               ])
+           trail
+        @ [ el "li" [ el "span" ~at:[ ("aria-current", "page") ] [ text current ] ] ]);
+    ]
+
+let page site ~current ?(account = []) ?crumbs ?kind ~title body =
   let kind =
     match kind with
     | Some k when word k -> [ ("class", "sk-main " ^ k) ]
@@ -301,7 +334,10 @@ let page site ~current ?(account = []) ?kind ~title body =
                   else el "div" ~at:[ ("class", "sk-account") ] account);
                ];
              el "main" ~at:(("id", "main") :: kind)
-               (el "h1" [ text title ] :: body);
+               ((match crumbs with
+                | Some (_ :: _ as trail) -> [ breadcrumbs trail ~current:title ]
+                | Some [] | None -> [])
+               @ (el "h1" [ text title ] :: body));
              (if site.footer = [] then El.void
               else el "footer" ~at:[ ("class", "sk-footer") ] site.footer);
            ];

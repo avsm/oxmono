@@ -180,6 +180,7 @@ val page :
   site ->
   current:string ->
   ?account:html list ->
+  ?crumbs:(string * Url.t) list ->
   ?kind:string ->
   title:string ->
   html list ->
@@ -188,8 +189,15 @@ val page :
     ["TITLE · NAME"], with a skip link, the site's header and navigation, an
     [account] area at the end of the header, and [<main id="main">] holding an
     [<h1>] of [title] and [body]. The navigation link whose path is [current]
-    is marked [aria-current="page"]. [kind], a class name of letters, digits
-    and dashes, is set on [<main>]. *)
+    is marked [aria-current="page"]. A non-empty [crumbs] trail is shown
+    above the [<h1>] by {!breadcrumbs}, ending at [title]. [kind], a class
+    name of letters, digits and dashes, is set on [<main>]. *)
+
+val breadcrumbs : (string * Url.t) list -> current:string -> html
+(** [breadcrumbs trail ~current] is a breadcrumb trail of the [(label, url)]
+    links of [trail], from the top of the site down, ending at the page
+    [current], which is marked [aria-current="page"] and is not a link. The
+    first link shows a house. Separators are drawn by the stylesheet. *)
 
 val avatar : ?size:int -> Url.t -> alt:string -> html
 (** [avatar ~size url ~alt] is a round picture of an account from the site's

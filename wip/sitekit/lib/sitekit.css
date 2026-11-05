@@ -57,6 +57,18 @@ background:none;color:var(--sk-ink);font:inherit;font-size:13px;text-align:left;
 .sk-menu-head+.sk-menu-form{margin-top:0;padding-top:0;border-top:0}
 .sk-main{max-width:1120px;margin:22px auto;padding:0 24px}
 .sk-main h1{font-size:23px;letter-spacing:-.5px;margin:0 0 14px}
+.sk-crumbs{margin:0 0 6px;font-size:13px}
+.sk-crumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;list-style:none;margin:0;padding:0}
+.sk-crumbs li{display:inline-flex;align-items:center;gap:8px;min-width:0;color:var(--sk-muted)}
+.sk-crumbs li+li:before{content:"";flex:none;width:5px;height:5px;margin:0 2px 0 -1px;
+border:solid var(--sk-muted);border-width:1.5px 1.5px 0 0;transform:rotate(45deg)}
+.sk-main .sk-crumbs a{display:inline-flex;align-items:center;gap:5px;margin:-2px -5px;padding:2px 5px;
+border-radius:5px;color:var(--sk-muted);text-decoration:none}
+.sk-main .sk-crumbs a:hover{background:var(--sk-soft);color:var(--sk-accent)}
+.sk-crumbs [aria-current=page]{max-width:48ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+color:var(--sk-ink);font-weight:550}
+.sk-crumb-home{flex:none;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;
+stroke-linecap:round;stroke-linejoin:round}
 .sk-main h2{font-size:16px;margin-top:24px}
 .sk-footer{max-width:1120px;margin:0 auto;padding:12px 24px 24px;color:var(--sk-muted);font-size:12px}
 .sk-main input,.sk-main select,.sk-header button,.sk-main button{font:inherit;color:inherit}

@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Give each repository a share of 8 of the 32 pipelines that may have work
+  to do at once, so that one repository's pushes cannot hold back the
+  others, and refuse a blocked pipeline for a repository that already has
+  16 waiting for approval.
+
 - Change and delete webhooks under the hooks lock, so that an update cannot
   bring back a deleted webhook. Allow at most 50 webhooks and 100 secrets
   for a repository whatever its quotas, limit webhook URLs to 2 KiB and

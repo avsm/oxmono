@@ -152,7 +152,13 @@ val create :
     deduplication key. Only verified event consumers may set [automatic].
     [blocked] holds the workflows until {!approve}. A blocked or [untrusted]
     pipeline, or one whose code comes from another repository, receives no
-    secrets. *)
+    secrets.
+
+    @raise Capacity
+      when 32 pipelines, or 8 of the repository's, have workflows pending or
+      running, so that the caller may try again later. A blocked pipeline
+      for a repository that already has 16 waiting for approval is refused
+      as an invalid request. *)
 
 val ref_variables : string -> (string * string) list
 (** [ref_variables ref_] is [TANGLED_REF], [TANGLED_REF_NAME] and

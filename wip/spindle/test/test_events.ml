@@ -253,7 +253,8 @@ let () =
   let create () =
     Option.get (Engine.create engine ~automatic:false ~actor:owner request)
   in
-  let queued = List.init 32 (fun _ -> create ()) in
+  (* A repository's share of the capacity is 8 pipelines with work to do. *)
+  let queued = List.init 8 (fun _ -> create ()) in
   (match create () with
   | _ -> failwith "pipeline capacity was not enforced"
   | exception Engine.Capacity -> ());

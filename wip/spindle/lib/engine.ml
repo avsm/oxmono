@@ -981,12 +981,20 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false)
             (fun (r : Runner.t) -> r.status = `Pending || r.status = `Running)
             p.workflows
         in
-        let active =
-          Hashtbl.fold
-            (fun _ p n -> if occupying p then n + 1 else n)
-            t.pipelines 0
+        (* One repository has a share of the capacity, so that its pushes
+           cannot hold back every other's, and keeps a bounded number of
+           pipelines waiting for approval, which nothing else removes. *)
+        let count f =
+          Hashtbl.fold (fun _ p n -> if f p then n + 1 else n) t.pipelines 0
         in
-        if active >= 32 then raise Capacity;
+        let mine (p : pipeline) = p.repo = repo.did in
+        let awaiting p =
+          List.exists (fun (r : Runner.t) -> r.status = `Blocked) p.workflows
+        in
+        if count occupying >= 32 then raise Capacity;
+        if count (fun p -> mine p && occupying p) >= 8 then raise Capacity;
+        if blocked && count (fun p -> mine p && awaiting p) >= 16 then
+          invalid "the repository has 16 pipelines waiting for approval";
         let timestamp =
           Int64.of_float (Eio.Time.now t.runner.system#clock *. 1e6)
         in

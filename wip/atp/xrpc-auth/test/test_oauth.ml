@@ -67,6 +67,7 @@ type state = {
   mutable refresh : string;
   mutable refreshes : int;
   mutable pds_calls : int;
+  mutable sub : string;  (** The account token responses name. *)
 }
 
 let st =
@@ -79,6 +80,7 @@ let st =
     refresh = "";
     refreshes = 0;
     pds_calls = 0;
+    sub = did;
   }
 
 (* Verifies a proof and returns its claims. *)
@@ -155,7 +157,7 @@ let token_reply req =
     (Printf.sprintf
        ({|{"access_token":"%s","refresh_token":"%s","token_type":"DPoP",|}
       ^^ {|"sub":"%s","scope":"atproto","expires_in":3600}|})
-       st.access st.refresh did)
+       st.access st.refresh st.sub)
     req
 
 let server (req : Fetch.Middleware.request) =
@@ -332,6 +334,14 @@ let () =
            ~scope:"atproto"
            ~open_url:(browse ~sw ~net ~iss:"https://evil.test")
            ()));
+  (* A token for an account other than the one asked for is refused. *)
+  st.sub <- "did:plc:mallory";
+  check "other account refused"
+    (raises "Signed in as a different account" (fun () ->
+         Eio.Switch.run @@ fun sw ->
+         Xrpc_auth.Oauth.authorize ~net ~clock ~http ~plc ~identifier:did
+           ~scope:"atproto" ~open_url:(browse ~sw ~net) ()));
+  st.sub <- did;
   List.iter
     (fun full ->
       st.jwk <- None;
@@ -396,6 +406,22 @@ let () =
   | Some s -> check "saved rotated token" (s.refresh_jwt = "rt2")
   | None -> failwith "refresh not saved");
   check "session updated" ((Xrpc_auth.Oauth.session live).access_jwt = "at2");
+  (* A refresh that names another account is refused and not saved. *)
+  saved := None;
+  st.sub <- "did:plc:mallory";
+  let rotated = { expired with refresh_jwt = st.refresh } in
+  let live =
+    Xrpc_auth.Oauth.v ~clock ~http ~on_update:(fun s -> saved := Some s) rotated
+  in
+  let client = Xrpc.Client.of_fetch ~service:pds (Xrpc_auth.Oauth.http live) in
+  check "other account refresh refused"
+    (raises "Refreshed token names a different account" (fun () ->
+         Xrpc.Client.query client ~nsid:"com.atproto.server.getSession"
+           ~params:[] ~decoder:Jsont.json));
+  check "other account refresh not saved" (!saved = None);
+  check "other account refresh not adopted"
+    ((Xrpc_auth.Oauth.session live).refresh_jwt = rotated.refresh_jwt);
+  st.sub <- did;
   (* Requests to other origins carry nothing. *)
   let other =
     Fetch_mock.client (fun req ->

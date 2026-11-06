@@ -47,8 +47,13 @@ let test_jrd_roundtrip () =
       Alcotest.fail (Webfinger.error_to_string e)
   | Ok parsed ->
       Alcotest.(check (option string)) "subject" (Webfinger.Jrd.subject jrd) (Webfinger.Jrd.subject parsed);
-      Alcotest.(check int) "aliases count" (List.length (Webfinger.Jrd.aliases jrd)) (List.length (Webfinger.Jrd.aliases parsed));
-      Alcotest.(check int) "links count" (List.length (Webfinger.Jrd.links jrd)) (List.length (Webfinger.Jrd.links parsed))
+      Alcotest.(check (list string)) "aliases" (Webfinger.Jrd.aliases jrd) (Webfinger.Jrd.aliases parsed);
+      Alcotest.(check (list (pair string (option string)))) "properties"
+        (Webfinger.Jrd.properties jrd) (Webfinger.Jrd.properties parsed);
+      let link_fields l = Webfinger.Link.(rel l, type_ l, href l, titles l, properties l) in
+      Alcotest.(check bool) "links" true
+        (List.map link_fields (Webfinger.Jrd.links jrd)
+         = List.map link_fields (Webfinger.Jrd.links parsed))
 
 let test_jrd_minimal () =
   let json = {|{}|} in
@@ -138,9 +143,10 @@ let test_webfinger_url () =
     ~rels:["self"; "http://webfinger.net/rel/profile-page"]
     "example.com"
   in
-  Alcotest.(check bool) "URL has rel params"
-    true
-    (String.length url_with_rels > String.length url)
+  let rels = Uriz.query_params (Uriz.of_string_exn url_with_rels)
+    |> List.filter_map (fun (key, value) -> if key = "rel" then value else None) in
+  Alcotest.(check (list string)) "rel params in order"
+    ["self"; "http://webfinger.net/rel/profile-page"] rels
 
 let test_find_link () =
   let jrd = Webfinger.Jrd.make
@@ -289,6 +295,76 @@ let test_acct_webfinger_url () =
     "https://example.com/.well-known/webfinger?resource=acct:user@example.com"
     url
 
+(** {1 HTTP Client Tests (RFC 7033 Section 4)} *)
+
+let jrd_body = {|{"subject":"acct:user@example.com","links":[{"rel":"self","href":"https://example.com/u"}]}|}
+
+let with_fetch handler f =
+  Eio_mock.Backend.run_full @@ fun _env -> f (Fetch_mock.client handler)
+
+let test_query_request () =
+  let seen = ref [] in
+  with_fetch (fun req ->
+      seen := (Fetch.Middleware.Url.to_string req.url,
+               Http.Header.get req.headers "accept") :: !seen;
+      Fetch_mock.respond jrd_body req)
+  @@ fun fetch ->
+  let jrd = Webfinger.query fetch ~resource:"acct:user@example.com"
+      ~rels:["self"] () in
+  Alcotest.(check (option string)) "subject decoded"
+    (Some "acct:user@example.com")
+    (Result.to_option jrd |> Fun.flip Option.bind Webfinger.Jrd.subject);
+  match !seen with
+  | [ (url, accept) ] ->
+      Alcotest.(check string) "HTTPS well-known URL on the resource host"
+        "https://example.com/.well-known/webfinger?resource=acct:user@example.com&rel=self"
+        url;
+      Alcotest.(check bool) "requests a JRD" true
+        (match accept with
+         | Some a -> String.is_substring ~sub:"application/jrd+json" a
+         | None -> false)
+  | l -> Alcotest.failf "expected one request, got %d" (List.length l)
+
+let test_query_status () =
+  let status_result status =
+    with_fetch (fun req -> Fetch_mock.respond ~status "oops" req) @@ fun fetch ->
+    Webfinger.query fetch ~resource:"acct:user@example.com" ()
+  in
+  Alcotest.(check bool) "404 is Not_found" true
+    (match status_result 404 with Error Webfinger.Not_found -> true | _ -> false);
+  Alcotest.(check bool) "500 is an HTTP error with its body" true
+    (match status_result 500 with
+     | Error (Webfinger.Http_error { status = 500; body = "oops" }) -> true
+     | _ -> false);
+  Alcotest.(check bool) "malformed JRD is an error" true
+    (Result.is_error
+       (with_fetch (fun req -> Fetch_mock.respond "not json" req) @@ fun fetch ->
+        Webfinger.query fetch ~resource:"acct:user@example.com" ()))
+
+let test_query_invalid_resource () =
+  let calls = ref 0 in
+  with_fetch (fun req -> incr calls; Fetch_mock.respond jrd_body req)
+  @@ fun fetch ->
+  Alcotest.(check bool) "invalid resource is an error" true
+    (Result.is_error (Webfinger.query fetch ~resource:"acct:noatsign" ()));
+  Alcotest.(check int) "no request for an invalid resource" 0 !calls
+
+let test_query_acct () =
+  let urls = ref [] in
+  with_fetch (fun req ->
+      urls := Fetch.Middleware.Url.to_string req.url :: !urls;
+      Fetch_mock.respond jrd_body req)
+  @@ fun fetch ->
+  let acct = Webfinger.Acct.of_string_exn "acct:user@Example.COM" in
+  ignore (Webfinger.query_acct_exn fetch acct ());
+  Alcotest.(check (list string)) "queries the account's host"
+    ["https://example.com/.well-known/webfinger?resource=acct:user@example.com"]
+    !urls;
+  Alcotest.check_raises "exn variant raises on 404"
+    (Webfinger.Webfinger_error Webfinger.Not_found) (fun () ->
+      with_fetch (fun req -> Fetch_mock.respond ~status:404 "" req) @@ fun fetch ->
+      ignore (Webfinger.query_acct_exn fetch acct ()))
+
 let () =
   Alcotest.run "webfinger" [
     "jrd", [
@@ -304,6 +380,12 @@ let () =
     "accessors", [
       Alcotest.test_case "find_link" `Quick test_find_link;
       Alcotest.test_case "link_title" `Quick test_link_title;
+    ];
+    "http", [
+      Alcotest.test_case "request" `Quick test_query_request;
+      Alcotest.test_case "status" `Quick test_query_status;
+      Alcotest.test_case "invalid resource" `Quick test_query_invalid_resource;
+      Alcotest.test_case "acct" `Quick test_query_acct;
     ];
     "acct", [
       Alcotest.test_case "basic" `Quick test_acct_basic;

@@ -2,12 +2,14 @@
  (name test_cross_protocol)
  (modules test_cross_protocol)
  (package jmap)
- (locks oracle)
+ (locks ../oracle)
  (deps
   (env_var IMAP_ORACLE_REQUIRED)
   (env_var IMAP_ORACLE_HOST)
   (env_var IMAP_ORACLE_PORT)
-  (env_var JMAP_ORACLE_URL))
+  (env_var JMAP_ORACLE_URL)
+  (env_var JMAP_ORACLE_USER)
+  (env_var JMAP_ORACLE_PASSWORD))
  (libraries
   oracle_harness
   imap

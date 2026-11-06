@@ -2,4 +2,11 @@
  (name test_contacts)
  (package jmap)
  (locks ../oracle)
+ (deps
+  (env_var JMAP_ORACLE_URL)
+  (env_var JMAP_ORACLE_LMTP)
+  (env_var JMAP_ORACLE_USER)
+  (env_var JMAP_ORACLE_USER2)
+  (env_var JMAP_ORACLE_PASSWORD)
+  (env_var JMAP_ORACLE_DOMAIN))
  (libraries oracle_harness jmap jmap.eio jscontact eio alcotest))

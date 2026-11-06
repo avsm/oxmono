@@ -46,8 +46,9 @@ JMAP_ORACLE_LMTP=localhost:18024 \
   dune build @test/oracle/sync/runtest --force
 ```
 
-`--force` matters: without it dune caches the last successful run and the
-tests never touch the server again. Replace `sync` with `smoke`, `email`,
+Dune reruns a suite when a `JMAP_ORACLE_*` variable changes. With unchanged
+variables it reuses the last successful run, so pass `--force` to contact the
+server again. Replace `sync` with `smoke`, `email`,
 `submission`, `push`, … to run one area, or use `@test/oracle/runtest` for
 all of them.
 

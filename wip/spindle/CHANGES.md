@@ -6,6 +6,14 @@
 
 ## Unreleased
 
+- Keep durable workflows running through store errors, retrying the
+  affected workflow later instead of stopping the worker pool.
+- Refuse manual run inputs whose keys are not variable names, repeat a key,
+  or whose values exceed 4 KiB or hold NUL, and at most 32 inputs.
+- Do not charge CI minutes for time spent waiting for a runner slot.
+- Keep workflow logs only in the journal, so persisting a pipeline no
+  longer re-encodes every log event.
+
 - Give each repository a share of 8 of the 32 pipelines that may have work
   to do at once, so that one repository's pushes cannot hold back the
   others, and refuse a blocked pipeline for a repository that already has

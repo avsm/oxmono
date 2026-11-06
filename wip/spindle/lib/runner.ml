@@ -483,7 +483,18 @@ let message = function
 let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
     ?(watch = fun _ -> []) ?(finished = fun () -> []) ?(queued_for = ignore)
     ?(interruptible = false) p =
-  Eio.Semaphore.acquire state.slots;
+  let seconds () =
+    Int64.to_float
+      (Mtime.to_uint64_ns (Eio.Time.Mono.now state.system#mono_clock))
+    /. 1e9
+  in
+  (* Time spent waiting for a slot is not charged. *)
+  let acquire () =
+    let began = seconds () in
+    Eio.Semaphore.acquire state.slots;
+    queued_for (seconds () -. began)
+  in
+  acquire ();
   (* The slot is given up while the workflow waits for those it spawned, so
      that waiting workflows cannot occupy every slot their children need. *)
   let held = ref true in
@@ -496,7 +507,7 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
         held := false;
         Eio.Semaphore.release state.slots)
       ~acquire:(fun () ->
-        Eio.Semaphore.acquire state.slots;
+        acquire ();
         held := true)
   in
   let released f = Gate.run gate f in
@@ -518,12 +529,7 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
         state.executor
           (context record persist p ~secrets:input.secrets ~spawn ~await ~watch
              ~finished:(fun () -> List.map outcome (finished ()))
-             ~seconds:(fun () ->
-               Int64.to_float
-                 (Mtime.to_uint64_ns
-                    (Eio.Time.Mono.now state.system#mono_clock))
-               /. 1e9)
-             ~queued_for)
+             ~seconds ~queued_for)
           (request input p.job);
         Ok ()
       with

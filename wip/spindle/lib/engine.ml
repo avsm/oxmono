@@ -649,7 +649,17 @@ let serve ?(lease = 60.) t =
       (* Concurrency is limited by the runner's slots and the quotas, which
          waiting workflows give up, so the pool itself does not limit it. *)
       Duraml_client.Queue.start ~sw:t.sw ~mono_clock:t.runner.system#mono_clock
-        ~concurrency:1024 ~lease ~max_attempts:(max_restarts + 2) queue
+        ~concurrency:1024 ~lease ~max_attempts:(max_restarts + 2)
+        ~on_exn:(fun exn ->
+          (* A store error must not stop every durable workflow. The job
+             runs again later, as after a restart. *)
+          Printf.eprintf "spindle: durable workflow: %s\n%!"
+            (Printexc.to_string exn);
+          let at = Eio.Time.now t.runner.system#clock +. 30. in
+          Duraml_client.Completion.retry
+            ~at:(Option.get (Ptime.of_float_s at))
+            ~reason:"spindle error")
+        queue
         (fun ~sw:_ key ->
           (match parse_key key with
           | None -> ()
@@ -849,6 +859,15 @@ let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
         ("TANGLED_PR_SOURCE_SHA", commit);
       ]
 
+let max_inputs = 32
+
+let input_key key =
+  String.length key >= 1
+  && String.length key <= 64
+  && String.for_all
+       (function 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true | _ -> false)
+       key
+
 let create t ?dedup ?(changed_files = []) ?(default_ref = false)
     ?(blocked = false) ?(untrusted = false) ?principal ~automatic ~actor request
     =
@@ -890,13 +909,26 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false)
           then invalid "invalid pull request action")
         (field "action" trigger)
   | Job.Manual ->
+      (* Each input becomes a variable named after its key. *)
       Option.iter
         (fun inputs ->
-          List.iter
-            (fun pair ->
-              ignore (get "key" pair);
-              ignore (get "value" pair))
-            (list inputs))
+          let inputs = list inputs in
+          if List.length inputs > max_inputs then
+            invalid (Printf.sprintf "at most %d inputs" max_inputs);
+          let keys =
+            List.map
+              (fun pair ->
+                let key = get "key" pair and value = get "value" pair in
+                if not (input_key key) then
+                  invalid
+                    "input keys must be 1 to 64 ASCII letters, digits or _";
+                if String.length value > 4096 || String.contains value '\000'
+                then invalid "input values must be at most 4 KiB, without NUL";
+                String.uppercase_ascii key)
+              inputs
+          in
+          if List.length keys <> List.length (List.sort_uniq compare keys) then
+            invalid "duplicate input key")
         (field "inputs" trigger));
   let source_did =
     match field "sourceRepo" trigger with

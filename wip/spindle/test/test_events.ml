@@ -276,6 +276,34 @@ let () =
         ("inputs", arr [ obj [ ("key", str "spawn"); ("value", str "child") ] ]);
       ]
   in
+  (* An input becomes a variable named after its key, so a key that is not
+     a variable name is refused. *)
+  List.iter
+    (fun inputs ->
+      let trigger =
+        obj
+          [
+            ("$type", str Engine.manual);
+            ("commit", str (String.make 40 'a'));
+            ( "inputs",
+              arr
+                (List.map
+                   (fun (k, v) -> obj [ ("key", str k); ("value", str v) ])
+                   inputs) );
+          ]
+      in
+      match
+        Engine.create engine ~automatic:false ~actor:owner
+          (obj [ ("repo", str repo); ("trigger", trigger) ])
+      with
+      | _ -> failwith "invalid manual inputs were accepted"
+      | exception J.Invalid _ -> ())
+    [
+      [ ("A=B", "x") ];
+      [ ("", "x") ];
+      [ ("ok", "a\000b") ];
+      [ ("key", "1"); ("KEY", "2") ];
+    ];
   let id =
     Engine.create engine ~automatic:false ~actor:owner
       (obj [ ("repo", str repo); ("trigger", spawner) ])

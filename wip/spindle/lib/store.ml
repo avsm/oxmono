@@ -159,6 +159,14 @@ let pages t ~where ~args ~descending ~init ~f =
   in
   go None init
 
+let list_prefix t namespace prefix =
+  (* Keys in [prefix, prefix ^ "\255") are those that start with [prefix],
+     as keys are UTF-8 text, which has no byte 255. *)
+  pages t ~where:"namespace=? AND key>=? AND key<?"
+    ~args:[ text namespace; text prefix; text (prefix ^ "\255") ]
+    ~descending:false ~init:[] ~f:(fun acc row -> row :: acc)
+  |> List.rev
+
 let fold t namespace ?(descending = false) ~init ~f () =
   pages t ~where:"namespace=?" ~args:[ text namespace ] ~descending ~init ~f
 
@@ -502,6 +510,10 @@ let prune t ~now (policy : Operations.t) =
         | [ r ] -> (Sqlite3.Data.to_int_exn r.(0), Sqlite3.Data.to_int_exn r.(1))
         | _ -> assert false
       in
+      (* Candidates are visited oldest first, and removing one only lowers
+         the count and size, so none after the first kept is removed. Each
+         page therefore starts at the oldest remaining candidate, and the
+         first kept candidate ends the pass. *)
       let rec pipelines count bytes removed =
         let candidates =
           rows t
@@ -509,15 +521,16 @@ let prune t ~now (policy : Operations.t) =
            ^ " ORDER BY a.updated,v.key LIMIT 128")
             []
         in
-        let count, bytes, removed, progress =
+        let count, bytes, removed, kept =
           transaction t (fun () ->
               List.fold_left
-                (fun (count, bytes, removed, progress) row ->
+                (fun ((count, bytes, removed, kept) as acc) row ->
                   let expired =
                     Sqlite3.Data.to_float_exn row.(1)
                     < now -. float_of_int (policy.history_days * 86400)
                   in
-                  if
+                  if kept then acc
+                  else if
                     expired
                     || count > policy.history_limit
                     || bytes > policy.history_megabytes * 1024 * 1024
@@ -528,27 +541,30 @@ let prune t ~now (policy : Operations.t) =
                     ( count - 1,
                       bytes - Sqlite3.Data.to_int_exn row.(2),
                       removed + 1,
-                      true ))
-                  else (count, bytes, removed, progress))
+                      false ))
+                  else (count, bytes, removed, true))
                 (count, bytes, removed, false)
                 candidates)
         in
-        if progress then pipelines count bytes removed else removed
+        if kept || candidates = [] then removed
+        else pipelines count bytes removed
       in
       let pipelines = pipelines count bytes 0 in
-      let rec receipts removed =
-        let count, _, _ = usage_unlocked t "done" in
+      (* Receipts are visited oldest first, so the first kept ends the pass,
+         as for pipelines. *)
+      let rec receipts count removed =
         let candidates =
           rows t
             {|SELECT kv.key,age.updated FROM kv JOIN age USING(namespace,key)
           WHERE namespace='done' ORDER BY age.updated,kv.key LIMIT 128|}
             []
         in
-        let _, removed, progress =
+        let count, removed, kept =
           transaction t (fun () ->
               List.fold_left
-                (fun (count, removed, progress) row ->
-                  if
+                (fun ((count, removed, kept) as acc) row ->
+                  if kept then acc
+                  else if
                     count > policy.receipt_limit
                     || Sqlite3.Data.to_float_exn row.(1)
                        < now -. float_of_int (policy.receipt_days * 86400)
@@ -582,13 +598,16 @@ let prune t ~now (policy : Operations.t) =
                     remove_unlocked t "rejected" key;
                     execute t "DELETE FROM event_position WHERE key=?"
                       [ text key ];
-                    (count - 1, removed + 1, true))
-                  else (count, removed, progress))
+                    (count - 1, removed + 1, false))
+                  else (count, removed, true))
                 (count, removed, false) candidates)
         in
-        if progress then receipts removed else removed
+        if kept || candidates = [] then removed else receipts count removed
       in
-      let receipts = receipts 0 in
+      let receipts =
+        let count, _, _ = usage_unlocked t "done" in
+        receipts count 0
+      in
       transaction t (fun () ->
           execute t "DELETE FROM replay WHERE expires<=?"
             [ Sqlite3.Data.FLOAT now ];

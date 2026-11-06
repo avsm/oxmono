@@ -205,7 +205,8 @@ let client_key ~now directory =
 let idle = 2. *. 3600.
 
 (* Expired sessions and logins are swept away, since a session is otherwise
-   removed only when its own cookie comes back. *)
+   removed only when its own cookie comes back. Anyone may log in, so a
+   user's cached repositories go once unchecked for 30 days. *)
 let sweep t =
   let now = Eio.Time.now t.clock in
   let ended r =
@@ -223,7 +224,13 @@ let sweep t =
       match decode login_jsont raw with
       | Some l when Oauth.pending_expires_at l.pending > now -> ()
       | _ -> Store.delete t.store "web-login" key)
-    (Store.list t.store "web-login")
+    (Store.list t.store "web-login");
+  Store.fold t.store others_ns ~init:()
+    ~f:(fun () (user, raw) ->
+      match decode_others raw with
+      | Some o when o.checked +. (30. *. 86400.) > now -> ()
+      | _ -> Store.delete t.store others_ns user)
+    ()
 
 let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
     env =

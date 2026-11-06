@@ -1,5 +1,6 @@
 (** Hermetic tests for the historical initial-sync and event-stream APIs. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Peeking = Matrix_client.Peeking
 module Id = Matrix_proto.Id
@@ -11,29 +12,6 @@ let mock_env =
     method secure_random =
       Eio.Flow.string_source (String.init 4096 (fun i -> Char.chr (i land 255)))
   end
-
-type recorded = { meth : string; url : string; body : string option }
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
-let mock handler =
-  let log = ref [] in
-  let fetch =
-    Fetch_mock.client (fun req ->
-        log :=
-          {
-            meth = Http.Method.to_string req.meth;
-            url = Fetch.Middleware.Url.to_string req.url;
-            body = body_of_request req;
-          }
-          :: !log;
-        handler req)
-  in
-  (log, fetch)
 
 let client_of fetch =
   let config =

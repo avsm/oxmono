@@ -13,6 +13,7 @@
     system CSPRNG, so a failure reproduces exactly; each machine gets its own
     seed so that two "identical" devices do not accidentally share keys. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
 module Encryption = Matrix_client.Encryption
@@ -63,29 +64,6 @@ let mock_env =
   object
     method secure_random = Eio.Flow.string_source (keystream "env" 65_536)
   end
-
-type recorded = { meth : string; url : string; body : string option }
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
-let mock handler =
-  let log = ref [] in
-  let client =
-    Fetch_mock.client (fun (req : Fetch.Middleware.request) ->
-        log :=
-          {
-            meth = Http.Method.to_string req.meth;
-            url = Fetch.Middleware.Url.to_string req.url;
-            body = body_of_request req;
-          }
-          :: !log;
-        handler req)
-  in
-  (log, client)
 
 let test_session : Client.session =
   {

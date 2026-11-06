@@ -16,6 +16,7 @@
     {!Matrix_client.Auth.get_login_token}, are driven through a [Fetch_mock]
     client so the assertions run on the bytes that leave the library. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
 module Auth = Matrix_client.Auth
@@ -106,25 +107,11 @@ let mock_env =
     method secure_random = Eio.Flow.string_source (String.make 32 '\000')
   end
 
-type recorded = { meth : string; url : string; body : string option }
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
 let mock handler =
   let log = ref [] in
   let client =
     Fetch_mock.client (fun (req : Fetch.Middleware.request) ->
-        log :=
-          {
-            meth = Http.Method.to_string req.meth;
-            url = Fetch.Middleware.Url.to_string req.url;
-            body = body_of_request req;
-          }
-          :: !log;
+        record log req;
         if
           String.ends_with ~suffix:"/_matrix/client/versions"
             (Fetch.Middleware.Url.to_string req.url)

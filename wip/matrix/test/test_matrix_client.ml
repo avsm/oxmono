@@ -11,6 +11,7 @@
     points XDG at a temporary directory; the explicit-root test does not touch
     the XDG environment. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Auth = Matrix_client.Auth
 module Rooms = Matrix_client.Rooms
@@ -36,38 +37,6 @@ let mock_env =
     method secure_random =
       Eio.Flow.string_source (String.init 4096 (fun i -> Char.chr (i land 255)))
   end
-
-(* One recorded exchange as the backend saw it. *)
-type recorded = {
-  meth : string;
-  url : string;
-  headers : Http.Header.t;
-  body : string option;  (** [None] for a request with no body. *)
-}
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
-(* [mock handler] is a client that records each request and answers it with
-   [handler]. Recorded requests come back oldest first. *)
-let mock handler =
-  let log = ref [] in
-  let client =
-    Fetch_mock.client (fun (req : Fetch.Middleware.request) ->
-        log :=
-          {
-            meth = Http.Method.to_string req.meth;
-            url = Fetch.Middleware.Url.to_string req.url;
-            headers = req.headers;
-            body = body_of_request req;
-          }
-          :: !log;
-        handler req)
-  in
-  (log, client)
 
 let default_homeserver = "https://hs.example"
 let user_agent = "matrix-test/1.0"

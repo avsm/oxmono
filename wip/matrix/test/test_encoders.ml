@@ -21,6 +21,7 @@
       row fail, so the bug class cannot come back silently. Add a row whenever a
       new body-carrying endpoint lands. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
 module Account = Matrix_client.Account
@@ -63,27 +64,6 @@ let mock_env =
     method secure_random =
       Eio.Flow.string_source (String.init 4096 (fun i -> Char.chr (i land 255)))
   end
-
-type recorded = {
-  meth : string;
-  url : string;
-  body : string option;  (** [None] for a request with no body. *)
-}
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
-let record log (req : Fetch.Middleware.request) =
-  log :=
-    {
-      meth = Http.Method.to_string req.meth;
-      url = Fetch.Middleware.Url.to_string req.url;
-      body = body_of_request req;
-    }
-    :: !log
 
 let mock handler =
   let log = ref [] in

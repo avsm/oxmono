@@ -10,6 +10,7 @@
     The [Fetch_mock] harness is the one [test_matrix_client.ml] uses, copied
     rather than shared so the files stay independent. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
 module Oauth = Matrix_client.Oauth
@@ -30,34 +31,11 @@ let mock_env =
     method secure_random = Eio.Flow.string_source (String.make 4096 '\000')
   end
 
-type recorded = {
-  meth : string;
-  url : string;
-  headers : Http.Header.t;
-  body : string option;
-}
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
 (* Read a form-encoded request body back as an ordered assoc list. *)
 let form_of body =
   List.map
     (fun (key, value) -> (key, Option.value ~default:"" value))
     (Uriz.query_params ~plus_as_space:true (Uriz.make ~query:body ()))
-
-let record log (req : Fetch.Middleware.request) =
-  log :=
-    {
-      meth = Http.Method.to_string req.meth;
-      url = Fetch.Middleware.Url.to_string req.url;
-      headers = req.headers;
-      body = body_of_request req;
-    }
-    :: !log
 
 (* A client that answers a scripted sequence of [(status, body)] pairs, one
    per request, in order. *)

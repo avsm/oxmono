@@ -11,6 +11,7 @@
     Python's [hashlib]/[cryptography], so they check this implementation against
     another rather than against itself. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
 module Backup = Matrix_client.Backup
@@ -37,29 +38,6 @@ let mock_env =
   object
     method secure_random = Eio.Flow.string_source (String.make 4096 '\000')
   end
-
-type recorded = { meth : string; url : string; body : string option }
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
-let mock handler =
-  let log = ref [] in
-  let client =
-    Fetch_mock.client (fun (req : Fetch.Middleware.request) ->
-        log :=
-          {
-            meth = Http.Method.to_string req.meth;
-            url = Fetch.Middleware.Url.to_string req.url;
-            body = body_of_request req;
-          }
-          :: !log;
-        handler req)
-  in
-  (log, client)
 
 let uid s = Result.get_ok (Id.User_id.of_string s)
 let did s = Result.get_ok (Id.Device_id.of_string s)

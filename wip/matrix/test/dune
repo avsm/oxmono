@@ -16,8 +16,8 @@
 (library
  (name test_support)
  (wrapped false)
- (modules vodozemac_oracle_client)
- (libraries matrix-chat.proto jsont jsont.bytesrw unix))
+ (modules vodozemac_oracle_client recording)
+ (libraries matrix-chat.proto fetch fetch.mock http jsont jsont.bytesrw unix))
 
 (rule
  (alias runtest)
@@ -45,6 +45,7 @@
  (name test_peeking)
  (modules test_peeking)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.proto
   alcotest
@@ -230,7 +231,9 @@
 (executable
  (name test_matrix_client)
  (modules test_matrix_client)
- (libraries duration
+ (libraries
+  test_support
+  duration
   matrix-chat.client
   matrix-chat.proto
   alcotest
@@ -359,6 +362,7 @@
  (name test_sliding_sync)
  (modules test_sliding_sync)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.eio
   matrix-chat.proto
@@ -540,6 +544,7 @@
  (name test_cs_api)
  (modules test_cs_api)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.proto
   alcotest
@@ -608,6 +613,7 @@
  (name test_e2ee_api)
  (modules test_e2ee_api)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.proto
   alcotest
@@ -657,6 +663,7 @@
  (name test_encoders)
  (modules test_encoders)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.proto
   alcotest
@@ -679,6 +686,7 @@
  (name test_oauth)
  (modules test_oauth)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.eio
   matrix-chat.proto
@@ -724,6 +732,7 @@
  (name test_encryption)
  (modules test_encryption)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.proto
   alcotest
@@ -772,6 +781,7 @@
  (name test_base_client)
  (modules test_base_client)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.ui.sqlite
   matrix-chat.proto
@@ -886,6 +896,7 @@
  (name test_json_safety)
  (modules test_json_safety)
  (libraries
+  test_support
   matrix-chat.client
   matrix-chat.proto
   alcotest

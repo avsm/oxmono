@@ -9,6 +9,7 @@
     store round trip needs a real filesystem and runs under [Eio_main.run]
     against a temporary directory. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
 module Push_evaluator = Matrix_client.Push_evaluator
@@ -35,23 +36,6 @@ let mock_env =
   object
     method secure_random = Eio.Flow.string_source (String.make 4096 'r')
   end
-
-type recorded = { meth : string; url : string; body : string option }
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
-let record log (req : Fetch.Middleware.request) =
-  log :=
-    {
-      meth = Http.Method.to_string req.meth;
-      url = Fetch.Middleware.Url.to_string req.url;
-      body = body_of_request req;
-    }
-    :: !log
 
 (* A client answering a scripted sequence of handlers, one per request. *)
 let mock_seq handlers =

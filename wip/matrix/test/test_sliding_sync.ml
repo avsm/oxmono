@@ -8,6 +8,7 @@
     harness is copied from [test/test_matrix_client.ml] rather than shared, so
     that neither test constrains the other. *)
 
+open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
 module Ss = Matrix_client.Sliding_sync
@@ -25,29 +26,6 @@ let mock_env =
   object
     method secure_random = Eio.Flow.string_source (String.make 4096 '\007')
   end
-
-type recorded = { url : string; meth : string; body : string option }
-
-let body_of_request (req : Fetch.Middleware.request) =
-  match req.body with
-  | Fetch.Empty -> None
-  | Fetch.String s -> Some s
-  | Fetch.Stream _ -> Some "<stream>"
-
-let mock handler =
-  let log = ref [] in
-  let client =
-    Fetch_mock.client (fun (req : Fetch.Middleware.request) ->
-        log :=
-          {
-            url = Fetch.Middleware.Url.to_string req.url;
-            meth = Http.Method.to_string req.meth;
-            body = body_of_request req;
-          }
-          :: !log;
-        handler req)
-  in
-  (log, client)
 
 let requests log = List.rev !log
 

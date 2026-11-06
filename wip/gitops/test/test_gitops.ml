@@ -65,5 +65,43 @@ let () =
             { Gitops.Sync.Config.default with remote = root ^ "/absent.git" }
           in
           refuses (fun () -> Gitops.Sync.pull git ~config ~repo);
-          refuses (fun () -> Gitops.Sync.push git ~config ~repo ())));
-  print_endline "Gitops query, commit and synchronization failures passed"
+          refuses (fun () -> Gitops.Sync.push git ~config ~repo ());
+          let head () = Gitops.rev_parse git ~repo "HEAD" in
+          let before = head () in
+          let dry = Gitops.v ~dry_run:true env in
+          write "note" "dry";
+          Gitops.add_all dry ~repo;
+          Gitops.commit dry ~repo ~msg:"dry";
+          check "dry run leaves HEAD" (head () = before);
+          check "dry run leaves index" (Gitops.status git ~repo = `Dirty);
+          check "status lists modified file"
+            (Gitops.status_files git ~repo = [ " M note" ]);
+          run [ "checkout"; "--"; "note" ];
+          check "clean status" (Gitops.status git ~repo = `Clean);
+          (* Round trip through a local bare remote. *)
+          let remote = Filename.concat root "remote.git" in
+          let a = Filename.concat root "a" and b = Filename.concat root "b" in
+          let path p = Eio.Path.(env#fs / p) in
+          run [ "init"; "--bare"; "--initial-branch=main"; remote ];
+          run [ "init"; "--initial-branch=main"; a ];
+          let config = { Gitops.Sync.Config.default with remote } in
+          write "a/one" "1";
+          check "first push publishes"
+            (Gitops.Sync.push git ~config ~repo:(path a) ());
+          check "clean push is a no-op"
+            (not (Gitops.Sync.push git ~config ~repo:(path a) ()));
+          Gitops.clone git ~url:remote ~target:(path b);
+          check "clone is a repository" (Gitops.is_repo git ~repo:(path b));
+          write "b/two" "2";
+          check "second clone pushes"
+            (Gitops.Sync.push git ~config ~repo:(path b) ());
+          check "pull merges remote change"
+            (Gitops.Sync.pull git ~config ~repo:(path a));
+          check "pulled file present"
+            (Sys.file_exists (Filename.concat a "two"));
+          check "repeated pull is a no-op"
+            (not (Gitops.Sync.pull git ~config ~repo:(path a)));
+          check "heads agree"
+            (Gitops.rev_parse git ~repo:(path a) "HEAD"
+            = Gitops.rev_parse git ~repo:(path b) "HEAD")));
+  print_endline "Gitops queries, commits, dry runs and synchronization passed"

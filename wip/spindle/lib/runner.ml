@@ -99,7 +99,6 @@ let snapshot p =
   obj
     ([
        ("workflow", view p);
-       ("events", arr (List.rev p.events));
        ( "steps",
          arr
            (List.map
@@ -171,7 +170,9 @@ let restore ?(resume = false) raw =
   p.started <- Option.map string (field "startedAt" workflow);
   p.finished <- Option.map string (field "finishedAt" workflow);
   p.error <- Option.map string (field "error" workflow);
-  p.events <- List.rev (list (required "events" raw));
+  (* Snapshots hold no events, which stay in the store's journal, except
+     those written before the journal kept them all. *)
+  p.events <- List.rev (Option.fold ~none:[] ~some:list (field "events" raw));
   p.log_bytes <-
     List.fold_left (fun n e -> n + String.length (encode e)) 0 p.events;
   if interrupted raw then

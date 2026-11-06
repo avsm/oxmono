@@ -223,7 +223,7 @@ let advance t ~source ~cursor =
           WHERE CAST(excluded.value AS INTEGER)>CAST(kv.value AS INTEGER)|}
         [ text source; text cursor ])
 
-let batch_unlocked ?(logs = []) t ~puts ~deletes =
+let batch_unlocked t ~puts ~deletes =
   check (Sqlite3_eio.exec t.db "BEGIN IMMEDIATE");
   match
     List.iter
@@ -240,12 +240,6 @@ let batch_unlocked ?(logs = []) t ~puts ~deletes =
            CONFLICT(namespace,key) DO UPDATE SET value=excluded.value"
           [ text ns; text key; text value ])
       puts;
-    List.iter
-      (fun (pipeline, workflow, seq) ->
-        execute t
-          "DELETE FROM workflow_log WHERE pipeline=? AND workflow=? AND seq<=?"
-          [ text pipeline; text workflow; Sqlite3.Data.INT seq ])
-      logs;
     check (Sqlite3_eio.exec t.db "COMMIT")
   with
   | () -> ()
@@ -253,8 +247,8 @@ let batch_unlocked ?(logs = []) t ~puts ~deletes =
       ignore (Sqlite3_eio.exec t.db "ROLLBACK");
       raise ex
 
-let batch ?(logs = []) t ~puts ~deletes =
-  locked t (fun () -> batch_unlocked t ~logs ~puts ~deletes)
+let batch t ~puts ~deletes =
+  locked t (fun () -> batch_unlocked t ~puts ~deletes)
 
 let append_log t ~pipeline ~workflow value =
   locked t (fun () ->

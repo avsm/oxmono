@@ -93,15 +93,10 @@ let () =
       let later =
         Store.append_log store ~pipeline:"id" ~workflow:"job" "later"
       in
-      (* A snapshot captured before an append must leave that append in the
-         journal, even when it commits after the append. *)
-      Store.batch
-        ~logs:[ ("id", "job", first) ]
-        store
-        ~puts:[ ("pipeline", "id", "result") ]
-        ~deletes:[];
+      Store.batch store ~puts:[ ("pipeline", "id", "result") ] ~deletes:[];
       assert (
-        Store.logs store ~pipeline:"id" ~workflow:"job" = [ (later, "later") ]));
+        Store.logs store ~pipeline:"id" ~workflow:"job"
+        = [ (first, "first"); (later, "later") ]));
   Eio.Switch.run (fun sw ->
       let store = Store.open_ ~sw directory in
       assert (not (consume store "issuer-a" "nonce"));
@@ -111,13 +106,12 @@ let () =
       assert (Store.get store "pipeline" "id" = Some "result");
       let seq =
         match Store.logs store ~pipeline:"id" ~workflow:"job" with
-        | [ (seq, "later") ] -> seq
+        | [ _; (seq, "later") ] -> seq
         | _ -> assert false
       in
-      Store.batch ~logs:[ ("id", "job", seq) ] store ~puts:[] ~deletes:[];
+      Store.delete_logs store ~pipeline:"id" ~workflow:"job";
       let next = Store.append_log store ~pipeline:"id" ~workflow:"job" "next" in
       assert (next > seq);
-      Store.batch ~logs:[ ("id", "job", seq) ] store ~puts:[] ~deletes:[];
       assert (
         Store.logs store ~pipeline:"id" ~workflow:"job" = [ (next, "next") ]);
       Store.delete store "pipeline" "id";

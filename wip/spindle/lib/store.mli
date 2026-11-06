@@ -106,18 +106,17 @@ val complete :
     deletes a task only if its generation is still [value]. *)
 
 val batch :
-  ?logs:(string * string * int64) list ->
   t ->
   puts:(string * string * string) list ->
   deletes:(string * string) list ->
   unit
 (** [batch store ~puts ~deletes] applies all mutations atomically. Tuples name
-    the namespace, key and, for writes, value. [logs] acknowledges journal
-    entries through each pipeline/workflow sequence included in a snapshot. *)
+    the namespace, key and, for writes, value. *)
 
 val append_log : t -> pipeline:string -> workflow:string -> string -> int64
 (** [append_log store ~pipeline ~workflow event] durably appends [event] and
-    returns its sequence. Sequences are never reused after compaction. *)
+    returns its sequence. Sequences are never reused. A workflow's journal
+    is its log, kept until its pipeline is deleted. *)
 
 val delete_logs : t -> pipeline:string -> workflow:string -> unit
 (** [delete_logs t ~pipeline ~workflow] removes every log event of a workflow,

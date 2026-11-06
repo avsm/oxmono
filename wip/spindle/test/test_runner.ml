@@ -344,9 +344,7 @@ let () =
           event
       in
       let persist () =
-        Store.batch
-          ~logs:[ (input.id, workflow.job.name, workflow.log_seq) ]
-          store ~deletes:[]
+        Store.batch store ~deletes:[]
           ~puts:[ ("pipeline", input.id, J.encode (Runner.snapshot workflow)) ]
       in
       let contains events =
@@ -380,16 +378,19 @@ let () =
               let snapshot =
                 J.decode (Option.get (Store.get reopened "pipeline" input.id))
               in
-              assert (not (contains (J.list (J.required "events" snapshot)))));
+              assert (J.field "events" snapshot = None));
           Eio.Promise.resolve release_r ());
       assert (workflow.status = `Success);
+      (* The log stays in the journal, out of the snapshot. *)
       assert (
-        Store.logs store ~pipeline:input.id ~workflow:workflow.job.name = []);
+        Store.logs store ~pipeline:input.id ~workflow:workflow.job.name
+        |> List.map (fun (_, raw) -> J.decode raw)
+        |> contains);
       let restored =
         Runner.restore
           (J.decode (Option.get (Store.get store "pipeline" input.id)))
       in
-      assert (contains restored.events));
+      assert (restored.events = []));
   (* Snapshots from before the executor still restore. *)
   let old =
     J.obj

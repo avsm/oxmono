@@ -155,13 +155,8 @@ let persist t p =
     Lock.protect t.lock (fun () -> Hashtbl.remove t.pipelines p.id)
   else
     Lock.protect t.lock (fun () ->
-        let logs =
-          List.map
-            (fun (run : Runner.t) -> (p.id, run.job.name, run.log_seq))
-            p.workflows
-        in
         let finished = terminal p in
-        Store.batch ~logs t.store
+        Store.batch t.store
           ~puts:
             [
               ("pipeline", p.id, snapshot t p);

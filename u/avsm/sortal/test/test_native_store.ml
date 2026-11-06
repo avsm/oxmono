@@ -77,17 +77,25 @@ let transaction_test env () =
        with Invalid_argument _ -> ());
       check (read path = before) "expired transaction changed contact")
 
+(* [git_repo env root] makes [root] a repository with one commit and returns a
+   runner for git commands in it. The repository configuration overrides any
+   global identity, signing or hooks directory on the host. *)
+let git_repo env root =
+  let git args =
+    Eio.Process.run env#process_mgr ([ "git"; "-C"; root ] @ args)
+  in
+  git [ "init"; "-q" ];
+  git [ "config"; "user.name"; "Sortal tests" ];
+  git [ "config"; "user.email"; "sortal@example.test" ];
+  git [ "config"; "commit.gpgsign"; "false" ];
+  git [ "config"; "core.hooksPath"; ".git/hooks" ];
+  git [ "add"; "store.json"; "cards" ];
+  git [ "commit"; "-qm"; "Initial fixture" ];
+  git
+
 let git_transaction_test env () =
   fixture env (fun root path store ->
-      let git args =
-        Eio.Process.run env#process_mgr ([ "git"; "-C"; root ] @ args)
-      in
-      git [ "init"; "-q" ];
-      git [ "config"; "user.name"; "Sortal tests" ];
-      git [ "config"; "user.email"; "sortal@example.test" ];
-      git [ "config"; "commit.gpgsign"; "false" ];
-      git [ "add"; "store.json"; "cards" ];
-      git [ "commit"; "-qm"; "Initial fixture" ];
+      let git = git_repo env root in
       let hook = Filename.concat root ".git/hooks/pre-commit" in
       let waiting = Filename.concat root ".git/waiting"
       and release = Filename.concat root ".git/release" in
@@ -312,15 +320,7 @@ let () =
   Eio_main.run (fun env ->
       let git_test () =
         fixture env (fun root path store ->
-            let git args =
-              Eio.Process.run env#process_mgr ([ "git"; "-C"; root ] @ args)
-            in
-            git [ "init"; "-q" ];
-            git [ "config"; "user.name"; "Sortal tests" ];
-            git [ "config"; "user.email"; "sortal@example.test" ];
-            git [ "config"; "commit.gpgsign"; "false" ];
-            git [ "add"; "store.json"; "cards" ];
-            git [ "commit"; "-qm"; "Initial fixture" ];
+            let git = git_repo env root in
             let versioned = Sortal.Git_store.create store env in
             get_ok
               (Sortal.Git_store.update_contact versioned "ada"

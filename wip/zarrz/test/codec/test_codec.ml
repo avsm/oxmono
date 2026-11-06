@@ -436,6 +436,33 @@ let test_gzip_corrupt () =
   fails "magic" (flip 0);
   fails "trailer crc" (flip (String.length enc - 5))
 
+(* The output is bounded by the chunk the chain expects, whatever the
+   stream holds or its trailer claims. A megabyte of zeros compresses to
+   about a kilobyte, so decoding it as a small chunk must stop at the
+   chunk rather than inflate the lot. *)
+let test_gzip_wrong_size () =
+  let c = chain ~dtype:Dtype.Uint8 (gzip_json 9) in
+  let big = 1 lsl 20 in
+  let enc =
+    str
+      (Codec.encode_chunk c
+         (slab_of Dtype.Uint8 [| big |] (String.make big '\000')))
+  in
+  let fails what shape s =
+    Alcotest.(check bool)
+      what true
+      (match Codec.decode_chunk c (repr Dtype.Uint8 [| shape |]) (bs s) with
+      | _ -> false
+      | exception Error.E _ -> true)
+  in
+  fails "a stream larger than the chunk" 16 enc;
+  fails "a stream smaller than the chunk" (big + 1) enc;
+  (* A forged ISIZE that agrees with the chunk does not hide the extra
+     output. *)
+  let forged = Bytes.of_string enc in
+  Bytes.set_int32_le forged (Bytes.length forged - 4) 16l;
+  fails "a forged ISIZE" 16 (Bytes.to_string forged)
+
 (* A gzip member RFC 1952 section 2.3 describes, assembled by hand
    around the deflate stream and trailer of a real one. [flg] names the
    optional fields and [fields] carries them in the order the RFC gives:
@@ -512,6 +539,7 @@ let compressor_tests =
     ("zstd size errors", `Quick, test_zstd_size_errors);
     ("configuration", `Quick, test_compressor_config);
     ("gzip corruption", `Quick, test_gzip_corrupt);
+    ("gzip wrong size", `Quick, test_gzip_wrong_size);
   ]
 
 (* {1 The blosc codec}

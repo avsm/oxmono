@@ -384,6 +384,40 @@ let test_list_literal () =
       Alcotest.(check (option string)) "delimiter" (Some "/") x.delimiter
   | _ -> fail "expected LIST")
 
+let wire_error label expected = function
+  | Error (e : Imap.Wire.error) -> Alcotest.(check string) label expected e.message
+  | Ok _ -> fail (label ^ ": accepted")
+
+let test_wire_limits () =
+  let d=Imap.Wire.create ~max_control:16 () in
+  wire_error "control line limit" "control response exceeds limit"
+    (Imap.Wire.feed d "* OK this line is too long\r\n");
+  wire_error "control limit is sticky" "control response exceeds limit"
+    (Imap.Wire.finish d);
+  let d=Imap.Wire.create ~max_literal:4L () in
+  wire_error "literal limit" "literal exceeds limit"
+    (Imap.Wire.feed d "* 1 FETCH (BODY[] {5}\r\n");
+  let d=Imap.Wire.create ~max_literal:4L () in
+  let events=wire_ok (Imap.Wire.feed d "* 1 FETCH (BODY[] {4}\r\nabcd)\r\n") in
+  Alcotest.(check bool) "literal at the limit" true
+    (List.mem (Imap.Wire.Literal_start 4L) events);
+  wire_error "bare CR" "CR not followed by LF"
+    (Imap.Wire.feed (Imap.Wire.create ()) "* OK a\rb\r\n");
+  List.iter (fun (label,input,expected) ->
+    let d=Imap.Wire.create () in
+    ignore (wire_ok (Imap.Wire.feed d input));
+    wire_error label expected (Imap.Wire.finish d))
+    ["partial line","* OK partial","truncated response line";
+     "partial literal","* 1 FETCH (BODY[] {5}\r\nab","truncated literal";
+     "missing line after literal","* 1 FETCH (BODY[] {2}\r\nab",
+       "truncated response after literal"];
+  Alcotest.check_raises "control bound below 16"
+    (Invalid_argument "Imap.Wire.create")
+    (fun () -> ignore (Imap.Wire.create ~max_control:15 ()));
+  (match Imap.Wire.create ~max_literal:(-1L) () with
+   | exception Invalid_argument _ -> ()
+   | _ -> fail "negative literal bound accepted")
+
 let test_wire_errors () =
   (match Imap.Wire.feed (Imap.Wire.create ())
      "* 1 FETCH (BODY[] {99999999999999999999}\r\n" with
@@ -1345,6 +1379,13 @@ let test_bodystructure () =
   (match Imap.Response.fetch_bodystructure
     (row ("* 1 FETCH (BODYSTRUCTURE " ^ too_deep ^ ")\r\n")) with
    | Error _ -> () | Ok _ -> fail "deep BODYSTRUCTURE accepted");
+  let leaf="(\"TEXT\" \"PLAIN\" NIL NIL NIL \"7BIT\" 1 1)" in
+  List.iter (fun (depth,accepted) ->
+    Alcotest.(check bool) (Printf.sprintf "BODYSTRUCTURE depth %d" depth)
+      accepted
+      (Result.is_ok (Imap.Response.fetch_bodystructure
+        (row ("* 1 FETCH (BODYSTRUCTURE " ^ nested depth leaf ^ ")\r\n")))))
+    [16,true;17,false];
   let d=Imap.Wire.create () in
   let parts=wire_ok (Imap.Wire.feed d
     "* 1 FETCH (BODYSTRUCTURE (\"TEXT\" \"PLAIN\" (\"CHARSET\" {5}\r\nUTF-8) NIL NIL \"7BIT\" 12 2))\r\n") in
@@ -1813,6 +1854,8 @@ let () =
               Alcotest.test_case "BINARY literal" `Quick test_binary_literal;
               Alcotest.test_case "LIST literal" `Quick test_list_literal;
               Alcotest.test_case "framing errors" `Quick test_wire_errors;
+              Alcotest.test_case "framing limits and truncation" `Quick
+                test_wire_limits;
               Alcotest.test_case "invalid values" `Quick test_bad_values;
               Alcotest.test_case "command validation" `Quick
                 test_command_validation;

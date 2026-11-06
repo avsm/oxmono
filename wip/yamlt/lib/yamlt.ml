@@ -183,8 +183,10 @@ let rec decode_scalar_as : type a.
             err_type_mismatch d ev.span t ~fnd:("string " ^ value)
           else err_type_mismatch d ev.span t ~fnd:("scalar " ^ value))
   | Number map -> (
-      if (* Handle null -> nan mapping like jsont *)
-         is_null_scalar value then map.dec meta Float.nan
+      if
+        (* Handle null -> nan mapping like jsont *)
+        is_null_scalar value
+      then map.dec meta Float.nan
       else
         match float_of_scalar_opt value with
         | Some f -> map.dec meta f
@@ -372,15 +374,17 @@ and decode_array : type a elt b.
     | Some _ ->
         let i = !idx in
         (try
-           if array_map.dec_skip i !builder then
+           if array_map.dec_skip i !builder then begin
              (* Skip this element by decoding as ignore *)
              let _ : unit =
                decode d ~nest:(nest + 1) (Jsont.Repr.of_t Jsont.ignore)
              in
              ()
-           else
+           end
+           else begin
              let elt = decode d ~nest:(nest + 1) array_map.elt in
              builder := array_map.dec_add i elt !builder
+           end
          with Jsont.Error e ->
            Jsont.Repr.error_push_array meta array_map (i, Jsont.Meta.none) e);
         incr idx;
@@ -412,8 +416,7 @@ and decode_object : type o.
   check_nodes d;
   let meta = meta_of_span d start_ev.span in
   let dict =
-    decode_object_members d ~nest meta map (String_map.create ())
-      (Dict.empty ())
+    decode_object_members d ~nest meta map (String_map.create ()) (Dict.empty ())
   in
   let dict = Dict.add object_meta_arg meta dict in
   apply_dict map.dec dict
@@ -439,7 +442,8 @@ and decode_object_members : type o.
       decode_object_cases d ~nest obj_meta map umems cases mem_miss [] dict
 
 and init_unknown_builder : type o mems builder.
-    (o, mems, builder) unknown_mems -> builder = function
+    (o, mems, builder) unknown_mems -> builder =
+  function
   | Unknown_skip -> ()
   | Unknown_error -> ()
   | Unknown_keep (mmap, _) -> mmap.dec_empty ()
@@ -546,20 +550,22 @@ and decode_object_cases : type o cases (tag : value mod contended).
       match cases.tag.dec_absent with
       | Some make_tag ->
           decode_with_case_tag d ~nest obj_meta object_map umems cases
-            (make_tag ()) mem_miss delayed dict
+            (make_tag ())
+            mem_miss delayed dict
       | None ->
           (* Missing required case tag *)
           let exp = String_map.singleton cases.tag.name (Mem_dec cases.tag) in
           let fnd = List.map (fun ((n, _), _) -> n) delayed in
           Jsont.Repr.missing_mems_error obj_meta object_map ~exp ~fnd)
-  | Some ev -> (
+  | Some ev ->
       let name, name_meta = decode_mapping_key d ev in
-      if String.equal name cases.tag.name then
+      if String.equal name cases.tag.name then begin
         (* Found the case tag *)
         let tag = decode d ~nest:(nest + 1) cases.tag.type' in
         decode_with_case_tag d ~nest obj_meta object_map umems cases tag
           mem_miss delayed dict
-      else
+      end
+      else begin
         (* Not the case tag - check if known member or delay *)
         match String_map.find_opt name object_map.mem_decs with
         | Some (Mem_dec mem) -> (
@@ -577,7 +583,8 @@ and decode_object_cases : type o cases (tag : value mod contended).
             let v = decode d ~nest:(nest + 1) (Jsont.Repr.of_t Jsont.json) in
             let delayed = ((name, name_meta), v) :: delayed in
             decode_object_cases d ~nest obj_meta object_map umems cases mem_miss
-              delayed dict)
+              delayed dict
+      end
   | None -> err_msg obj_meta "Unclosed mapping"
 
 and decode_with_case_tag : type o cases (tag : value mod contended).
@@ -914,11 +921,12 @@ and encode_object : type o. encoder -> (o, o) object_map -> o -> unit =
   List.iter
     (fun (Mem_enc mem) ->
       let mem_v = mem.enc v in
-      if not (mem.enc_omit mem_v) then (
+      if not (mem.enc_omit mem_v) then begin
         (* Emit key *)
         emit e (scalar_event ~value:mem.name ~style:`Plain ());
         (* Emit value *)
-        encode e mem.type' mem_v))
+        encode e mem.type' mem_v
+      end)
     map.mem_encs;
   (* Handle unknown members (for as_string_map objects) *)
   (match map.shape with
@@ -938,16 +946,18 @@ and encode_object : type o. encoder -> (o, o) object_map -> o -> unit =
   | Object_cases (_, cases) ->
       let (Case_value (case_map, case_v)) = cases.enc_case (cases.enc v) in
       (* Emit case tag *)
-      if not (cases.tag.enc_omit case_map.tag) then (
+      if not (cases.tag.enc_omit case_map.tag) then begin
         emit e (scalar_event ~value:cases.tag.name ~style:`Plain ());
-        encode e cases.tag.type' case_map.tag);
+        encode e cases.tag.type' case_map.tag
+      end;
       (* Emit case members *)
       List.iter
         (fun (Mem_enc mem) ->
           let mem_v = mem.enc case_v in
-          if not (mem.enc_omit mem_v) then (
+          if not (mem.enc_omit mem_v) then begin
             emit e (scalar_event ~value:mem.name ~style:`Plain ());
-            encode e mem.type' mem_v))
+            encode e mem.type' mem_v
+          end)
         case_map.object_map.mem_encs);
   emit e Event.Mapping_end
 

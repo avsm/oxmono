@@ -32,7 +32,8 @@ val list_secrets : t -> string -> Jsont.json
 
 val add_secret : t -> repo:string -> by:string -> string -> string -> unit
 (** [add_secret t ~repo ~by key value] adds a secret. An existing key answers
-    [SecretAlreadyExists]. *)
+    [SecretAlreadyExists], and a repository that holds 100 already answers
+    [SecretLimitExceeded]. *)
 
 val remove_secret : t -> repo:string -> string -> unit
 (** [remove_secret t ~repo key] removes a secret. An absent key answers

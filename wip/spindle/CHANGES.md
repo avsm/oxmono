@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Change and delete webhooks under the hooks lock, so that an update cannot
+  bring back a deleted webhook. Allow at most 50 webhooks and 100 secrets
+  for a repository whatever its quotas, limit webhook URLs to 2 KiB and
+  their secrets to 256 bytes, and require a boolean `active`.
+
 - Decide whether an account may log in within the login's bounds, finding
   owners without asking a knot and stopping at the first repository it may
   see. Count pending logins without reading them, and refuse an

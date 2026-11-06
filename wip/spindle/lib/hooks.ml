@@ -61,6 +61,8 @@ let stamp t =
 
 let check_url t url =
   let url = String.trim url in
+  if String.length url > 2048 then
+    fail S.Bad_request "Generic" "URL is longer than 2048 bytes";
   let uri =
     try Httpz_uri.of_string_exn url
     with _ -> fail S.Bad_request "Generic" "invalid URL"
@@ -91,6 +93,17 @@ let check_url t url =
            fail S.Bad_request "Generic"
              "URL host is a reserved or private address");
   url
+
+(* A secret is repeated in every delivery's signature, so it is short. *)
+let check_secret s =
+  let s = String.trim s in
+  if String.length s > 256 then
+    fail S.Bad_request "Generic" "secret is longer than 256 bytes";
+  s
+
+(* Each webhook's deliveries are kept, so a repository has a bounded number
+   of them, whatever its quota. *)
+let max_per_repo = 50
 
 let check_events names =
   let names = List.sort_uniq compare (List.map String.trim names) in
@@ -159,8 +172,7 @@ let create t ~(repo : Catalog.repo) body =
     match field "active" body with Some (Jsont.Bool (b, _)) -> b | _ -> true
   in
   let secret =
-    Option.fold ~none:""
-      ~some:(fun s -> String.trim (string s))
+    Option.fold ~none:"" ~some:(fun s -> check_secret (string s))
       (field "secret" body)
   in
   Eio.Mutex.use_rw ~protect:true t.lock @@ fun () ->
@@ -171,8 +183,10 @@ let create t ~(repo : Catalog.repo) body =
     | Some limit -> n >= limit
     | None -> false
   in
+  let in_repo = count (fun w -> get "repo" w = repo.did) in
   if
-    over Settings.Repo repo.did (count (fun w -> get "repo" w = repo.did))
+    in_repo >= max_per_repo
+    || over Settings.Repo repo.did in_repo
     || over Settings.User repo.owner
          (count (fun w -> get "owner" w = repo.owner))
   then
@@ -205,7 +219,10 @@ let create t ~(repo : Catalog.repo) body =
       ];
   obj [ ("id", str (string_of_int next)) ]
 
+(* Changes read and write under the lock, so that one cannot bring back a
+   webhook another deletes, or record a delivery for one deleted. *)
 let update t ~repo body =
+  Eio.Mutex.use_rw ~protect:true t.lock @@ fun () ->
   let key, w = find t ~repo (get "webhook" body) in
   let set k v w = obj ((k, v) :: List.remove_assoc k (members w)) in
   let w =
@@ -216,11 +233,14 @@ let update t ~repo body =
   in
   let w =
     match field "secret" body with
-    | Some s -> set "secret" (str (String.trim (string s))) w
+    | Some s -> set "secret" (str (check_secret (string s))) w
     | None -> w
   in
   let w =
-    match field "active" body with Some a -> set "active" a w | None -> w
+    match field "active" body with
+    | Some (Jsont.Bool _ as a) -> set "active" a w
+    | Some _ -> fail S.Bad_request "Generic" "active must be a boolean"
+    | None -> w
   in
   let w =
     match strings "events" body with
@@ -235,6 +255,7 @@ let deliveries_of t key =
     (Store.list t.store "delivery")
 
 let delete t ~repo id =
+  Eio.Mutex.use_rw ~protect:true t.lock @@ fun () ->
   let key, _ = find t ~repo id in
   Store.batch t.store ~puts:[]
     ~deletes:

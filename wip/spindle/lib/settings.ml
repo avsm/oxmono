@@ -93,12 +93,19 @@ let check_secret ~key:k ~value =
           "secret value length must be between 1 and 4096")
     value
 
+(* Every secret goes to every workflow of its repository, so a repository
+   holds a bounded number of them. *)
+let max_secrets = 100
+
 let add_secret t ~repo ~by k value =
   check_secret ~key:k ~value:(Some value);
   Lock.protect t.lock @@ fun () ->
   if Store.get t.store "secret" (key repo k) <> None then
     fail S.Conflict "SecretAlreadyExists"
       "SecretAlreadyExists: key already present";
+  if List.length (in_repo t "secret" repo) >= max_secrets then
+    fail S.Too_many_requests "SecretLimitExceeded"
+      "a repository holds at most 100 secrets";
   Store.put t.store "secret" (key repo k)
     (encode
        (obj

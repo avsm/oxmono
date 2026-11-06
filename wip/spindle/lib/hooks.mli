@@ -28,11 +28,12 @@ val list : t -> repo:string -> Jsont.json
 
 val create : t -> repo:Catalog.repo -> Jsont.json -> Jsont.json
 (** [create t ~repo input] adds a webhook, within the repository's and owner's
-    [webhooks] limits. *)
+    [webhooks] limits and at most 50 for a repository. Its URL is at most
+    2048 bytes and its secret at most 256. *)
 
 val update : t -> repo:string -> Jsont.json -> unit
-(** [update t ~repo input] changes a webhook's URL, secret, events or activity.
-*)
+(** [update t ~repo input] changes a webhook's URL, secret, events or
+    activity, within the same bounds. Its activity must be a boolean. *)
 
 val delete : t -> repo:string -> string -> unit
 (** [delete t ~repo id] removes webhook [id] and its deliveries. *)

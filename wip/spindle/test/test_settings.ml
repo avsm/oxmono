@@ -34,6 +34,13 @@ let () =
       Settings.add_secret t ~repo ~by:owner "1BAD" "x");
   refused "InvalidRequest" (fun () ->
       Settings.add_secret t ~repo ~by:owner "EMPTY" "");
+  (* A repository holds at most 100 secrets, and others still have room. *)
+  let crowded = "did:plc:crowded" in
+  for i = 1 to 100 do
+    Settings.add_secret t ~repo:crowded ~by:owner (Printf.sprintf "K%d" i) "v"
+  done;
+  refused "SecretLimitExceeded" (fun () ->
+      Settings.add_secret t ~repo:crowded ~by:owner "K101" "v");
   assert (Settings.secrets t repo = [ ("TOKEN", "s3cret") ]);
   assert (Settings.secrets t "did:plc:other" = []);
   let listed = J.list (J.required "secrets" (Settings.list_secrets t repo)) in

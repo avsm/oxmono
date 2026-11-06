@@ -553,11 +553,17 @@ end
    Main - Run examples
    ============================================ *)
 
+(* Every example must decode, so the cookbook cannot drift from the
+   library. *)
+let failures = ref 0
+
 let decode_and_print name codec toml =
   Printf.printf "=== %s ===\n" name;
   match Tomlt_bytesrw.decode_string codec toml with
   | Ok _ -> Printf.printf "OK: Decoded successfully\n\n"
-  | Error e -> Printf.printf "ERROR: %s\n\n" (Tomlt.Toml.Error.to_string e)
+  | Error e ->
+      incr failures;
+      Printf.printf "ERROR: %s\n\n" (Tomlt.Toml.Error.to_string e)
 
 let () =
   Printf.printf "Tomlt Cookbook Examples\n";
@@ -643,4 +649,5 @@ let () =
     Recursion.tree_codec
     Recursion.example_tree_toml;
 
+  if !failures > 0 then exit 1;
   Printf.printf "All examples completed.\n"

@@ -6,11 +6,7 @@
  (name test_codec)
  (libraries tomlt tomlt.bytesrw alcotest unix))
 
-(executable
- (name test_debug)
- (libraries tomlt tomlt.bytesrw unix))
-
-(executable
+(test
  (name cookbook)
  (libraries tomlt tomlt.bytesrw unix))
 

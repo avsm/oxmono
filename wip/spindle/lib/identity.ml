@@ -61,11 +61,14 @@ let handle t did =
     | _ -> (
         let kept =
           Option.bind (Store.get t.store "handle" did) (fun raw ->
-              match decode raw with
-              | j when now t -. number (required "at" j) < stored ->
-                  Some (get "handle" j)
+              (* A malformed record is as good as none. *)
+              match
+                let j = decode raw in
+                (number (required "at" j), get "handle" j)
+              with
+              | at, h when now t -. at < stored -> Some h
               | _ -> None
-              | exception _ -> None)
+              | exception Invalid _ -> None)
         in
         match kept with
         | Some h ->

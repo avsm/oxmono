@@ -14,6 +14,7 @@ type t = {
   client : Oauth.Client.t;
   http : Fetch.plain;
   clock : float Eio.Time.clock_ty Eio.Resource.t;
+  mono : Eio.Time.Mono.ty Eio.Resource.t;  (** For deadlines. *)
   plc : string option;
   site : S.site;
   admin_site : S.site;  (** With the jobs tab, which only admins may see. *)
@@ -27,6 +28,9 @@ type t = {
   sw : Eio.Switch.t;
   refreshing : (string, unit Eio.Promise.t) Hashtbl.t;
       (* The users whose other repositories are being looked up now. *)
+  failed : (string, float) Hashtbl.t;
+      (* When each user's last lookup failed, so it is not tried again at
+         once. *)
   lookups : Eio.Semaphore.t;
   hostname : string;
 }
@@ -146,21 +150,21 @@ let encode_others o =
        ])
 
 let decode_others raw =
-  match J.decode raw with
-  | j ->
-      Some
-        {
-          checked = J.number (J.required "checked" j);
-          repos =
-            List.map
-              (fun r ->
-                ( J.get "did" r,
-                  J.get "name" r,
-                  Option.map J.string (J.field "spindle" r) ))
-              (J.list (J.required "repos" j));
-        }
-  | exception (Eio.Cancel.Cancelled _ as e) -> raise e
-  | exception _ -> None
+  match
+    let j = J.decode raw in
+    {
+      checked = J.number (J.required "checked" j);
+      repos =
+        List.map
+          (fun r ->
+            ( J.get "did" r,
+              J.get "name" r,
+              Option.map J.string (J.field "spindle" r) ))
+          (J.list (J.required "repos" j));
+    }
+  with
+  | o -> Some o
+  | exception J.Invalid _ -> None
 
 let stored_others store user =
   Option.bind (Store.get store others_ns user) decode_others
@@ -267,6 +271,7 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
     client;
     http;
     clock = (env#clock :> float Eio.Time.clock_ty Eio.Resource.t);
+    mono = (env#mono_clock :> Eio.Time.Mono.ty Eio.Resource.t);
     plc;
     site =
       S.site ~name:hostname ~brand:"sp"
@@ -291,6 +296,7 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
         ~clock:env#clock ();
     sw;
     refreshing = Hashtbl.create 16;
+    failed = Hashtbl.create 16;
     lookups = Eio.Semaphore.make 4;
     hostname;
   }
@@ -304,6 +310,11 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
       done;
       `Stop_daemon);
   t
+
+(* [within t seconds f] is [f ()], or [Error `Timeout] after [seconds] by the
+   monotonic clock. *)
+let within t seconds f =
+  Eio.Time.Timeout.run (Eio.Time.Timeout.seconds t.mono seconds) f
 
 (* {1 Who sees what} *)
 
@@ -338,12 +349,25 @@ let can_see t ~user repo =
   | Some _ -> collaborator t ~user repo
   | None -> false
 
+(* The served repositories are read once, not once for each. *)
 let visible t ~user =
-  List.filter (fun (repo, _) -> can_see t ~user repo) (served t)
+  let served = served t in
+  if admin t user then served
+  else
+    List.filter
+      (fun (repo, owner) -> owner = user || collaborator t ~user repo)
+      served
 
 (* The spindle's users, who may log in at all. *)
+(* Owners are found without asking a knot, and the search stops at the first
+   repository the account may see. *)
 let user t did =
-  admin t did || Catalog.admitted t.catalog did || visible t ~user:did <> []
+  admin t did
+  || Catalog.admitted t.catalog did
+  ||
+  let served = served t in
+  List.exists (fun (_, owner) -> owner = did) served
+  || List.exists (fun (repo, _) -> collaborator t ~user:did repo) served
 
 (* {1 Responses} *)
 
@@ -438,7 +462,7 @@ let limited t f =
   else (
     t.logins <- t.logins + 1;
     Fun.protect ~finally:(fun () -> t.logins <- t.logins - 1) @@ fun () ->
-    match Eio.Time.with_timeout t.clock login_deadline (fun () -> Ok (f ())) with
+    match within t login_deadline (fun () -> Ok (f ())) with
     | Ok r -> Some r
     | Error `Timeout -> Some (Error `Timeout))
 
@@ -448,7 +472,7 @@ let busy = "The spindle is busy with other logins. Try again in a minute."
    the login cookie and the link to the account's login page, or a message
    for the visitor. *)
 let authorize t ~identifier ~scope ~move =
-  if List.length (Store.list t.store "web-login") >= max_pending then (
+  if Store.count t.store "web-login" >= max_pending then (
     sweep t;
     Error busy)
   else
@@ -461,7 +485,7 @@ let authorize t ~identifier ~scope ~move =
     | None -> Error busy
     | Some (Error e) ->
         (* Details of other servers stay in the log, not on the page. *)
-        Printf.eprintf "spindle web login %s: %s\n%!" identifier
+        Printf.eprintf "spindle web login %S: %S\n%!" identifier
           (match e with
           | `Timeout -> "timed out"
           | #Oauth.error as e -> Oauth.error_to_string e);
@@ -581,7 +605,10 @@ let move t ~user ~repo (identity : Oauth.identity) (call : Oauth.call) =
           if J.get "owner" declaration <> user then
             Error "Only the repository's owner can move it."
           else if Option.map J.string (J.field "spindle" value) = Some self
-          then Ok name
+          then (
+            Catalog.forget t.catalog repo;
+            drop_other t.store user repo;
+            Ok name)
           else
             let record =
               strip_stamps value
@@ -701,7 +728,7 @@ let finish_move t (req @ local) (respond @ local) l ~query repo =
       with
       | None -> moved t s respond ~status:Status.Bad_request busy
       | Some (Error e) ->
-          Printf.eprintf "spindle web move callback: %s\n%!"
+          Printf.eprintf "spindle web move callback: %S\n%!"
             (match e with
             | `Timeout -> "timed out"
             | #Oauth.error as e -> Oauth.error_to_string e);
@@ -737,21 +764,26 @@ let callback t (req @ local) (respond @ local) =
             match l.move with
             | Some repo -> finish_move t req respond l ~query repo
             | None -> (
+            (* Whether the account may use the spindle may ask its
+               repositories' knots, so it is decided within the login's
+               bounds. *)
             match
               limited t (fun () ->
                   (Oauth.finish ~clock:t.clock ~http:t.http ?plc:t.plc
                      t.client l.pending ~query
+                   |> Result.map (fun (identity : Oauth.identity) ->
+                       (identity, user t identity.did))
                     :> (_, [ Oauth.error | `Timeout ]) result))
             with
             | None -> failed t respond busy
             | Some (Error e) ->
-                Printf.eprintf "spindle web callback: %s\n%!"
+                Printf.eprintf "spindle web callback: %S\n%!"
                   (match e with
                   | `Timeout -> "timed out"
                   | #Oauth.error as e -> Oauth.error_to_string e);
                 failed t respond "The login failed. Try again."
-            | Some (Ok identity) ->
-                if not (user t identity.did) then
+            | Some (Ok (identity, allowed)) ->
+                if not allowed then
                   failed t respond
                     "This spindle has no repositories of yours or that you \
                      collaborate on, so there is nothing for you to see."
@@ -873,7 +905,7 @@ let look_elsewhere t user ~previous =
   let served = List.map fst (served t) in
   let repos =
     match
-      Eio.Time.with_timeout t.clock 10. (fun () ->
+      within t 10. (fun () ->
           Ok
             (Network.records (Catalog.network t.catalog) user
                "org.tangled.repo.declaration"))
@@ -892,11 +924,11 @@ let look_elsewhere t user ~previous =
   in
   let found = ref [] and decided = ref [] in
   (match
-     Eio.Time.with_timeout t.clock 30. (fun () ->
+     within t 30. (fun () ->
          Eio.Fiber.List.iter ~max_fibers:8
            (fun repo ->
              match
-               Eio.Time.with_timeout t.clock 5. (fun () ->
+               within t 5. (fun () ->
                    Ok (Catalog.manifest t.catalog repo))
              with
              | Ok m ->
@@ -937,20 +969,32 @@ let refresh_others t user =
           Eio.Semaphore.acquire t.lookups;
           Fun.protect ~finally:(fun () -> Eio.Semaphore.release t.lookups)
           @@ fun () ->
-          let previous =
-            match stored_others t.store user with
-            | Some o -> o.repos
-            | None -> []
-          in
-          match look_elsewhere t user ~previous with
-          | repos ->
-              Store.put t.store others_ns user
-                (encode_others { checked = Eio.Time.now t.clock; repos })
-          | exception (Eio.Cancel.Cancelled _ as e) -> raise e
-          | exception e ->
+          (* Nothing but cancellation leaves this fiber, which would end
+             the server's switch. *)
+          try
+            let previous =
+              match stored_others t.store user with
+              | Some o -> o.repos
+              | None -> []
+            in
+            let repos = look_elsewhere t user ~previous in
+            Store.put t.store others_ns user
+              (encode_others { checked = Eio.Time.now t.clock; repos });
+            Hashtbl.remove t.failed user
+          with
+          | Eio.Cancel.Cancelled _ as e -> raise e
+          | e ->
+              if Hashtbl.length t.failed > 1000 then Hashtbl.reset t.failed;
+              Hashtbl.replace t.failed user (Eio.Time.now t.clock);
               Printf.eprintf "spindle web: looking up %s's repositories: %s\n%!"
                 user (Printexc.to_string e));
       p
+
+(* A lookup that failed is not tried again for a minute. *)
+let recently_failed t user =
+  match Hashtbl.find_opt t.failed user with
+  | Some at -> Eio.Time.now t.clock -. at < 60.
+  | None -> false
 
 (* A list older than an hour is looked up again when a page shows it. *)
 let stale_after = 3600.
@@ -962,7 +1006,7 @@ let elsewhere t user =
   let stored = stored_others t.store user in
   (match stored with
   | Some o when now -. o.checked < stale_after -> ()
-  | _ -> ignore (refresh_others t user));
+  | _ -> if not (recently_failed t user) then ignore (refresh_others t user));
   let served = List.map fst (served t) in
   Option.map
     (fun o ->
@@ -1035,6 +1079,9 @@ let home t s (respond @ local) =
   in
   let others = elsewhere t user in
   let checking = Hashtbl.mem t.refreshing user in
+  (* A repository runs here only for an admitted owner, so only one may move
+     it here. *)
+  let admitted = Catalog.admitted t.catalog user in
   let csrf = (Session.csrf_field, Session.csrf_token s) in
   let status =
     Htmlit.El.p
@@ -1093,10 +1140,12 @@ let home t s (respond @ local) =
                       ];
                     S.cell
                       [
-                        S.post_button
-                          ~action:(S.Url.path [ "ui"; "move" ])
-                          ~hidden:[ csrf; ("did", repo) ]
-                          ~label:"Move here";
+                        (if admitted then
+                           S.post_button
+                             ~action:(S.Url.path [ "ui"; "move" ])
+                             ~hidden:[ csrf; ("did", repo) ]
+                             ~label:"Move here"
+                         else S.text "Only members' repositories run here");
                       ];
                   ])
                 others);
@@ -1553,7 +1602,7 @@ let add_member t s (req @ local) (respond @ local) =
     if Atp.Did.is_valid identifier then Ok (identifier, None)
     else if Atp.Handle.is_valid identifier then
       match
-        Eio.Time.with_timeout t.clock 15. (fun () ->
+        within t 15. (fun () ->
             Ok (Xrpc.Identity.did_of_handle t.http identifier))
       with
       | Ok (Ok did) -> Ok (did, Some (String.lowercase_ascii identifier))
@@ -1569,7 +1618,9 @@ let add_member t s (req @ local) (respond @ local) =
       members_page t s respond ~error:("Could not add " ^ identifier ^ ": " ^ e ^ ".")
   | Ok (did, handle) ->
       Catalog.allow t.catalog did;
-      Option.iter (Identity.remember t.identity did) handle;
+      (* The handle was checked only one way here, so it is not shown as
+         the account's until a lookup checks it both ways. *)
+      ignore handle;
       Printf.eprintf "spindle web: %s added member %s\n%!" (Session.subject s)
         did;
       see_other respond "/ui/members"
@@ -1592,7 +1643,9 @@ let start_move t s (req @ local) (respond @ local) =
   let user = Session.subject s in
   match Req.form_param req "did" with
   | Some repo
-    when match stored_others t.store user with
+    when Catalog.admitted t.catalog user
+         &&
+         match stored_others t.store user with
          | Some o -> List.exists (fun (r, _, _) -> r = repo) o.repos
          | None -> false -> (
       match
@@ -1613,10 +1666,10 @@ let refresh_list t s (req @ local) (respond @ local) =
     | Some o -> Eio.Time.now t.clock -. o.checked < 20.
     | None -> false
   in
-  if not recent then begin
+  if not (recent || recently_failed t user) then begin
     let p = refresh_others t user in
     match
-      Eio.Time.with_timeout t.clock 8. (fun () -> Ok (Eio.Promise.await p))
+      within t 8. (fun () -> Ok (Eio.Promise.await p))
     with
     | Ok () | Error `Timeout -> ()
   end;

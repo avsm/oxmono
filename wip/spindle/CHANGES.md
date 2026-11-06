@@ -6,6 +6,18 @@
 
 ## Unreleased
 
+- Decide whether an account may log in within the login's bounds, finding
+  owners without asking a knot and stopping at the first repository it may
+  see. Count pending logins without reading them, and refuse an
+  authorization server whose addresses are over 2 KiB.
+- Offer and accept "Move here" only for admitted owners, and drop a
+  repository already moved here from the list at once.
+- Keep a background lookup's failures inside its fiber, wait a minute before
+  looking up again after one fails, and read a malformed stored list or
+  handle as missing. Show a member's handle only once it is checked both
+  ways, escape server text in the log, and time web requests by the
+  monotonic clock.
+
 - Give back a worker slot or quota place only while it is held, so that a
   cancelled or overlapping wait for spawned workflows cannot release it
   twice. Re-raise cancellation from a workflow's run, keep an ended

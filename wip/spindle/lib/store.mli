@@ -41,6 +41,10 @@ val open_ : sw:Eio.Switch.t -> _ Eio.Path.t -> t
 val get : t -> string -> string -> string option
 (** [get store namespace key] is the value of [key] in [namespace]. *)
 
+val count : t -> string -> int
+(** [count t namespace] is the number of keys in [namespace], counted without
+    reading their values. *)
+
 val list : t -> string -> (string * string) list
 (** [list store namespace] is every key and value of [namespace], in key order.
     Use {!fold} for a namespace that may be large. *)

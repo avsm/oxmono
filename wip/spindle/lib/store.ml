@@ -121,6 +121,11 @@ let get t namespace key =
       | [] -> None
       | _ -> assert false)
 
+let count t namespace =
+  locked t (fun () ->
+      count_rows t "SELECT count(*) FROM kv WHERE namespace=?"
+        [ text namespace ])
+
 let list t namespace =
   locked t (fun () ->
       rows t "SELECT key,value FROM kv WHERE namespace=? ORDER BY key"

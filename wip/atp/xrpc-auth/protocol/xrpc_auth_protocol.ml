@@ -379,18 +379,28 @@ let server_of_pds ~http pds =
         failwith (pds ^ " names more than one authorization server")
     | _ -> failwith (pds ^ " names no authorization server")
   in
+  (* The server's addresses are kept with each pending login, so they are
+     bounded like any other address. *)
+  let bounded name url =
+    if String.length url > 2048 then failwith (name ^ " is too long") else url
+  in
+  let issuer = bounded "the authorization server's address" issuer in
   let what = issuer ^ " metadata" in
   let meta =
     parse (get_json ~http (issuer ^ "/.well-known/oauth-authorization-server"))
   in
   if Option.map strip_slash (field meta "issuer") <> Some issuer then
     failwith (what ^ " names a different issuer");
+  let endpoint name = bounded name (required what meta name) in
   {
     issuer;
-    authorization_endpoint = required what meta "authorization_endpoint";
-    token_endpoint = required what meta "token_endpoint";
-    par_endpoint = required what meta "pushed_authorization_request_endpoint";
-    revocation_endpoint = field meta "revocation_endpoint";
+    authorization_endpoint = endpoint "authorization_endpoint";
+    token_endpoint = endpoint "token_endpoint";
+    par_endpoint = endpoint "pushed_authorization_request_endpoint";
+    revocation_endpoint =
+      Option.map
+        (bounded "revocation_endpoint")
+        (field meta "revocation_endpoint");
   }
 
 let pds_of ?plc ~http identifier =

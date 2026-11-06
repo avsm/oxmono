@@ -179,7 +179,8 @@ val server_jsont : server Jsont.t
 val server_of_pds : http:_ Fetch.t -> string -> server
 (** [server_of_pds ~http pds] is the authorization server that [pds]'s
     protected-resource metadata names. Its metadata must name itself as [issuer]
-    and list the PAR, authorization and token endpoints.
+    and list the PAR, authorization and token endpoints, and no address may be
+    longer than 2 KiB.
 
     @raise Failure otherwise. *)
 

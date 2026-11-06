@@ -1,5 +1,8 @@
 # Changes
 
+- Revoke a web login's tokens even when its caller's deadline cancels it,
+  and refuse authorization server metadata whose addresses are over 2 KiB.
+
 - Let a `xrpc-auth.web` login ask for less than the client's scope, and add
   `finish_with`, which makes requests to the account's PDS with the login's
   tokens before revoking them.

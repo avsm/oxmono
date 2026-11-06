@@ -401,13 +401,18 @@ let finish_with ~clock ~http ?plc client pending ~query use =
           ]
       in
       let what = "Token response" in
-      (* The tokens go whatever happens next. *)
+      (* The tokens go whatever happens next, even when the caller's
+         deadline has cancelled the login, within ten seconds of its own. *)
       let forget () =
-        Option.iter
-          (revoke ~clock ~http client dpop pending.server)
-          (match P.field token "refresh_token" with
-          | Some t -> Some t
-          | None -> P.field token "access_token")
+        Eio.Cancel.protect (fun () ->
+            ignore
+              (Eio.Time.with_timeout clock 10. (fun () ->
+                   Option.iter
+                     (revoke ~clock ~http client dpop pending.server)
+                     (match P.field token "refresh_token" with
+                     | Some t -> Some t
+                     | None -> P.field token "access_token");
+                   Ok ())))
       in
       Fun.protect ~finally:forget @@ fun () ->
       P.check_token_type token;

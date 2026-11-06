@@ -44,6 +44,12 @@ let () =
               = Eio.Path.native_exn (Xdge.state_dir xdg)))
       in
       compare ();
+      check "XDG_CONFIG_HOME appends app name"
+        (Xdge.Paths.config_dir "native_test"
+        = Filename.concat root "config/native_test");
+      check "XDG_STATE_HOME appends app name"
+        (Xdge.Paths.state_dir "native_test"
+        = Filename.concat root "state/native_test");
       Unix.putenv "NATIVE_TEST_CONFIG_DIR" (Filename.concat root "override");
       compare ();
       check "application override appends app name"

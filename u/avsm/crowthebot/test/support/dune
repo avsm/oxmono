@@ -7,3 +7,8 @@
  (name secret_fixture)
  (modules secret_fixture)
  (libraries crowthebot sekrit xdge eio_main jsont jsont.bytesrw))
+
+(library
+ (name crow_test)
+ (modules crow_test)
+ (libraries jsont jsont.bytesrw))

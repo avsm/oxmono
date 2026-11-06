@@ -1,14 +1,11 @@
+open Crow_test
 open Crowthebot
-
-let check name value = if not value then failwith name
 
 let bad f =
   try
     ignore (f ());
     false
   with Invalid_argument _ | Eio.Io _ -> true
-
-let json s = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json s)
 
 let () =
   Eio_main.run @@ fun env ->

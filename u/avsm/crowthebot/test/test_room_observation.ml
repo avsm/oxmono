@@ -1,13 +1,5 @@
+open Crow_test
 open Crowthebot
-
-let check label b = if not b then failwith label
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let member name = function
   | Jsont.Object (fields, _) ->

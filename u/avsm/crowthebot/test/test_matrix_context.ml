@@ -1,9 +1,9 @@
+open Crow_test
 open Crowthebot
 
 module Id = Matrix_proto.Id
 module Bot = Matrix_bot.Bot
 
-let check name value = if not value then failwith name
 let admin = "@admin:example.org"
 let self = "@crow:example.org"
 let room = "!room:example.org"

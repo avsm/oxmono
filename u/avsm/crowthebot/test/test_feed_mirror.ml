@@ -1,6 +1,6 @@
+open Crow_test
 open Crowthebot
 
-let check name value = if not value then failwith name
 let admin = "@admin:example.org"
 let room = "!room:example.org"
 let root = "https://feeds.example/feed.xml"

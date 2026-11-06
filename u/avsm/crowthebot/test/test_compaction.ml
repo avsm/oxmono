@@ -1,6 +1,6 @@
+open Crow_test
 open Crowthebot
 
-let check label value = if not value then failwith label
 let admin = "@admin:example.org"
 let friend = "@friend:example.org"
 let self = "@crow:example.org"
@@ -9,13 +9,6 @@ let room = "!room:example.org"
 let other = "!other:example.org"
 let encode value = Result.get_ok (Jsont_bytesrw.encode_string Jsont.json value)
 let quote value = Result.get_ok (Jsont_bytesrw.encode_string Jsont.string value)
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let member name = function
   | Jsont.Object (fields, _) ->

@@ -1,9 +1,9 @@
+open Crow_test
 open Crowthebot
 module C = Caldav_eio.Client
 module D = Httpz_dav
 module M = Fetch.Middleware
 
-let check name value = if not value then failwith name
 let origin = "https://example.test/"
 let resource = origin ^ "home/calendar/one.ics"
 let calls = ref 0

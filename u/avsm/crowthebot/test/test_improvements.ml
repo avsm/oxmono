@@ -1,17 +1,10 @@
+open Crow_test
 open Crowthebot
 
-let check name value = if not value then failwith name
 let admin = "@admin:example.org"
 let bot = "@bot:example.org"
 let self = "@crow:example.org"
 let room = "!room:example.org"
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let config =
   {

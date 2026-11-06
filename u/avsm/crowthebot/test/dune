@@ -1,22 +1,22 @@
 (test
  (name test_crow)
  (modules test_crow)
- (libraries fake_model crowthebot sqlite3-eio eio_main fetch.mock jsont jsont.bytesrw))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main fetch.mock jsont jsont.bytesrw))
 
 (test
  (name test_address)
  (modules test_address)
- (libraries fake_model crowthebot sqlite3-eio eio_main jsont jsont.bytesrw))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main jsont jsont.bytesrw))
 
 (test
  (name test_diagnostics)
  (modules test_diagnostics)
- (libraries fake_model crowthebot sqlite3-eio eio_main logs jsont jsont.bytesrw))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main logs jsont jsont.bytesrw))
 
 (test
  (name test_runtime_state)
  (modules test_runtime_state)
- (libraries
+ (libraries crow_test
   crowthebot
   sqlite3-eio
   eio_main
@@ -28,37 +28,37 @@
 (test
  (name test_verification)
  (modules test_verification)
- (libraries crowthebot sqlite3-eio eio_main fetch.mock http jsont jsont.bytesrw))
+ (libraries crow_test crowthebot sqlite3-eio eio_main fetch.mock http jsont jsont.bytesrw))
 
 (test
  (name test_account_identity)
  (modules test_account_identity)
- (libraries crowthebot eio_main fetch.mock jsont jsont.bytesrw unix))
+ (libraries crow_test crowthebot eio_main fetch.mock jsont jsont.bytesrw unix))
 
 (test
  (name test_matrix_history)
  (modules test_matrix_history)
- (libraries crowthebot sqlite3-eio eio_main fetch.mock jsont jsont.bytesrw))
+ (libraries crow_test crowthebot sqlite3-eio eio_main fetch.mock jsont jsont.bytesrw))
 
 (test
  (name test_memory)
  (modules test_memory)
- (libraries fake_model crowthebot sqlite3-eio eio_main))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main))
 
 (test
  (name test_daily)
  (modules test_daily)
- (libraries fake_model crowthebot sqlite3-eio eio_main fetch.mock http))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main fetch.mock http))
 
 (test
  (name test_cron)
  (modules test_cron)
- (libraries fake_model crowthebot sqlite3-eio eio_main fetch.mock http))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main fetch.mock http))
 
 (test
  (name test_capabilities)
  (modules test_capabilities)
- (libraries crowthebot eio_main))
+ (libraries crow_test crowthebot eio_main))
 
 (cram
  (deps ../bin/main.exe support/secret_fixture.exe %{bin:sekrit}))
@@ -66,17 +66,17 @@
 (test
  (name test_feeds)
  (modules test_feeds)
- (libraries fake_model crowthebot sqlite3-eio eio_main eio.mock fetch.mock http ipaddr))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main eio.mock fetch.mock http ipaddr))
 
 (test
  (name test_feed_migration)
  (modules test_feed_migration)
- (libraries crowthebot sqlite3-eio eio_main))
+ (libraries crow_test crowthebot sqlite3-eio eio_main))
 
 (test
  (name test_feed_mirror)
  (modules test_feed_mirror)
- (libraries
+ (libraries crow_test
   crowthebot
   sqlite3-eio
   eio_main
@@ -88,12 +88,12 @@
 (test
  (name test_secrets)
  (modules test_secrets)
- (libraries crowthebot sekrit eio_main fetch.mock http jsont jsont.bytesrw))
+ (libraries crow_test crowthebot sekrit eio_main fetch.mock http jsont jsont.bytesrw))
 
 (test
  (name test_locations)
  (modules test_locations)
- (libraries
+ (libraries crow_test
   crowthebot
   owntracks.config
   sqlite3-eio
@@ -107,7 +107,7 @@
 (test
  (name test_location_queries)
  (modules test_location_queries)
- (libraries
+ (libraries crow_test
   crowthebot
   owntracks.config
   sqlite3-eio
@@ -121,7 +121,7 @@
 (test
  (name test_room_observation)
  (modules test_room_observation)
- (libraries
+ (libraries crow_test
   crowthebot
   sqlite3-eio
   eio_main
@@ -133,7 +133,7 @@
 (test
  (name test_matrix_context)
  (modules test_matrix_context)
- (libraries fake_model
+ (libraries crow_test fake_model
   crowthebot
   sqlite3-eio
   eio_main
@@ -145,7 +145,7 @@
 (test
  (name test_interactions)
  (modules test_interactions)
- (libraries fake_model
+ (libraries crow_test fake_model
   crowthebot
   sqlite3-eio
   eio_main
@@ -159,7 +159,7 @@
 (test
  (name test_compaction)
  (modules test_compaction)
- (libraries
+ (libraries crow_test
   crowthebot
   sqlite3-eio
   eio_main
@@ -172,7 +172,7 @@
 (test
  (name test_calendars)
  (modules test_calendars)
- (libraries fake_model
+ (libraries crow_test fake_model
   crowthebot
   jmap
   jmap.eio
@@ -185,7 +185,7 @@
 (test
  (name test_caldav)
  (modules test_caldav)
- (libraries fake_model
+ (libraries crow_test fake_model
   crowthebot
   caldav.eio
   caldav
@@ -202,7 +202,7 @@
 (test
  (name test_caldav_read_only)
  (modules test_caldav_read_only)
- (libraries
+ (libraries crow_test
   crowthebot
   caldav.eio
   caldav
@@ -215,12 +215,12 @@
 (test
  (name test_caldav_probe)
  (modules test_caldav_probe)
- (libraries crowthebot eio_main fetch.mock http uri jsont jsont.bytesrw))
+ (libraries crow_test crowthebot eio_main fetch.mock http uri jsont jsont.bytesrw))
 
 (test
  (name test_caldav_agenda)
  (modules test_caldav_agenda)
- (libraries
+ (libraries crow_test
   crowthebot
   caldav
   caldav.eio
@@ -236,7 +236,7 @@
 (test
  (name test_emails)
  (modules test_emails)
- (libraries fake_model
+ (libraries crow_test fake_model
   crowthebot
   jmap.eio
   sqlite3-eio
@@ -249,29 +249,29 @@
 (test
  (name test_synthesis)
  (modules test_synthesis)
- (libraries fake_model crowthebot sqlite3-eio eio_main fetch.mock http jsont.bytesrw))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main fetch.mock http jsont.bytesrw))
 
 (test
  (name test_email_client)
  (modules test_email_client)
- (libraries crowthebot jmap jmap.eio fetch.mock eio_main http jsont))
+ (libraries crow_test crowthebot jmap jmap.eio fetch.mock eio_main http jsont))
 
 (test
  (name test_improvements)
  (modules test_improvements)
- (libraries fake_model crowthebot agentkit sqlite3-eio eio_main unix))
+ (libraries crow_test fake_model crowthebot agentkit sqlite3-eio eio_main unix))
 
 (test
  (name test_voice)
  (modules test_voice)
  (enabled_if
   (= %{system} macosx))
- (libraries crowthebot eio eio_main jsont jsont.bytesrw matrix-chat.eio))
+ (libraries crow_test crowthebot eio eio_main jsont jsont.bytesrw matrix-chat.eio))
 
 (test
  (name test_fresh_fix)
  (modules test_fresh_fix)
- (libraries
+ (libraries crow_test
   crowthebot
   logs
   owntracks.config
@@ -284,44 +284,44 @@
 (test
  (name test_memo)
  (modules test_memo)
- (libraries crowthebot agentkit sqlite3 sqlite3-eio eio_main))
+ (libraries crow_test crowthebot agentkit sqlite3 sqlite3-eio eio_main))
 
 (test
  (name test_website)
  (modules test_website)
- (libraries fake_model crowthebot eio_main sqlite3-eio fetch.mock http logs jsont jsont.bytesrw))
+ (libraries crow_test fake_model crowthebot eio_main sqlite3-eio fetch.mock http logs jsont jsont.bytesrw))
 
 (test
  (name test_http_post)
  (modules test_http_post)
- (libraries fake_model crowthebot eio_main sqlite3-eio fetch.mock http logs jsont jsont.bytesrw))
+ (libraries crow_test fake_model crowthebot eio_main sqlite3-eio fetch.mock http logs jsont jsont.bytesrw))
 
 (test
  (name test_onboarding)
  (modules test_onboarding)
- (libraries fake_model crowthebot sqlite3-eio eio_main))
+ (libraries crow_test fake_model crowthebot sqlite3-eio eio_main))
 
 (test
  (name test_admin_dm)
  (modules test_admin_dm)
- (libraries crowthebot sqlite3-eio eio_main fetch.mock http jsont jsont.bytesrw))
+ (libraries crow_test crowthebot sqlite3-eio eio_main fetch.mock http jsont jsont.bytesrw))
 
 (test
  (name test_addresses)
  (modules test_addresses)
- (libraries fake_model crowthebot agentkit agentkit-osm sqlite3-eio eio eio_main fetch.mock jsont))
+ (libraries crow_test fake_model crowthebot agentkit agentkit-osm sqlite3-eio eio eio_main fetch.mock jsont))
 
 (test
  (name test_knowledge)
  (modules test_knowledge)
- (libraries fake_model crowthebot bushel.agent bushel.knowledge retrieval agentkit sqlite3-eio eio_main))
+ (libraries crow_test fake_model crowthebot bushel.agent bushel.knowledge retrieval agentkit sqlite3-eio eio_main))
 
 (test
  (name test_knowledge_config)
  (modules test_knowledge_config)
- (libraries crowthebot sqlite3-eio eio_main fetch.mock unix))
+ (libraries crow_test crowthebot sqlite3-eio eio_main fetch.mock unix))
 
 (test
  (name test_tasks)
  (modules test_tasks)
- (libraries fake_model crowthebot dooit.agent sqlite3-eio eio_main unix))
+ (libraries crow_test fake_model crowthebot dooit.agent sqlite3-eio eio_main unix))

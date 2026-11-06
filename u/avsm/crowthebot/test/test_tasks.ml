@@ -1,18 +1,11 @@
+open Crow_test
 open Crowthebot
 module C = Dooit.Common
 
-let check name condition = if not condition then failwith name
 let ok = function Ok value -> value | Error message -> failwith message
 let noop () = ()
 let admin = "@admin:example.org"
 let room = "!tasks:example.org"
-
-let contains text needle =
-  let rec loop i =
-    i + String.length needle <= String.length text
-    && (String.sub text i (String.length needle) = needle || loop (i + 1))
-  in
-  loop 0
 
 let rec remove path =
   if Sys.is_directory path then (

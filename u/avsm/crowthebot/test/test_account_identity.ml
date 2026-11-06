@@ -1,9 +1,9 @@
+open Crow_test
 open Crowthebot
 module M = Matrix_eio
 module Cs = Matrix_client.Cross_signing
 module Id = Matrix_proto.Id
 
-let check label value = if not value then failwith label
 let user = Id.User_id.of_string_exn "@crow:example.org"
 let device = Id.Device_id.of_string_exn "CROW"
 let json codec value = Result.get_ok (Jsont.Json.encode codec value)

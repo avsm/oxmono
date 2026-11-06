@@ -1,9 +1,9 @@
+open Crow_test
+
 module M = Matrix_eio
 module V = M.Verification_service
 module Id = Matrix_proto.Id
 module Cs = Matrix_client.Cross_signing
-
-let check name value = if not value then failwith name
 
 let obj fields =
   Jsont.Json.object'

@@ -1,17 +1,10 @@
+open Crow_test
 open Crowthebot
 
 module S = Caldav_store
 module R = Caldav_source
 
 let admin = "@admin:example.test"
-let check name b = if not b then failwith name
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let reject f =
   try

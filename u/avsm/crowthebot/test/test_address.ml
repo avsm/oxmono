@@ -1,12 +1,11 @@
+open Crow_test
 open Crowthebot
 
-let check name value = if not value then failwith name
 let self = "@crow:example.org"
 let admin = "@admin:example.org"
 let alice = "@alice:example.org"
 let room = "!room:example.org"
 let dm = "!dm:example.org"
-let json s = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json s)
 
 let () =
   let command ?(mentioned = false) ?(direct = false) text =

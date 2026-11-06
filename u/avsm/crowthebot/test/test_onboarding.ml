@@ -1,6 +1,6 @@
+open Crow_test
 open Crowthebot
 
-let check label value = if not value then failwith label
 let admin = "@admin:example.org"
 let self = "@crow:example.org"
 let group = "!group:example.org"

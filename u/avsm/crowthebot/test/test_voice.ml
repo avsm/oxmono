@@ -1,7 +1,5 @@
+open Crow_test
 open Crowthebot
-
-let check name value = if not value then failwith name
-let json text = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json text)
 
 let temp suffix =
   let path = Filename.temp_file "crow-voice-test-" suffix in
@@ -33,13 +31,6 @@ let plain = audio {|"url":"mxc://example.org/voice"|}
 let encrypted =
   audio
     {|"file":{"url":"mxc://example.org/secret","key":{"kty":"oct","alg":"A256CTR","ext":true,"k":"AAAA","key_ops":["encrypt","decrypt"]},"iv":"AAAAAAAAAAAAAAAAAAAAAA","hashes":{"sha256":"AAAA"},"v":"v2"}|}
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let () =
   Eio_main.run @@ fun env ->

@@ -1,15 +1,8 @@
+open Crow_test
 open Crowthebot
 
-let check name value = if not value then failwith name
 let admin = "@admin:example.org"
 let room = "!dm:example.org"
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let encode json = Result.get_ok (Jsont_bytesrw.encode_string Jsont.json json)
 

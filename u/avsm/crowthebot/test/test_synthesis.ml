@@ -1,6 +1,6 @@
+open Crow_test
 open Crowthebot
 
-let check name b = if not b then failwith name
 let admin = "@admin:example.test"
 let room = "!room:example.test"
 let encode = Jsont_bytesrw.encode_string Jsont.json

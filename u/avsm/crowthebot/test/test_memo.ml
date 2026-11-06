@@ -1,17 +1,10 @@
+open Crow_test
 open Crowthebot
 
-let check name condition = if not condition then failwith name
 let admin = "@admin:example.org"
 let friend = "@friend:example.org"
 let bot = "@bot:example.org"
 let room = "!memo:example.org"
-
-let contains haystack needle =
-  let rec loop i =
-    i + String.length needle <= String.length haystack
-    && (String.sub haystack i (String.length needle) = needle || loop (i + 1))
-  in
-  loop 0
 
 let rejected f =
   match f () with exception Invalid_argument _ -> true | _ -> false

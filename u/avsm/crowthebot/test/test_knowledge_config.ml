@@ -1,14 +1,7 @@
+open Crow_test
 open Crowthebot
 
-let check name b = if not b then failwith name
 let admin = "@admin:example.org"
-
-let contains text needle =
-  let rec search i =
-    i + String.length needle <= String.length text
-    && (String.sub text i (String.length needle) = needle || search (i + 1))
-  in
-  search 0
 
 let () =
   let root = Filename.temp_file "crow-knowledge-config" "" in

@@ -1,18 +1,10 @@
+open Crow_test
 open Crowthebot
 
-let check name value = if not value then failwith name
 let admin = "@admin:example.org"
 let alice = "@alice:example.org"
 let bot = "@bot:example.org"
 let room = "!room:example.org"
-let json s = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json s)
-
-let contains value needle =
-  let rec loop i =
-    i + String.length needle <= String.length value
-    && (String.sub value i (String.length needle) = needle || loop (i + 1))
-  in
-  loop 0
 
 let bad f =
   try

@@ -1,13 +1,5 @@
+open Crow_test
 open Crowthebot
-
-let check name value = if not value then failwith name
-
-let contains text needle =
-  let rec loop i =
-    i + String.length needle <= String.length text
-    && (String.sub text i (String.length needle) = needle || loop (i + 1))
-  in
-  loop 0
 
 let failed f =
   try

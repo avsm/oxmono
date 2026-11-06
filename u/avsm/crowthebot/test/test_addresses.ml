@@ -1,6 +1,5 @@
+open Crow_test
 open Crowthebot
-
-let check name condition = if not condition then failwith name
 
 let () =
   Eio_main.run @@ fun env ->

@@ -1,18 +1,11 @@
+open Crow_test
 open Crowthebot
 
-let check name value = if not value then failwith name
 let self = "@crow:example.org"
 let admin = "@admin:example.org"
 let alice = "@alice:example.org"
 let room = "!room:example.org"
 let secret = "SENSITIVE_SENTINEL"
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let raw ~id ~sender ~kind content =
   Result.get_ok

@@ -1,7 +1,7 @@
+open Crow_test
 open Crowthebot
 module M = Matrix_eio
 module Id = Matrix_proto.Id
-let check label value = if not value then failwith label
 let user = "@admin:example.org"
 let self = "@crow:example.org"
 let room = "!room:example.org"

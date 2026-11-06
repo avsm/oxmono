@@ -1,3 +1,4 @@
+open Crow_test
 open Crowthebot
 
 module R = Jmap_eio.Calendars
@@ -6,7 +7,6 @@ module S = Calendar_store
 let admin = "@admin:example.test"
 let friend = "@friend:example.test"
 let room = "!calendar:example.test"
-let check name value = if not value then failwith name
 let encode = Jmap_eio.Codec.encode_exn Jsont.json
 let decode = Jmap_eio.Codec.decode_exn Jsont.json
 

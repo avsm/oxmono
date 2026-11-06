@@ -1,14 +1,5 @@
+open Crow_test
 open Crowthebot
-
-let check s b = if not b then failwith s
-
-let contains text needle =
-  let rec loop offset =
-    offset + String.length needle <= String.length text
-    && (String.sub text offset (String.length needle) = needle
-       || loop (offset + 1))
-  in
-  loop 0
 
 let noop () = ()
 let admin = "@admin:example.org"

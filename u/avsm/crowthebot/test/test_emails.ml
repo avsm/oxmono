@@ -1,6 +1,6 @@
+open Crow_test
 open Crowthebot
 
-let check name b = if not b then failwith name
 let decode = Jmap_eio.Codec.decode_exn Jsont.json
 let encode = Jmap_eio.Codec.encode_exn Jsont.json
 

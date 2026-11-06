@@ -1,3 +1,4 @@
+open Crow_test
 open Jmap_eio
 module Mail = Crowthebot.Email_client
 module P = Jmap.Proto
@@ -6,7 +7,6 @@ let id s = Result.get_ok (P.Id.of_string_received s)
 
 module M = Fetch.Middleware
 
-let check name b = if not b then failwith name
 let decode = Codec.decode_exn Jsont.json
 let encode = Codec.encode_exn Jsont.json
 

@@ -1,6 +1,6 @@
+open Crow_test
 open Crowthebot
 
-let check name value = if not value then failwith name
 let admin = "@admin:example.org"
 let alice = "@alice:example.org"
 let room = "!room:example.org"
@@ -10,13 +10,6 @@ let bad f =
     ignore (f ());
     false
   with Invalid_argument _ -> true
-
-let contains text needle =
-  let rec loop i =
-    i + String.length needle <= String.length text
-    && (String.sub text i (String.length needle) = needle || loop (i + 1))
-  in
-  loop 0
 
 let () =
   let next expression after =

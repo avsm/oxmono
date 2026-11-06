@@ -1,8 +1,8 @@
+open Crow_test
 open Crowthebot
 module M = Matrix_eio
 module Id = Matrix_proto.Id
 
-let check label value = if not value then failwith label
 let admin = "@admin:example.org"
 let self = Id.User_id.of_string_exn "@crow:example.org"
 let headers = Http.Header.of_list [("Content-Type", "application/json")]

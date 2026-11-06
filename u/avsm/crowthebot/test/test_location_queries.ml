@@ -1,7 +1,5 @@
+open Crow_test
 open Crowthebot
-
-let check label b = if not b then failwith label
-let json s = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json s)
 
 let field key codec s =
   Result.get_ok (Jsont_bytesrw.decode_string (Jsont.mem key codec) s)
@@ -16,13 +14,6 @@ let admin = "@admin:example.org"
 let friend = "@friend:example.org"
 let room = "!room:example.org"
 let now = 1788912000.
-
-let contains text part =
-  let rec loop i =
-    i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1))
-  in
-  loop 0
 
 let () =
   Eio_main.run @@ fun env ->

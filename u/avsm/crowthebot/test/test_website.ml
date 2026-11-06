@@ -1,10 +1,6 @@
 (* Copyright (c) 2026 Anil Madhavapeddy. SPDX-License-Identifier: ISC *)
+open Crow_test
 open Crowthebot
-let check name value = if not value then failwith name
-let contains text part =
-  let rec loop i = i + String.length part <= String.length text
-    && (String.sub text i (String.length part) = part || loop (i + 1)) in loop 0
-let json s = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json s)
 let field name j = Result.get_ok (Jsont.Json.decode (Jsont.mem name Jsont.json) j)
 let string name j = Result.get_ok (Jsont.Json.decode Jsont.string (field name j))
 let encoded j = Result.get_ok (Jsont_bytesrw.encode_string Jsont.json j)

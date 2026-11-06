@@ -1,9 +1,9 @@
+open Crow_test
 open Crowthebot
 module A = Caldav_agenda
 module S = Caldav_store
 module D = Httpz_dav
 
-let check name b = if not b then failwith name
 let admin = "@admin:example.test"
 let friend = "@friend:example.test"
 let room = "!agenda:example.test"
@@ -25,13 +25,6 @@ let invalid f =
     ignore (f ());
     false
   with Invalid_argument _ -> true
-
-let contains text needle =
-  let rec loop i =
-    i + String.length needle <= String.length text
-    && (String.sub text i (String.length needle) = needle || loop (i + 1))
-  in
-  loop 0
 
 let raw events =
   "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" ^ events

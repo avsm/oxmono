@@ -410,8 +410,12 @@ static inline int get_open_flags(value v_mode, value v_uri, value v_memory,
   }
   if (Bool_val(v_uri))
     flags |= SQLITE_OPEN_URI;
-  if (Bool_val(v_memory))
+  /* Local patch: [v_memory] holds flag bits, 1 for SQLITE_OPEN_MEMORY and 2
+     for SQLITE_OPEN_NOFOLLOW. */
+  if (Int_val(v_memory) & 1)
     flags |= SQLITE_OPEN_MEMORY;
+  if (Int_val(v_memory) & 2)
+    flags |= SQLITE_OPEN_NOFOLLOW;
   switch (Int_val(v_mutex)) {
   case 0:
     break;

@@ -268,17 +268,19 @@ external sqlite_version_info : unit -> string @@ portable
 external db_open :
   mode:Mode.t ->
   uri:bool ->
-  memory:bool ->
+  memory:int ->
   mutex:Mut.t ->
   cache:Cache.t ->
   ?vfs:string ->
   string ->
   db @@ portable = "caml_sqlite3_open_bc" "caml_sqlite3_open"
 
-let db_open ?mode ?(uri = false) ?(memory = false) ?mutex ?cache ?vfs name =
+let db_open ?mode ?(uri = false) ?(memory = false) ?(nofollow = false) ?mutex
+    ?cache ?vfs name =
   let mode = Mode.lift mode in
   let mutex = Mut.lift mutex in
   let cache = Cache.lift cache in
+  let memory = (if memory then 1 else 0) lor if nofollow then 2 else 0 in
   db_open ~mode ~uri ~memory ~mutex ~cache ?vfs name
 
 external db_close : db -> bool @@ portable = "caml_sqlite3_close"

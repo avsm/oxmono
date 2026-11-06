@@ -293,6 +293,7 @@ val db_open :
   ?mode:[ `READONLY | `NO_CREATE ] ->
   ?uri:bool ->
   ?memory:bool ->
+  ?nofollow:bool ->
   ?mutex:[ `NO | `FULL ] ->
   ?cache:[ `SHARED | `PRIVATE ] ->
   ?vfs:string ->
@@ -313,7 +314,9 @@ val db_open :
     [`NO_CREATE] is set. The [uri] parameter enables URI filename interpretation
     and corresponds to [SQLITE_OPEN_URI] in the SQLite3 API. The [memory]
     parameter opens an in-memory database and corresponds to
-    [SQLITE_OPEN_MEMORY] in the SQLite3 API. [mutex] determines how the database
+    [SQLITE_OPEN_MEMORY] in the SQLite3 API. The [nofollow] parameter refuses
+    a [filename] that is a symbolic link and corresponds to
+    [SQLITE_OPEN_NOFOLLOW], a local addition to this binding. [mutex] determines how the database
     is accessed. The mutex parameters [`NO] and [`FULL] correspond to
     [SQLITE_OPEN_NOMUTEX] and [SQLITE_OPEN_FULLMUTEX] in the SQLite3 API
     respectively. The cache parameters [`SHARED] and [`PRIVATE] correspond to

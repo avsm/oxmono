@@ -13,6 +13,9 @@ Compared on 2026-11-01 against the original OxMono import
 - The licence and `test/test_fun.ml` match byte for byte.
 
 Local additions bundle SQLite, provide the Eio wrapper and adapt the build.
+A later local patch adds `?nofollow` to `db_open` and `open_path`. The
+`caml_sqlite3_open` stub's memory argument carries flag bits, 1 for
+`SQLITE_OPEN_MEMORY` and 2 for `SQLITE_OPEN_NOFOLLOW`.
 Later patches add OxCaml modes and callback constraints. Re-vendoring must
 retain those adaptations and check the binding, Eio and portability tests.
 The bundled SQLite version is recorded in `vendor/sqlite3/VERSION`; it is

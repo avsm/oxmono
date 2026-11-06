@@ -102,11 +102,11 @@ let run t ?(label = "sqlite3_run") fn =
 
 (* -- Opening -- *)
 
-let open_db ~sw ?busy_timeout ?mode ?uri ?mutex ?cache ?vfs filename =
+let open_db ~sw ?busy_timeout ?mode ?uri ?nofollow ?mutex ?cache ?vfs filename =
   let handle =
     try
       Eio_unix.run_in_systhread ~label:"sqlite3_open" (fun () ->
-          Sqlite3.db_open ?mode ?uri ?mutex ?cache ?vfs filename)
+          Sqlite3.db_open ?mode ?uri ?nofollow ?mutex ?cache ?vfs filename)
     with
     | Sqlite3.Error msg ->
       raise (err (Open_failed (Sqlite3_rc (Sqlite3.Rc.CANTOPEN, msg))))
@@ -117,9 +117,9 @@ let open_db ~sw ?busy_timeout ?mode ?uri ?mutex ?cache ?vfs filename =
   Eio.Switch.on_release sw (fun () -> close_state st);
   t
 
-let open_path ~sw ?busy_timeout ?mode ?uri ?mutex ?cache ?vfs path =
+let open_path ~sw ?busy_timeout ?mode ?uri ?nofollow ?mutex ?cache ?vfs path =
   let filename = Eio.Path.native_exn path in
-  try open_db ~sw ?busy_timeout ?mode ?uri ?mutex ?cache ?vfs filename
+  try open_db ~sw ?busy_timeout ?mode ?uri ?nofollow ?mutex ?cache ?vfs filename
   with ex when Eio.Exn.is_io ex ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt "opening database %a" Eio.Path.pp path

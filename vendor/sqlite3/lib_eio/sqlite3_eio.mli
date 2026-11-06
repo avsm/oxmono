@@ -72,6 +72,7 @@ val open_path :
   ?busy_timeout:int ->
   ?mode:[ `READONLY | `NO_CREATE ] ->
   ?uri:bool ->
+  ?nofollow:bool ->
   ?mutex:[ `NO | `FULL ] ->
   ?cache:[ `SHARED | `PRIVATE ] ->
   ?vfs:string ->
@@ -92,6 +93,8 @@ val open_path :
     read-write-create.
     @param uri when [true], enables URI filename interpretation
     (corresponding to [SQLITE_OPEN_URI]).
+    @param nofollow when [true], refuses a [path] that is a symbolic link
+    (corresponding to [SQLITE_OPEN_NOFOLLOW]).
     @param mutex [`NO] corresponds to [SQLITE_OPEN_NOMUTEX]; [`FULL]
     corresponds to [SQLITE_OPEN_FULLMUTEX].
     @param cache [`SHARED] corresponds to [SQLITE_OPEN_SHAREDCACHE];

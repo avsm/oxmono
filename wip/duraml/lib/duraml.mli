@@ -100,11 +100,11 @@ module Spec : sig
   val v : queue:string -> kind:string -> version:int -> payload:string ->
     ?key:string -> ?not_before:Ptime.t -> ?lane:string -> unit -> t
     @@ portable
-  (** [v ... ()] validates a specification. Names, keys and named lanes
-      must be NUL-free UTF-8 of at most 256 bytes, not empty or only ASCII
-      whitespace. [version] must be positive. Payloads are UTF-8 of at most
+  (** [v ... ()] validates a specification. Names, keys and lanes must be
+      NUL-free UTF-8 of at most 256 bytes, not empty or only Unicode white
+      space. [version] must be positive. Payloads are UTF-8 of at most
       1 MiB. Omitted [not_before] means immediately eligible. [lane] names
-      the fair-share lane the job is dispatched from. It defaults to [""],
+      the fair-share lane the job is dispatched from. Omitted, the job is in
       the unnamed lane. Deduplication compares every field except the lane,
       including the initial schedule. *)
   val queue : t -> string @@ portable
@@ -310,7 +310,10 @@ val find : _ t -> Id.t -> job option
 val list : _ t -> query -> job list
 (** [list t q] is the matching snapshots in ascending ID order. Separate
     pages are separate observations, not a snapshot of the whole store. A
-    page holds whole records, up to 2 MiB each with payload and result. *)
+    page holds at most [limit q] jobs, and ends early after the job that
+    brings its payloads and results to 16 MiB, so it always holds at least
+    one matching job if there is one. Continue after the last job's ID until
+    a page is empty. *)
 val count : _ t -> query -> int
 (** [count t q] is the number of jobs matching every filter of [q],
     ignoring its limit. *)
@@ -377,6 +380,15 @@ module Pi : sig
   (** [await t w] dispatches the provider's wait operation. *)
   val waiting : revision:int64 -> next_at:Ptime.t option -> waiting
   (** [waiting ~revision ~next_at] constructs an observation for a provider. *)
+  val page_bytes : int
+  (** [page_bytes] is the 16 MiB of payloads and results after which a
+      {!list} page ends. *)
+  val job_bytes : job -> int @@ portable
+  (** [job_bytes j] is the size of [j]'s payload and outcome text, as a
+      {!list} page counts it. *)
+  val page : job list -> job list @@ portable
+  (** [page jobs] is the longest prefix of [jobs] that ends at the first job
+      bringing the total {!job_bytes} to {!page_bytes}, or all of them. *)
 
   type attempt
   (** A stored claim and its settlement receipt. *)

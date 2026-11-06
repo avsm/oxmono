@@ -106,16 +106,21 @@ let default_lane ~snapshot ~only = match only with
   | _ -> "doi"
 let submit_cmd queue_db reviews_db db root snapshot target revision actor
     grobid pub2tei limit only skip_refused strategies lane dry_run =
-  let lane = Option.value lane ~default:(default_lane ~snapshot ~only) in
+  (* An empty --lane puts the work in the unnamed lane. *)
+  let lane = match lane with
+    | Some "" -> None
+    | Some lane -> Some lane
+    | None -> Some (default_lane ~snapshot ~only) in
   mutate ~details:["snapshot",string_of_int snapshot;"target",target;
-    "revision",string_of_int revision;"queue",queue_db;"lane",lane;
+    "revision",string_of_int revision;"queue",queue_db;
+    "lane",Option.value ~default:"" lane;
     "dry_run",string_of_bool dry_run] "jobs.submit" queue_db (fun env sw audit ->
   let entries = plan env sw ~reviews_db ~db ~root ~snapshot ~target
     ~revision ~actor ~grobid ~pub2tei ~limit ~only ~skip_refused ~strategies in
   report entries;
   if not dry_run then begin
     let queues = J.Queues.v (open_store ~create:true env sw queue_db) in
-    let outcome, ids = J.Submit.entries ~lane queues entries in
+    let outcome, ids = J.Submit.entries ?lane queues entries in
     List.iter (fun ((e : J.Plan.entry), id) -> Option.iter (fun id ->
       Printf.printf "%s\t%s\n" (Duraml.Id.to_string id) e.doi) id) ids;
     Taposaur_audit.record audit ~action:"jobs.submit.result" ~subject:queue_db
@@ -377,7 +382,8 @@ let command = Cmd.group (Cmd.info "jobs"
        skip_refused $ strategies $
        Arg.(value & opt (some string) None & info ["lane"]
          ~doc:"Dispatch lane shared fairly with other lanes. Defaults to \
-               snapshot:SNAPSHOT, or doi when --doi restricts the run.") $
+               snapshot:SNAPSHOT, or doi when --doi restricts the run. An \
+               empty value uses the unnamed lane.") $
        Arg.(value & flag & info ["dry-run"] ~doc:"Report without submitting."));
    cmd "inspect" "List jobs or per-queue counts."
      Term.(const inspect_cmd $ queue_db $

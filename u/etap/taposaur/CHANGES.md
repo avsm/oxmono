@@ -1,5 +1,6 @@
 # Changes
 
+- Treat an empty `jobs submit --lane` as the unnamed Duraml lane.
 - Build the website on Sitekit: its page shell and generic widgets, with
   Taposaur's stylesheet and scripts served at content-hashed paths, so the
   Content Security Policy no longer allows inline styles. Coverage bars are

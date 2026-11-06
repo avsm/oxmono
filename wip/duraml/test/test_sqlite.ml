@@ -190,10 +190,11 @@ INSERT INTO meta VALUES('identity','legacy'),('next','3');|});
     (Printf.sprintf
       "INSERT INTO jobs VALUES(%d,'work','k%d','queued','%s','%s')"
       n n avail (String.map (function '\n' -> ' ' | c -> c) (job n at)))))
-    [1,"2026-01-01T00:00:00Z","2026-01-01T00:10:00Z";
-     2,"2026-01-01T00:01:00Z","2026-01-01T00:01:00Z"];
+    [1,"2026-01-01T00:00:00.000000000000Z","2026-01-01T00:10:00.000000000000Z";
+     2,"2026-01-01T00:01:00.000000000000Z","2026-01-01T00:01:00.000000000000Z"];
   Sqlite3.Rc.check (Sqlite3.exec db {|
-INSERT INTO events VALUES(1,'{"sequence":"1","time":"2026-01-01T00:00:00Z",
+INSERT INTO events VALUES(1,'{"sequence":"1",
+"time":"2026-01-01T00:00:00.000000000000Z",
 "kind":"enqueued","job":"1","attempt":0,"detail":""}')|});
   ignore (Sqlite3.db_close db);
   check "old schema refused read-only" true (try
@@ -216,15 +217,89 @@ INSERT INTO events VALUES(1,'{"sequence":"1","time":"2026-01-01T00:00:00Z",
   let scalar sql = let s=Sqlite3.prepare db sql in
     ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
     ignore (Sqlite3.finalize s); v in
-  check "schema upgraded" true (scalar "PRAGMA user_version"="4");
+  check "schema upgraded" true (scalar "PRAGMA user_version"="5");
+  check "payload moved out of the record" true
+    (scalar "SELECT data FROM payloads WHERE job=1"="data" &&
+     scalar "SELECT json_extract(data,'$.spec.payload') IS NULL \
+       FROM jobs WHERE id=1"="1");
   check "lane recorded as served" true
     (scalar "SELECT served FROM lanes WHERE queue='work' AND lane=''"="1");
   check "creation column filled" true
-    (scalar "SELECT created FROM jobs WHERE id=2"="2026-01-01T00:01:00Z");
+    (scalar "SELECT created FROM jobs WHERE id=2"
+     ="2026-01-01T00:01:00.000000000000Z");
   ignore (Sqlite3.db_close db);
   let reader=Duraml_sqlite.open_ ~sw ~clock:env#clock
     ~random:env#secure_random ~read_only:true Eio.Path.(env#fs / path) in
   count "reader sees upgraded store" 2 (List.length (D.list reader (D.query ())));
+  List.iter (fun suffix -> let p=path^suffix in
+    if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"]))
+(* A schema-4 store, whose records hold payloads and claim specifications,
+   upgrades in place, and a claim taken before the upgrade still renews and
+   settles. The schema-4 records are made from schema-5 ones. *)
+let upgrade_4 () = Eio_main.run (fun env ->
+  let path=Filename.temp_file "duraml-v4-" ".db" in Unix.unlink path;
+  let claim=Eio.Switch.run (fun sw ->
+    let q=open_queue env sw path in
+    ignore (D.enqueue q (spec "running"));
+    ignore (D.enqueue q (spec "queued"));
+    D.take q ~queue:"work" ~lease:(span 600.)) in
+  let db=Sqlite3.db_open path in
+  Sqlite3.Rc.check (Sqlite3.exec db {|
+UPDATE jobs SET data=json_set(data,'$.spec.payload',
+ (SELECT data FROM payloads WHERE job=jobs.id));
+UPDATE attempts SET data=json_set(data,'$.claim.spec',
+ json_extract((SELECT data FROM jobs WHERE id=attempts.job),'$.spec'));
+DROP TABLE payloads;
+PRAGMA user_version=4;|});
+  ignore (Sqlite3.db_close db);
+  Eio.Switch.run (fun sw ->
+    let q=open_queue env sw path in
+    check "claim renews after upgrade" true
+      (D.renew q claim ~lease:(span 600.));
+    check "claim settles after upgrade" true
+      (D.settle q claim (D.complete (D.Succeeded "ok"))=D.Applied);
+    let next=D.take q ~queue:"work" ~lease:(span 600.) in
+    check "payload restored" true
+      (D.Spec.payload (D.Claim.spec next)="data" &&
+       D.Spec.key (D.Claim.spec next)=Some "queued"));
+  let db=Sqlite3.db_open ~mode:`READONLY path in
+  let scalar sql = let s=Sqlite3.prepare db sql in
+    ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
+    ignore (Sqlite3.finalize s); v in
+  check "schema 5" true (scalar "PRAGMA user_version"="5");
+  check "attempts hold no specification" true
+    (scalar "SELECT count(*) FROM attempts \
+      WHERE json_extract(data,'$.claim.spec') IS NOT NULL"="0");
+  ignore (Sqlite3.db_close db);
+  List.iter (fun suffix -> let p=path^suffix in
+    if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"])
+(* A renewal leaves the payload row as it is, and a symbolic link to a
+   store is refused. *)
+let renewal_and_links () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
+  let path=Filename.temp_file "duraml-renew-" ".db" in Unix.unlink path;
+  let q=open_queue env sw path in
+  ignore (D.enqueue q (spec "k"));
+  let c=D.take q ~queue:"work" ~lease:(span 60.) in
+  let db=Sqlite3.db_open path in
+  let scalar sql = let s=Sqlite3.prepare db sql in
+    ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
+    ignore (Sqlite3.finalize s); v in
+  Sqlite3.Rc.check (Sqlite3.exec db {|
+CREATE TABLE writes(n INTEGER);
+CREATE TRIGGER payload_insert AFTER INSERT ON payloads
+ BEGIN INSERT INTO writes VALUES(1); END;
+CREATE TRIGGER payload_update AFTER UPDATE ON payloads
+ BEGIN INSERT INTO writes VALUES(1); END;|});
+  check "renewed" true (D.renew q c ~lease:(span 60.));
+  check "payload not written" true (scalar "SELECT count(*) FROM writes"="0");
+  ignore (Sqlite3.db_close db);
+  let link=path ^ "-link" in
+  Unix.symlink path link;
+  check "symbolic link refused" true (try
+    ignore (Duraml_sqlite.open_ ~sw ~clock:env#clock ~random:env#secure_random
+      ~read_only:true Eio.Path.(env#fs / link)); false
+    with Eio.Io _ -> true);
+  Sys.remove link;
   List.iter (fun suffix -> let p=path^suffix in
     if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"]))
 (* A damaged record is a storage failure, and emptied lanes are forgotten. *)
@@ -262,4 +337,5 @@ let () =
       "clock after transaction lock",stale_clock_after_lock;
       "cancel blocked writer",cancel_busy_writer;
       "refuse unrelated store",refuses;"read-only inspection",read_only;
-      "upgrade from schema 2",upgrade;"damaged records",damaged]]
+      "upgrade from schema 2",upgrade;"upgrade from schema 4",upgrade_4;
+      "renewal and links",renewal_and_links;"damaged records",damaged]]

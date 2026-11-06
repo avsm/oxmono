@@ -346,6 +346,30 @@ let core_validation backend () = with_queue backend (fun _ _ q ->
   let huge=Option.get (Ptime.Span.of_d_ps (365*1_000_000, 0L)) in
   check "oversized lease rejected on an empty queue" true (rejects (fun () ->
     ignore (D.try_take q ~queue:"work" ~lease:huge))))
+(* Names of only Unicode white space and an explicit empty lane are refused,
+   a page stops at its byte budget, and counts follow state changes. *)
+let pages backend () = with_queue backend (fun _ _ q ->
+  let rejects f = try f (); false with Invalid_argument _ -> true in
+  check "non-breaking space queue rejected" true
+    (rejects (fun () -> ignore (spec ~queue:"\xc2\xa0\xe3\x80\x80" ())));
+  check "empty lane rejected" true (rejects (fun () -> ignore (spec ~lane:"" ())));
+  check "name with a space accepted" true
+    (not (rejects (fun () -> ignore (spec ~queue:"a\xc2\xa0b" ()))));
+  let big=String.make 1048576 'x' in
+  for _=1 to 20 do ignore (D.enqueue q (spec ~payload:big ())) done;
+  ignore (D.enqueue q (spec ()));
+  let first=D.list q (D.query ~limit:100 ()) in
+  count "page ends at 16 MiB" 16 (List.length first);
+  let last=D.Job.id (List.nth first 15) in
+  count "rest follows" 5 (List.length (D.list q (D.query ~after:last ())));
+  count "queued counted" 21 (D.count q (D.query ~state:D.Queued ()));
+  let c=claim q in
+  ignore (D.settle q c (D.complete (D.Succeeded "")));
+  count "queued after settle" 20 (D.count q (D.query ~state:D.Queued ()));
+  count "done after settle" 1
+    (D.count q (D.query ~queue:"work" ~state:D.Done ()));
+  count "other queue empty" 0 (D.count q (D.query ~queue:"other" ()));
+  count "all jobs" 21 (D.count q (D.query ())))
 let () = Alcotest.run "Duraml backends" (List.map (fun backend -> backend,
   List.map (fun (name,test) -> Alcotest.test_case name `Quick (test backend))
     ["deduplication and queries",dedup;"lease fencing",fencing;
@@ -356,5 +380,6 @@ let () = Alcotest.run "Duraml backends" (List.map (fun backend -> backend,
      "validation and isolation",validation;
      "typed time precision and bounds",precise_times;
      "lane fairness and age order",fairness;
-     "lane rotation",rotation;"identifiers and bounds",core_validation])
+     "lane rotation",rotation;"identifiers and bounds",core_validation;
+     "pages and counts",pages])
     ["memory";"sqlite"])

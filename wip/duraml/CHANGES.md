@@ -28,3 +28,11 @@
   check schemas before the attempt budget so mismatched work is kept.
 - Reject conflicting successors that share a key, oversized leases on idle
   queues and non-canonical job IDs. Add `Id.equal` and `Id.pp`.
+- Store each payload once in schema 5 SQLite stores, keeping job and
+  attempt records without it, so renewals no longer rewrite payloads, and
+  upgrade versions 2 to 4 in place.
+- End listing pages after 16 MiB of payloads and results.
+- Refuse SQLite database paths that are symbolic links, and keep prepared
+  statements per handle.
+- Reject names made only of Unicode white space and an explicit empty lane,
+  and count memory jobs from per-queue totals.

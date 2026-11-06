@@ -210,7 +210,8 @@ rejects old generations, but cannot stop an already-running external effect.
 Worker heartbeat intervals use a supplied monotonic clock.
 
 Dispatch is fair across lanes and oldest-first within a lane. A
-specification names its lane with `?lane`. The default is the unnamed lane.
+specification names its lane with `?lane`. Omitted, the job is in the
+unnamed lane. An explicit lane must be a nonblank name.
 Each claim takes the lane of the queue served least recently, ties broken by
 name, and within it the eligible job with the earliest creation time, then
 the lowest ID. A lane that gains work after holding none ranks as served
@@ -223,7 +224,9 @@ Successors without a lane inherit the lane of the job that published them.
 Lanes schedule work but do not identify it: a keyed repeat in another lane
 reconciles with the stored job and keeps the stored lane. IDs are scoped to
 a store. Claims additionally carry the store identity. `Duraml.query` provides
-queue/state filters and an exclusive job-ID cursor. Event cursors are separate
+queue/state filters and an exclusive job-ID cursor. A listing page ends early
+after the job that brings its payloads and results to 16 MiB, so continue
+from the last job's ID until a page is empty. Event cursors are separate
 increasing sequence numbers.
 
 ```ocaml
@@ -255,9 +258,12 @@ revision also changes when a renewal shortens a lease, which wakes
 consumers. It is independent of the lifecycle event cursor. An idle poll
 reads no randomness. This backend is intended for tests and small ephemeral
 queues. Selection scans the queued and running jobs of the queue, and
-listings scan from their cursor.
+listings scan from their cursor. Counts without a cursor or parent filter
+read per-queue, per-state totals.
 
-SQLite stores indexed jobs, attempts, events and store metadata. Writes use
+SQLite stores indexed jobs, payloads, attempts, events and store metadata.
+Prepared statements are kept per handle and finalized when it closes. Writes
+use
 short `BEGIN IMMEDIATE` transactions via `sqlite3-eio`. It samples the wall
 clock after acquiring the write transaction so lock contention cannot make a
 stale timestamp renew an expired claim. An idle poll reads in a deferred
@@ -265,14 +271,17 @@ transaction and takes no write lock. No handler runs under a transaction.
 SQLite errors, including a busy database after the five-second busy
 timeout, are `Duraml.E (Storage _)` with SQLite's error text.
 
-Schema version 4 stores exact UTC timestamps, the dispatch lane and creation
+Schema version 5 stores exact UTC timestamps, the dispatch lane and creation
 time of every job, a lanes table ranking each lane with queued or running
 work, and each queue's latest rank. Dispatch indexes let a claim seek the
-first ready lane in service order and that lane's oldest eligible job.
-Versions 2 and 3 upgrade in place on their first writable open. Read-only
+first ready lane in service order and that lane's oldest eligible job. Each
+payload is written once to a payloads table, and job and attempt records
+leave it out, so renewals and transitions rewrite only small records.
+Versions 2, 3 and 4 upgrade in place on their first writable open. Read-only
 opens require the current version. Experimental version 1 stores are refused
 without modification.
-The database uses WAL and FULL synchronization. New files are mode 0600.
+The database uses WAL and FULL synchronization. New files are mode 0600, and
+a database path that is a symbolic link is refused.
 Unrelated databases and unknown schema versions are refused. Use local storage,
 not a network filesystem. Consumers poll for cross-process changes, at a
 configurable interval of 0.1 seconds by default. No daemon or notification

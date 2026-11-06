@@ -14,12 +14,13 @@ module Events = Map.Make (Int64)
 module Lanes = Keys
 (* [pending] holds each queue's queued and running jobs, and [lanes] counts
    them per lane. A lane is ranked in [served] while it holds such a job,
-   and [latest] is each queue's highest rank. *)
+   and [latest] is each queue's highest rank. [counts] is the number of jobs
+   in each queue and state. *)
 type state = {
   next_id : int64; revision : int64; jobs : D.job Jobs.t;
   keys : D.Id.t Keys.t; attempts : D.Pi.attempt Attempts.t;
   events : D.event Events.t; served : int Lanes.t; latest : int Names.t;
-  pending : D.job Jobs.t Names.t; lanes : int Lanes.t;
+  pending : D.job Jobs.t Names.t; lanes : int Lanes.t; counts : int Keys.t;
 }
 type t = {
   identity : string; mutable state : state; mutable closed : bool;
@@ -64,7 +65,16 @@ let storage t state =
   let put (j:D.job) =
     let s= !state in
     let queue=queue_of j and lane=lane_of j and id=D.Job.id j in
-    let was=Option.fold ~none:false ~some:active (find id) in
+    let old=find id in
+    let was=Option.fold ~none:false ~some:active old in
+    let bump state n counts =
+      let k=(queue,D.state_name state) in
+      match Option.value ~default:0 (Keys.find_opt k counts) + n with
+      | 0 -> Keys.remove k counts
+      | c -> Keys.add k c counts in
+    let counts=bump (D.Job.state j) 1 (match old with
+      | Some o -> bump (D.Job.state o) (-1) s.counts
+      | None -> s.counts) in
     let keys=match D.Spec.key (D.Job.spec j) with None -> s.keys
       | Some key -> Keys.add (queue,key) id s.keys in
     let jobs_in=pending queue in
@@ -82,7 +92,7 @@ let storage t state =
             else Lanes.add (queue,lane) (count-1) s.lanes,s.served in
           Jobs.remove id jobs_in,lanes,served
       | false,false -> jobs_in,s.lanes,s.served in
-    state:={s with jobs=Jobs.add id j s.jobs;keys;lanes;served;
+    state:={s with jobs=Jobs.add id j s.jobs;keys;lanes;served;counts;
       pending=Names.add queue pending_q s.pending} in
   {D.Pi.identity=t.identity;
    allocate=(fun () ->
@@ -106,8 +116,18 @@ let storage t state =
    next_at=(fun ~queue -> Jobs.fold (fun _ (j:D.job) acc -> match acc with
      | Some t when Ptime.compare t (D.Job.available_at j)<=0 -> acc
      | _ -> Some (D.Job.available_at j)) (pending queue) None);
-   query=(fun q -> List.of_seq (take (D.Query.limit q) (matching q)));
-   count=(fun q -> Seq.length (matching q));
+   query=(fun q ->
+     D.Pi.page (List.of_seq (take (D.Query.limit q) (matching q))));
+   (* Without a cursor or parent the counts answer, otherwise the jobs are
+      read. *)
+   count=(fun q -> match D.Query.after q,D.Query.parent q with
+     | None,None ->
+         Keys.fold (fun (queue,state) n total ->
+           if Option.fold ~none:true ~some:((=) queue) (D.Query.queue q) &&
+             Option.fold ~none:true
+               ~some:(fun s -> D.state_name s=state) (D.Query.state q)
+           then total+n else total) !state.counts 0
+     | _ -> Seq.length (matching q));
    attempt=(fun id n -> Attempts.find_opt (id,n) !state.attempts);
    put_attempt=(fun a ->
      let c=D.Pi.attempt_claim a in
@@ -188,7 +208,7 @@ let create ~sw ~clock ~random () =
   let t={identity;state={next_id=1L;revision=0L;jobs=Jobs.empty;
     keys=Keys.empty;attempts=Attempts.empty;events=Events.empty;
     served=Lanes.empty;latest=Names.empty;pending=Names.empty;
-    lanes=Lanes.empty};closed=false;
+    lanes=Lanes.empty;counts=Keys.empty};closed=false;
     wake_revision=0L;
     clock=(clock :> float Eio.Time.clock_ty Eio.Resource.t);
     random=(random :> Eio.Flow.source_ty Eio.Resource.t);

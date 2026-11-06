@@ -10,19 +10,28 @@ let state_codec = Jsont.map ~enc:state_name ~dec:(function
   | "queued" -> Queued | "running" -> Running | "done" -> Done
   | "failed" -> Failed_job | "cancelled" -> Cancelled
   | _ -> invalid_arg "Invalid state") Jsont.string
-let spec_codec =
-  Jsont.Object.map (fun queue kind version payload key not_before lane ->
-    Spec.v ~queue ~kind ~version ~payload ?key ?not_before ?lane ())
+let lane s = if Spec.lane s="" then None else Some (Spec.lane s)
+let with_payload s payload =
+  Spec.v ~queue:(Spec.queue s) ~kind:(Spec.kind s) ~version:(Spec.version s)
+    ~payload ?key:(Spec.key s) ?not_before:(Spec.not_before s) ?lane:(lane s)
+    ()
+(* [spec ~payload] is the specification codec, which holds the payload when
+   [payload] is set. Job records leave it to the payloads table. *)
+let spec ~payload =
+  Jsont.Object.map (fun queue kind version data key not_before lane ->
+    Spec.v ~queue ~kind ~version ~payload:(Option.value ~default:"" data)
+      ?key ?not_before ?lane ())
   |> Jsont.Object.mem "queue" Jsont.string ~enc:Spec.queue
   |> Jsont.Object.mem "kind" Jsont.string ~enc:Spec.kind
   |> Jsont.Object.mem "version" Jsont.int ~enc:Spec.version
-  |> Jsont.Object.mem "payload" Jsont.string ~enc:Spec.payload
+  |> Jsont.Object.opt_mem "payload" Jsont.string
+       ~enc:(fun s -> if payload then Some (Spec.payload s) else None)
   |> Jsont.Object.opt_mem "key" Jsont.string ~enc:Spec.key
   |> Jsont.Object.opt_mem "not_before" time_codec
        ~enc:Spec.not_before
-  |> Jsont.Object.opt_mem "lane" Jsont.string
-       ~enc:(fun s -> if Spec.lane s="" then None else Some (Spec.lane s))
+  |> Jsont.Object.opt_mem "lane" Jsont.string ~enc:lane
   |> Jsont.Object.finish
+let spec_codec = spec ~payload:true
 let outcome_codec =
   let parts = function Succeeded s -> "success",s,"",Ptime.epoch
     | Retry {at;reason} -> "retry",reason,"",at
@@ -46,6 +55,8 @@ let completion_codec =
   |> Jsont.Object.mem "followups" (Jsont.list spec_codec)
        ~enc:Completion.followups
   |> Jsont.Object.finish
+(* A job record holds its specification without the payload, which is
+   restored by {!with_job_payload}. *)
 let job_codec =
   Jsont.Object.map
     (fun id spec state attempt available_at created_at updated_at outcome
@@ -53,7 +64,7 @@ let job_codec =
       Pi.restore_job ?parent ~id ~spec ~state ~attempt ~available_at
       ~created_at ~updated_at ~outcome ())
   |> Jsont.Object.mem "id" id_codec ~enc:Job.id
-  |> Jsont.Object.mem "spec" spec_codec ~enc:Job.spec
+  |> Jsont.Object.mem "spec" (spec ~payload:false) ~enc:Job.spec
   |> Jsont.Object.mem "state" state_codec ~enc:Job.state
   |> Jsont.Object.mem "attempt" Jsont.int ~enc:Job.attempt
   |> Jsont.Object.mem "available_at" time_codec ~enc:Job.available_at
@@ -62,24 +73,45 @@ let job_codec =
   |> Jsont.Object.opt_mem "outcome" outcome_codec ~enc:Job.outcome
   |> Jsont.Object.opt_mem "parent" id_codec ~enc:Job.parent
   |> Jsont.Object.finish
+let with_job_payload j payload =
+  Pi.restore_job ?parent:(Job.parent j) ~id:(Job.id j)
+    ~spec:(with_payload (Job.spec j) payload) ~state:(Job.state j)
+    ~attempt:(Job.attempt j) ~available_at:(Job.available_at j)
+    ~created_at:(Job.created_at j) ~updated_at:(Job.updated_at j)
+    ~outcome:(Job.outcome j) ()
+(* An attempt record holds its claim without the specification, which is its
+   job's. *)
+type claim = {
+  identity : string; id : Id.t; attempt : int; token : string;
+  deadline : Ptime.t;
+}
+type attempt = {claim : claim; status : string; completion : completion option}
 let claim_codec =
-  Jsont.Object.map (fun identity id spec attempt token deadline ->
-    Pi.restore_claim ~identity ~id ~spec ~attempt ~token ~deadline)
-  |> Jsont.Object.mem "identity" Jsont.string ~enc:Pi.claim_identity
-  |> Jsont.Object.mem "id" id_codec ~enc:Claim.id
-  |> Jsont.Object.mem "spec" spec_codec ~enc:Claim.spec
-  |> Jsont.Object.mem "attempt" Jsont.int ~enc:Claim.attempt
-  |> Jsont.Object.mem "token" Jsont.string ~enc:Pi.claim_token
-  |> Jsont.Object.mem "deadline" time_codec ~enc:Claim.deadline
+  Jsont.Object.map (fun identity id attempt token deadline ->
+    {identity;id;attempt;token;deadline})
+  |> Jsont.Object.mem "identity" Jsont.string ~enc:(fun c -> c.identity)
+  |> Jsont.Object.mem "id" id_codec ~enc:(fun c -> c.id)
+  |> Jsont.Object.mem "attempt" Jsont.int ~enc:(fun c -> c.attempt)
+  |> Jsont.Object.mem "token" Jsont.string ~enc:(fun c -> c.token)
+  |> Jsont.Object.mem "deadline" time_codec ~enc:(fun c -> c.deadline)
   |> Jsont.Object.finish
 let attempt_codec =
-  Jsont.Object.map (fun claim status completion -> Pi.restore_attempt ~claim
-    ~status ~completion)
-  |> Jsont.Object.mem "claim" claim_codec ~enc:Pi.attempt_claim
-  |> Jsont.Object.mem "status" Jsont.string ~enc:Pi.attempt_status
+  Jsont.Object.map (fun claim status completion -> {claim;status;completion})
+  |> Jsont.Object.mem "claim" claim_codec ~enc:(fun a -> a.claim)
+  |> Jsont.Object.mem "status" Jsont.string ~enc:(fun a -> a.status)
   |> Jsont.Object.opt_mem "completion" completion_codec
-       ~enc:Pi.attempt_completion
+       ~enc:(fun a -> a.completion)
   |> Jsont.Object.finish
+let of_attempt a =
+  let c=Pi.attempt_claim a in
+  {claim={identity=Pi.claim_identity c;id=Claim.id c;attempt=Claim.attempt c;
+     token=Pi.claim_token c;deadline=Claim.deadline c};
+   status=Pi.attempt_status a;completion=Pi.attempt_completion a}
+let to_attempt ~spec a =
+  let c=a.claim in
+  Pi.restore_attempt ~status:a.status ~completion:a.completion
+    ~claim:(Pi.restore_claim ~identity:c.identity ~id:c.id ~spec
+      ~attempt:c.attempt ~token:c.token ~deadline:c.deadline)
 let event_codec =
   Jsont.Object.map (fun sequence time kind job attempt detail ->
     Pi.restore_event ~sequence ~time ~kind ~job ~attempt ~detail)

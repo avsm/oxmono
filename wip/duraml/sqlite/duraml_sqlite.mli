@@ -25,12 +25,15 @@
     {1 STORAGE}
     Use a local filesystem, not NFS or Ceph. New database files have mode 0600.
     A writable open enables WAL and FULL synchronization, and fails if WAL is
-    unavailable. Store identity survives reopening. Schema version 4 stores
-    timestamps as fixed-width UTC text with picosecond precision in both
-    records and the dispatch indexes. There is no conversion through
-    floating point when persisting or ordering timestamps.
+    unavailable. A path that is a symbolic link is refused. Store identity
+    survives reopening. Schema version 5 stores timestamps as fixed-width
+    UTC text with picosecond precision in both records and the dispatch
+    indexes. There is no conversion through floating point when persisting
+    or ordering timestamps. Each payload is written once, apart from its
+    job's record, and attempt records hold no specification, so a renewal
+    rewrites neither.
 
-    A writable open upgrades version 2 and 3 stores in place. Unrelated
+    A writable open upgrades version 2, 3 and 4 stores in place. Unrelated
     databases, version 1 experimental stores and unknown versions are
     refused. No retention is performed. Backups must
     include committed WAL state, using SQLite backup facilities or coordinated
@@ -40,7 +43,8 @@
     Cancelling an operation attempts interruption and rolls back unfinished
     transactions. A commit may nevertheless precede cancellation of its
     response. A transaction that cannot be rolled back closes the handle
-    rather than hold the write lock. Reconcile through keyed enqueues or identical settlements. Dead processes
+    rather than hold the write lock. Reconcile through keyed enqueues or
+    identical settlements. Dead processes
     leave running jobs recoverable by lease expiry. SQLite durability does not
     make external handler effects exactly once. *)
 

@@ -16,10 +16,24 @@ end
 let text name limit s =
   if String.length s > limit || not (String.is_valid_utf_8 s) then
     invalid_arg (name ^ " exceeds its UTF-8 byte budget")
+(* The Unicode White_Space property. *)
+let white_space u =
+  match Uchar.to_int u with
+  | 0x09 | 0x0A | 0x0B | 0x0C | 0x0D | 0x20 | 0x85 | 0xA0 | 0x1680
+  | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000 -> true
+  | n -> n >= 0x2000 && n <= 0x200A
+(* [blank s] holds when the valid UTF-8 [s] has only white space. *)
+let blank s =
+  let rec go i =
+    i >= String.length s ||
+    let d=String.get_utf_8_uchar s i in
+    white_space (Uchar.utf_decode_uchar d) &&
+    go (i + Uchar.utf_decode_length d) in
+  go 0
 let name field s =
   text field 256 s;
-  if String.trim s = "" || String.contains s '\000' then
-    invalid_arg (field ^ " must be nonempty and contain no NUL")
+  if blank s || String.contains s '\000' then
+    invalid_arg (field ^ " must be nonblank and contain no NUL")
 let timestamp n =
   if Ptime.compare n Ptime.epoch < 0 then invalid_arg "Invalid timestamp"
 let duration n =
@@ -31,12 +45,13 @@ module Spec = struct
     queue : string; kind : string; version : int; payload : string;
     key : string option; not_before : Ptime.t option; lane : string;
   }
-  let v ~queue ~kind ~version ~payload ?key ?not_before ?(lane="") () =
+  let v ~queue ~kind ~version ~payload ?key ?not_before ?lane () =
     name "queue" queue; name "kind" kind; text "payload" 1048576 payload;
     if version < 1 then invalid_arg "Version must be positive";
     Option.iter (name "key") key; Option.iter timestamp not_before;
-    if lane <> "" then name "lane" lane;
-    {queue;kind;version;payload;key;not_before;lane}
+    Option.iter (name "lane") lane;
+    {queue;kind;version;payload;key;not_before;
+     lane=Option.value ~default:"" lane}
   let queue (x : t) = x.queue
   let kind (x : t) = x.kind
   let version (x : t) = x.version
@@ -341,6 +356,20 @@ module Pi = struct
           ceiling (Float.next_after seconds infinity)
       | _ -> seconds in
     ceiling (Ptime.to_float_s t)
+  let page_bytes = 16*1048576
+  let job_bytes (j : job) =
+    String.length j.spec.payload + match j.outcome with
+    | Some (Succeeded s) -> String.length s
+    | Some (Retry {reason;_}) -> String.length reason
+    | Some (Failed {code;detail}) -> String.length code + String.length detail
+    | None -> 0
+  let page jobs =
+    let rec go total = function
+      | [] -> []
+      | j :: rest ->
+          let total=total + job_bytes j in
+          j :: (if total >= page_bytes then [] else go total rest) in
+    go 0 jobs
   let waiting ~revision ~next_at = {revision;next_at}
   let restore_event ~sequence ~time ~kind ~job ~attempt ~detail =
     {sequence;time;kind;job;attempt;detail}

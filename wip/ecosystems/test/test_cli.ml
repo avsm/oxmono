@@ -1,11 +1,6 @@
 let fixture p = In_channel.with_open_bin ("fixtures/" ^ p) In_channel.input_all
 
-let contains ~sub s =
-  let n = String.length sub in
-  let rec go i =
-    i + n <= String.length s && (String.sub s i n = sub || go (i + 1))
-  in
-  go 0
+let contains = Loopback.contains
 
 (* The recorded response for a request target, or [] for a second page. *)
 let route _ target =
@@ -62,15 +57,10 @@ let run ?base_url ?(route = route) ?(out_fun = None) env args =
       let code = Cmdliner.Cmd.eval' ~argv ~err:e cmd in
       Format.pp_print_flush o ();
       Format.pp_print_flush e ();
-      let target hs =
-        match String.split_on_char ' ' (List.nth hs (List.length hs - 1)) with
-        | _ :: t :: _ -> t
-        | _ -> ""
-      in
       ( code,
         Buffer.contents out,
         Buffer.contents err,
-        List.rev_map target !seen ))
+        List.rev_map Loopback.target !seen ))
 
 let lines s = List.filter (( <> ) "") (String.split_on_char (Char.chr 10) s)
 

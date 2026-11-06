@@ -1,5 +1,19 @@
 (* Serve canned responses on a loopback port and record what arrives. *)
 
+(* [target hs] is the request target of the request whose header lines,
+   last first, are [hs]. *)
+let target hs =
+  match String.split_on_char ' ' (List.nth hs (List.length hs - 1)) with
+  | _ :: t :: _ -> t
+  | _ -> ""
+
+let contains ~sub s =
+  let n = String.length sub in
+  let rec go i =
+    i + n <= String.length s && (String.sub s i n = sub || go (i + 1))
+  in
+  go 0
+
 let serve ~sw env respond =
   let net = Eio.Stdenv.net env in
   let sock =
@@ -18,13 +32,7 @@ let serve ~sw env respond =
           in
           let hs = headers [] in
           seen := hs :: !seen;
-          let target =
-            let request_line = List.nth hs (List.length hs - 1) in
-            match String.split_on_char ' ' request_line with
-            | _ :: t :: _ -> t
-            | _ -> ""
-          in
-          let status, extra, body = respond (List.length !seen) target in
+          let status, extra, body = respond (List.length !seen) (target hs) in
           Eio.Flow.copy_string
             (Printf.sprintf
                "HTTP/1.1 %d X\r\nContent-Type: application/json\r\n\

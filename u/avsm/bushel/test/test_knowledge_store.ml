@@ -1,29 +1,5 @@
-module S = struct
-  include Bushel_knowledge_store
-  let encode = Retrieval.Json.encode Response.status_codec
-  let status store = encode (status store)
-  let image_status store = encode (image_status store)
-  let index ?on_progress store ~check ~max_batches =
-    encode (index ?on_progress store ~check ~max_batches)
-  let index_all ?on_progress store ~check =
-    encode (index_all ?on_progress store ~check)
-  let images_search ?mode ?offset store ~check ~query =
-    Response.encode (Response.Search (images_search ?mode ?offset store ~check ~query))
-  let images_get store ~check ~id ~offset =
-    Response.encode (Response.Source (images_get store ~check ~id ~offset))
-end
+open Knowledge_support
 module K = Bushel_knowledge
-module J = Retrieval.Json
-
-let check name b = if not b then failwith name
-let noop () = ()
-
-let member name codec =
-  Jsont.Object.map Fun.id
-  |> Jsont.Object.mem name codec ~enc:Fun.id
-  |> Jsont.Object.finish
-
-let integer name json = J.decode (member name Jsont.int) json
 
 let coverage json =
   let pair =
@@ -32,7 +8,7 @@ let coverage json =
     |> Jsont.Object.mem "total" Jsont.int ~enc:snd
     |> Jsont.Object.finish
   in
-  J.decode (member "embedding_coverage" pair) json
+  J.decode (field "embedding_coverage" pair) json
 
 let write path text =
   Out_channel.with_open_bin path (fun oc -> output_string oc text)
@@ -85,7 +61,7 @@ let index_until_killed config_file =
               match request.body with Fetch.String s -> s | _ -> assert false
             in
             let inputs =
-              J.decode (member "input" (Jsont.list Jsont.string)) body
+              J.decode (field "input" (Jsont.list Jsont.string)) body
             in
             let rows =
               List.mapi
@@ -183,8 +159,8 @@ let run () =
             ~some:(fun path -> Printf.sprintf "api_key_file = %S\n" path)
             key))
   in
-  Unix.putenv "XDG_DATA_HOME" data;
-  Unix.putenv "SORTAL_DATA_DIR" root;
+  setenv "XDG_DATA_HOME" (Some data);
+  setenv "SORTAL_DATA_DIR" (Some root);
   Fun.protect
     ~finally:(fun () -> remove root)
     (fun () ->
@@ -200,7 +176,7 @@ let run () =
               match request.body with Fetch.String s -> s | _ -> assert false
             in
             let inputs =
-              J.decode (member "input" (Jsont.list Jsont.string)) body
+              J.decode (field "input" (Jsont.list Jsont.string)) body
             in
             calls := inputs :: !calls;
             let invalid =
@@ -565,8 +541,8 @@ let run () =
               (coverage status = (0, 19));
             let identity =
               J.decode
-                (member "embedding_provider"
-                   (member "model_identity" Jsont.string))
+                (field "embedding_provider"
+                   (field "model_identity" Jsont.string))
                 status
             in
             let result =

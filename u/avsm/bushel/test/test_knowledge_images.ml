@@ -1,42 +1,8 @@
 module K = Bushel_knowledge
 module I = Retrieval.Index
 module E = Retrieval.Embedding
-module S = struct
-  include Bushel_knowledge_store
-  let encode = Retrieval.Json.encode Response.status_codec
-  let status store = encode (status store)
-  let image_status store = encode (image_status store)
-  let index ?on_progress store ~check ~max_batches =
-    encode (index ?on_progress store ~check ~max_batches)
-  let index_all ?on_progress store ~check =
-    encode (index_all ?on_progress store ~check)
-  let images_search ?mode ?offset store ~check ~query =
-    Response.encode (Response.Search (images_search ?mode ?offset store ~check ~query))
-  let images_get store ~check ~id ~offset =
-    Response.encode (Response.Source (images_get store ~check ~id ~offset))
-end
-module J = Retrieval.Json
+open Knowledge_support
 
-let check name value = if not value then failwith name
-let noop () = ()
-
-let write path value =
-  Out_channel.with_open_bin path (fun oc -> output_string oc value)
-
-let rec remove path =
-  if (Unix.lstat path).st_kind = Unix.S_DIR then (
-    Array.iter
-      (fun name -> remove (Filename.concat path name))
-      (Sys.readdir path);
-    Unix.rmdir path)
-  else Sys.remove path
-
-let field name codec =
-  Jsont.Object.map Fun.id
-  |> Jsont.Object.mem name codec ~enc:Fun.id
-  |> Jsont.Object.finish
-
-let number name text = J.decode (field name Jsont.int) text
 let string name text = J.decode (field name Jsont.string) text
 
 let write_images root entries =
@@ -345,13 +311,11 @@ let () =
       (fun name -> (name, Sys.getenv_opt name))
       [ "XDG_DATA_HOME"; "SORTAL_DATA_DIR" ]
   in
-  Unix.putenv "XDG_DATA_HOME" data;
-  Unix.putenv "SORTAL_DATA_DIR" root;
+  setenv "XDG_DATA_HOME" (Some data);
+  setenv "SORTAL_DATA_DIR" (Some root);
   Fun.protect
     ~finally:(fun () ->
-      List.iter
-        (fun (name, value) -> Unix.putenv name (Option.value ~default:"" value))
-        saved;
+      List.iter (fun (name, value) -> setenv name value) saved;
       remove root)
     (fun () ->
       Eio_main.run @@ fun env ->
@@ -473,7 +437,7 @@ let () =
       add_model (Filename.concat root "absent-model");
       session (fun store ->
           check "text commands do not touch missing image directory"
-            (number "documents" (S.status store) = 1));
+            (integer "documents" (S.status store) = 1));
       configure output;
       let model = dir "vision-model" in
       write (Filename.concat model "config.json") "{}";
@@ -496,11 +460,11 @@ let () =
             check "concurrent image provider access shares initialization"
               (Option.get first == Option.get second);
             check "text counts exclude images"
-              (number "documents" (S.status store) = 1);
+              (integer "documents" (S.status store) = 1);
             let status = S.image_status store in
-            check "separate image counts" (number "documents" status = 2);
+            check "separate image counts" (integer "documents" status = 2);
             check "image status reports excluded small outputs"
-              (number "skipped_images" status = 1);
+              (integer "skipped_images" status = 1);
             let result =
               S.images_search ~mode:"lexical" store ~check:noop ~query:"garden"
             in
@@ -538,7 +502,7 @@ let () =
             (Filename.concat root "missing-text-model"));
       session (fun store ->
           check "image status ignores an unavailable text model"
-            (number "documents" (S.image_status store) = 2);
+            (integer "documents" (S.image_status store) = 2);
           check "image provider is independent of unavailable text weights"
             (Option.is_some (S.image_provider store));
           ignore

@@ -58,30 +58,20 @@
  (libraries bushel.config tomlt tomlt.bytesrw unix))
 
 (test
- (name test_knowledge_store)
- (modules test_knowledge_store)
- (libraries
-  bushel.knowledge.store
-  bushel.knowledge
-  bushel.agent
-  retrieval
-  fetch.mock
-  eio_main
-  unix))
-
-(test
  (name test_config_images)
  (modules test_config_images)
  (libraries bushel.config unix))
 
-(test
- (name test_knowledge_images)
- (modules test_knowledge_images)
+(tests
+ (names test_knowledge_store test_knowledge_images)
+ (modules test_knowledge_store test_knowledge_images knowledge_support)
  (libraries
   bushel.knowledge
   bushel.knowledge.store
+  bushel.agent
   retrieval
   srcsetter
   fetch.mock
+  jsont
   eio_main
   unix))

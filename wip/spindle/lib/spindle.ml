@@ -46,46 +46,24 @@ type state = {
   hooks : Hooks.t;
   web : Web.t option;
   streams : int Atomic.t;  (** Log streams open now. *)
-  lookups : bucket;
-  auth_lookups : bucket;  (** Identity lookups for signed requests. *)
+  lookups : Budget.t;
+      (** Anyone may ask about any repository, and one this spindle does not
+          know is looked up on the network, as are a repository's workflow
+          files. Those requests spend from this budget. *)
+  auth_lookups : Budget.t;  (** Identity lookups for signed requests. *)
   definitions : (string * string, float * Jsont.json list) Hashtbl.t;
 }
-
-(* Anyone may ask about any repository, and one this spindle does not know
-   is looked up on the network, as are a repository's workflow files. Those
-   requests share a budget of [rate] a second, with bursts of [burst]. *)
-and bucket = { mutable tokens : float; mutable filled : float }
 
 exception Not_ready of Jsont.json
 
 let reject = Xrpc_error.fail
-let rate = 10.
-let burst = 50.
-
 let seconds state =
   Int64.to_float
     (Mtime.to_uint64_ns (Eio.Time.Mono.now state.system#mono_clock))
   /. 1e9
 
-let spend ?(bucket = fun state -> state.lookups) state =
-  let b = bucket state and now = seconds state in
-  b.tokens <- Float.min burst (b.tokens +. ((now -. b.filled) *. rate));
-  b.filled <- now;
-  if b.tokens < 1. then
-    reject Status.Too_many_requests "RateLimitExceeded"
-      "too many lookups, try again shortly";
-  b.tokens <- b.tokens -. 1.
-
-(* [served_repo state repo] is [repo]'s catalog entry, spending from the
-   lookup budget when the network must be asked. *)
-let served_repo state repo =
-  let catalog = Engine.catalog state.engine in
-  if not (Catalog.known catalog repo || Catalog.cached catalog repo) then
-    spend state;
-  Engine.managed state.engine repo
-
 (* [fields req name] is every value of the request field [name], which must
-   be lowercase. *)
+   be lowercase, in the order they arrived. *)
 let fields req name =
   let values = ref [] in
   Headers.iter
@@ -93,7 +71,37 @@ let fields req name =
       if String.lowercase_ascii (Req.globalize field) = name then
         values := Req.globalize value :: !values)
     (Req.headers req);
-  !values
+  List.rev !values
+
+(* [client req] names the client of a request that came through the proxy on
+   this host, by the address that proxy appended to X-Forwarded-For last.
+   Earlier entries are whatever the client sent. A direct connection names
+   no client, and spends only from the shared budget. *)
+let client req =
+  if Req.transport req <> Req.Loopback then None
+  else
+    match List.rev (fields req "x-forwarded-for") with
+    | [] -> None
+    | last :: _ -> (
+        match List.rev (String.split_on_char ',' last) with
+        | entry :: _ when String.trim entry <> "" -> Some (String.trim entry)
+        | _ -> None)
+
+let spend_as ~budget state ~client =
+  if not (Budget.spend (budget state) ~client) then
+    reject Status.Too_many_requests "RateLimitExceeded"
+      "too many lookups, try again shortly"
+
+let spend ?(budget = fun state -> state.lookups) state req =
+  spend_as ~budget state ~client:(client req)
+
+(* [served_repo state req repo] is [repo]'s catalog entry, spending from the
+   lookup budget when the network must be asked. *)
+let served_repo state req repo =
+  let catalog = Engine.catalog state.engine in
+  if not (Catalog.known catalog repo || Catalog.cached catalog repo) then
+    spend state req;
+  Engine.managed state.engine repo
 
 (* The scheme is case-insensitive (RFC 9110, section 11.1). *)
 let bearer req =
@@ -112,9 +120,10 @@ let authorize state meth req =
   let token = bearer req in
   let now = Eio.Time.now state.system#clock in
   let stale = ref None in
+  let client = client req in
   let resolve did =
     if Network.cached state.network did then stale := Some did
-    else spend ~bucket:(fun s -> s.auth_lookups) state;
+    else spend_as ~budget:(fun s -> s.auth_lookups) state ~client;
     Network.resolve state.network did
   in
   let check () =
@@ -173,7 +182,7 @@ let query_pipelines state req =
     cursor;
   let triggers = query_list req "triggers" in
   let commits = query_list req "commits" in
-  ignore (served_repo state repo);
+  ignore (served_repo state req repo);
   Engine.query state.engine ~repo ~limit ~cursor ~triggers ~commits
 
 let frame event =
@@ -562,7 +571,7 @@ let resolve_commit state repo ref_ =
 (* A spindle that runs only its own workflows lists none of a repository's. *)
 (* Definitions are kept for a minute, so that anonymous requests for them
    cannot make the spindle read a repository's files again and again. *)
-let repository_definitions state repo ref_ =
+let repository_definitions state req repo ref_ =
   if String.length ref_ > 256 then invalid "ref must be at most 256 bytes";
   if not state.config.repository_workflows then []
   else
@@ -570,7 +579,7 @@ let repository_definitions state repo ref_ =
     match Hashtbl.find_opt state.definitions (repo, ref_) with
     | Some (expires, definitions) when expires > now -> definitions
     | _ -> (
-        spend state;
+        spend state req;
         match resolve_commit state repo ref_ with
         | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
         | Some commit ->
@@ -702,7 +711,7 @@ let notify state req ~issuer body =
   ci_output (Option.to_list created)
 
 let served state req =
-  ignore (served_repo state (did (query_required req "repo")))
+  ignore (served_repo state req (did (query_required req "repo")))
 
 let require_admin state actor =
   if not (Catalog.admin (Engine.catalog state.engine) actor) then
@@ -913,7 +922,7 @@ and handle_xrpc state name req respond =
             obj
               [
                 ( "workflows",
-                  arr (workflows state @ repository_definitions state repo ref_)
+                  arr (workflows state @ repository_definitions state req repo ref_)
                 );
               ]
         | "org.tangled.ci.getWorkflowDefinition" -> (
@@ -938,7 +947,7 @@ and handle_xrpc state name req respond =
                 match
                   List.find_opt
                     (fun d -> get "id" d = name)
-                    (repository_definitions state repo ref_)
+                    (repository_definitions state req repo ref_)
                 with
                 | Some d -> obj [ ("workflow", d) ]
                 | None ->
@@ -1305,6 +1314,16 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
            ~jobs ~plc:config.plc system)
     else None
   in
+  (* The shared budget is a backstop, so that clients the proxy names as
+     many addresses still cannot make unbounded requests. *)
+  let budget () =
+    Budget.v
+      ~now:(fun () ->
+        Int64.to_float
+          (Mtime.to_uint64_ns (Eio.Time.Mono.now system#mono_clock))
+        /. 1e9)
+      ~rate:20. ~burst:100. ~client_rate:2. ~client_burst:20. ()
+  in
   let state =
     {
       config;
@@ -1316,8 +1335,8 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       hooks;
       web;
       streams = Atomic.make 0;
-      lookups = { tokens = burst; filled = 0. };
-      auth_lookups = { tokens = burst; filled = 0. };
+      lookups = budget ();
+      auth_lookups = budget ();
       definitions = Hashtbl.create 16;
     }
   in

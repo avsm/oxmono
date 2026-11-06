@@ -114,5 +114,19 @@ let () =
   Settings.add_secret t ~repo ~by:owner "KEPT" "x";
   Settings.wipe t repo;
   assert (Settings.secrets t repo = []);
+  (* A client spends its own budget and the shared one, and refills. *)
+  let module B = Spindle__Budget in
+  let clock = ref 0. in
+  let b =
+    B.v ~now:(fun () -> !clock) ~rate:10. ~burst:4. ~client_rate:1.
+      ~client_burst:2. ()
+  in
+  assert (B.spend b ~client:(Some "a") && B.spend b ~client:(Some "a"));
+  assert (not (B.spend b ~client:(Some "a")));
+  assert (B.spend b ~client:(Some "b") && B.spend b ~client:None);
+  assert (not (B.spend b ~client:(Some "c")));
+  clock := 1.;
+  assert (B.spend b ~client:(Some "a"));
+  assert (not (B.spend b ~client:(Some "a")));
   print_endline
-    "settings: secrets, bans, invite codes, quotas and minutes passed"
+    "settings: secrets, bans, invite codes, quotas, minutes and budgets passed"

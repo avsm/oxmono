@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Give each client behind the local proxy its own lookup budget of 2 a
+  second, with bursts of 20, named by the address the proxy appends to
+  X-Forwarded-For, within a shared budget of 20 a second.
+
 - Keep the log events that older snapshots hold, fail a durable workflow
   whose last attempt hits a store error, and let every repository's first
   event run in each observer pass.

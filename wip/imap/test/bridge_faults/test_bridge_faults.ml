@@ -903,6 +903,7 @@ let test_staged_timeout_discards_stage () =
     ~database:Eio.Path.(fs / dir / "sync.db")
     ~blob_dir:Eio.Path.(fs / dir / "blob") in
   let spool_dir=Eio.Path.(fs / dir / "spool") in
+  let reached=ref false in
   let flow=Eio_mock.Flow.make "staged-timeout" in
   Eio_mock.Flow.on_read flow [
     `Return "* OK ready\r\n";
@@ -913,8 +914,8 @@ let test_staged_timeout_discards_stage () =
     `Run (fun () ->
       Alcotest.(check (list string)) "stage exists before timeout"
         ["timeout-stage"] (Imap_store.abandoned_stages store);
-      Eio.Time.sleep clock 1.;
-      "");
+      reached:=true;
+      Eio.Fiber.await_cancel ());
   ];
   let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
     ~allow_insecure_transport:true () in
@@ -923,12 +924,12 @@ let test_staged_timeout_discards_stage () =
     | Error error -> Alcotest.fail
         (Imap_eio.Client.error_to_string error) in
   (try
-     ignore (Eio.Time.with_timeout_exn clock 0.02 (fun () ->
+     ignore (Eio.Time.with_timeout_exn clock 0.5 (fun () ->
        Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
          ~stage_id:"timeout-stage" ()));
-
      Alcotest.fail "staged FETCH did not time out"
    with Eio.Time.Timeout -> ());
+  Alcotest.(check bool) "timeout struck while FETCH was staged" true !reached;
   Alcotest.(check (list string)) "cancelled stage discarded" []
     (Imap_store.abandoned_stages store);
   Alcotest.(check int64) "published cursor unchanged" 0L
@@ -947,7 +948,7 @@ let test_watch_deadlines () =
     ~database:Eio.Path.(fs / dir / "sync.db")
     ~blob_dir:Eio.Path.(fs / dir / "blob") in
   let spool_dir=Eio.Path.(fs / dir / "spool") in
-  let run ~connect ~stage_id ~expected =
+  let run ~connect_timeout ~connect ~stage_id ~expected =
     let seen=ref false in
     (try
        ignore (Imap_sync.Watch.run ~clock ~connect
@@ -957,14 +958,17 @@ let test_watch_deadlines () =
            seen:=true;
            if issue<>expected then Alcotest.fail "wrong watch timeout kind";
            raise Watch_timeout_seen)
-         ~connect_timeout_seconds:0.02 ~scan_timeout_seconds:0.05 ());
+         ~connect_timeout_seconds:connect_timeout
+         ~scan_timeout_seconds:0.5 ());
        Alcotest.fail "watch returned without a timeout"
      with Watch_timeout_seen -> ());
     Alcotest.(check bool) "watch observed timeout" true !seen in
-  run ~stage_id:"connect-timeout" ~expected:Imap_sync.Watch.Connect_timed_out
+  run ~connect_timeout:0.02 ~stage_id:"connect-timeout"
+    ~expected:Imap_sync.Watch.Connect_timed_out
     ~connect:(fun ~sw:_ ->
-      Eio.Time.sleep clock 1.;
+      Eio.Time.sleep clock 30.;
       Error (Imap_sync.Error.Client Imap_eio.Error.Closed));
+  let scan_reached=ref false in
   let connect ~sw =
     let flow=Eio_mock.Flow.make "watch-scan-timeout" in
     Eio_mock.Flow.on_read flow [
@@ -976,14 +980,18 @@ let test_watch_deadlines () =
       `Run (fun () ->
         Alcotest.(check (list string)) "watch stage before timeout"
           ["watch-scan-timeout"] (Imap_store.abandoned_stages store);
-        Eio.Time.sleep clock 1.;
-        "");
+        scan_reached:=true;
+        Eio.Fiber.await_cancel ());
     ];
     let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
       ~allow_insecure_transport:true () in
     connected ~store ~spool_dir (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  run ~stage_id:"watch-scan-timeout" ~expected:Imap_sync.Watch.Scan_timed_out
-    ~connect;
+  (* A generous connect deadline keeps a slow mock handshake from being
+     reported as a connect timeout. *)
+  run ~connect_timeout:10. ~stage_id:"watch-scan-timeout"
+    ~expected:Imap_sync.Watch.Scan_timed_out ~connect;
+  Alcotest.(check bool) "scan timeout struck while FETCH was staged" true
+    !scan_reached;
   Alcotest.(check (list string)) "watch discarded timed-out stage" []
     (Imap_store.abandoned_stages store);
   Alcotest.(check int64) "watch cursor stayed unpublished" 0L

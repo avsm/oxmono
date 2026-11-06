@@ -452,6 +452,10 @@ let test_h2_body_budget () =
 let test_h2_multiplex_cancellation () =
   with_h2 "multiplex" @@ fun client url ->
   let first_cancelled = ref None and second = ref None in
+  (* Each step waits for the previous response head, so the fixture sees the
+     streams in order and holds the second until the first is reset. *)
+  let first_open, opened_first = Promise.create () in
+  let second_open, opened_second = Promise.create () in
   Fiber.both
     (fun () ->
       first_cancelled :=
@@ -460,13 +464,14 @@ let test_h2_multiplex_cancellation () =
             Alcotest.(check bool)
               "first stream is HTTP/2" true
               (Fetch.version response = `HTTP_2);
+            Promise.resolve opened_first ();
             let result =
               Fiber.first
                 (fun () ->
                   Eio.Buf_read.(parse_exn ~max_size:8 take_all)
                     (Fetch.body response))
                 (fun () ->
-                  Eio_unix.sleep 0.05;
+                  Promise.await second_open;
                   "cancelled")
             in
             Alcotest.(check (option string))
@@ -474,8 +479,13 @@ let test_h2_multiplex_cancellation () =
               (Option.map (fun _ -> "present") (Fetch.trailers response));
             result ))
     (fun () ->
-      Eio_unix.sleep 0.01;
-      second := Some (Fetch.read client url));
+      Promise.await first_open;
+      second :=
+        Some
+          ( Fetch.with_response client `GET url @@ fun response ->
+            Promise.resolve opened_second ();
+            Eio.Buf_read.(parse_exn ~max_size:8 take_all) (Fetch.body response)
+          ));
   Alcotest.(check (option string))
     "first body read cancelled" (Some "cancelled") !first_cancelled;
   Alcotest.(check (option string))

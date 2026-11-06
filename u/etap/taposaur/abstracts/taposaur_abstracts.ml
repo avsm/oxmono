@@ -6,7 +6,8 @@ type read = Read
 type write = Write
 type 'a store = {db:Sqlite3_eio.t; lock:Eio.Mutex.t;
   audit:Taposaur_audit.session option;
-  mutable works:bool (* false for a read-only version 1 database *)}
+  (* Tables a read-only store at an older version does not have. *)
+  mutable works:bool; mutable sources:bool}
 let get = function Ok v -> v | Error e -> failwith e
 let hash body = Digestif.SHA256.(to_hex (digest_string body))
 let encode e = get (Jsont_bytesrw.encode_string E.jsont e)
@@ -53,7 +54,7 @@ let open_db ?audit ~sw ~readonly path =
     ~create:(`If_missing 0o600) path (fun _ -> ());
   let db=Sqlite3_eio.open_path ~sw ~busy_timeout:5000
     ?mode:(if readonly then Some `READONLY else None) path in
-  let t={db;lock=Eio.Mutex.create ();audit;works=true} in
+  let t={db;lock=Eio.Mutex.create ();audit;works=true;sources=true} in
   run t (fun db ->
     let scalar sql = stmt db sql [] (fun s ->
       if Q.step s <> Q.Rc.ROW then failwith "Missing metadata schema";
@@ -67,7 +68,8 @@ let open_db ?audit ~sw ~readonly path =
       end else if app<>application_id || v<1 || v>schema_version then
         failwith "Unsupported abstract evidence database"
       else if v<schema_version then
-        if readonly then t.works <- false else exec db works_schema in
+        if readonly then (t.works <- v >= 2; t.sources <- v >= 3)
+        else exec db works_schema in
     if readonly then (check ();exec db "PRAGMA query_only=ON") else begin
       transaction db check;exec db "PRAGMA journal_mode=WAL";
       exec db "PRAGMA synchronous=FULL" end);
@@ -84,7 +86,7 @@ let find t doi = run t (fun db -> stmt db
     | Q.Rc.ROW -> Some (get (Jsont_bytesrw.decode_string E.jsont (Q.column_text s 0)))
     | rc -> Q.Rc.check rc;assert false))
 let decode_venue s = get (Jsont_bytesrw.decode_string W.venue_jsont s)
-let find_source t key = if not t.works then None else run t (fun db -> stmt db
+let find_source t key = if not t.sources then None else run t (fun db -> stmt db
   "SELECT venue FROM sources WHERE key=?" [Q.Data.TEXT key]
   (fun s -> match Q.step s with
     | Q.Rc.DONE -> None
@@ -114,7 +116,7 @@ let iter_works t f = if t.works then run t (fun db ->
   (fun s -> let rec loop () = match Q.step s with
     | Q.Rc.ROW -> f (get (Jsont_bytesrw.decode_string W.jsont (Q.column_text s 0))); loop ()
     | Q.Rc.DONE -> () | rc -> Q.Rc.check rc in loop ()))
-let iter_sources t f = if t.works then run t (fun db ->
+let iter_sources t f = if t.sources then run t (fun db ->
   stmt db "SELECT key, venue FROM sources ORDER BY key" []
   (fun s -> let rec loop () = match Q.step s with
     | Q.Rc.ROW -> f (Q.column_text s 0) (decode_venue (Q.column_text s 1)); loop ()

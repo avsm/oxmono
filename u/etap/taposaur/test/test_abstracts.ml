@@ -168,6 +168,10 @@ let migration () = with_temp (fun env sw root ->
   let raw sql =
     let s = Sqlite3.db_open (Eio.Path.native_exn path) in
     Sqlite3.Rc.check (Sqlite3.exec s sql); ignore (Sqlite3.db_close s) in
+  raw "DROP TABLE sources; PRAGMA user_version=2";
+  let ro = B.open_read ~sw path in
+  check "version 2 read with works but no sources" true
+    (B.find_work ro a <> None && B.known ro a && B.find_source ro "issn:0307-6946" = None);
   raw "DROP TABLE works; PRAGMA user_version=1";
   let ro = B.open_read ~sw path in
   check "version 1 read without works" true

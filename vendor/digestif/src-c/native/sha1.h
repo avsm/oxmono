@@ -25,6 +25,7 @@
 #ifndef CRYPTOHASH_SHA1_H
 #define CRYPTOHASH_SHA1_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct
@@ -38,7 +39,7 @@ typedef struct
 #define SHA1_CTX_SIZE     (sizeof(sha1_ctx))
 
 void digestif_sha1_init(sha1_ctx *ctx);
-void digestif_sha1_update(sha1_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_sha1_update(sha1_ctx *ctx, uint8_t *data, size_t len);
 void digestif_sha1_finalize(sha1_ctx *ctx, uint8_t *out);
 
 #endif

@@ -26,6 +26,7 @@
 #ifndef CRYPTOHASH_RMD160_H
 #define CRYPTOHASH_RMD160_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct
@@ -40,7 +41,7 @@ typedef struct
 #define RMD160_CTX_SIZE (sizeof(rmd160_ctx))
 
 void digestif_rmd160_init(rmd160_ctx *ctx);
-void digestif_rmd160_update(rmd160_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_rmd160_update(rmd160_ctx *ctx, uint8_t *data, size_t len);
 void digestif_rmd160_finalize(rmd160_ctx *ctx, uint8_t *out);
 
 #endif

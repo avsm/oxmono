@@ -118,9 +118,9 @@ void digestif_sha3_init(sha3_ctx *ctx, int mdlen)
 
 // update state with more data
 
-void digestif_sha3_update(sha3_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_sha3_update(sha3_ctx *ctx, uint8_t *data, size_t len)
 {
-    uint32_t i;
+    size_t i;
     int j;
 
     j = ctx->pt;

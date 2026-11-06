@@ -155,7 +155,7 @@ static inline void sha1_do_chunk(sha1_ctx *ctx, uint32_t *buf)
 	ctx->h[4] += e;
 }
 
-void digestif_sha1_update(sha1_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_sha1_update(sha1_ctx *ctx, uint8_t *data, size_t len)
 {
 	uint32_t index, to_fill;
 

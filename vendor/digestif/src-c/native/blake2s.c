@@ -120,7 +120,7 @@ static void blake2s_compress(blake2s_ctx *ctx, const uint8_t block[BLAKE2S_BLOCK
 #undef G
 #undef ROUND
 
-void digestif_blake2s_update(blake2s_ctx *ctx, uint8_t *data, uint32_t inlen)
+void digestif_blake2s_update(blake2s_ctx *ctx, uint8_t *data, size_t inlen)
 {
   const unsigned char * in = (const unsigned char *) data;
 

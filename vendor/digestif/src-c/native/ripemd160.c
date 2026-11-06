@@ -245,7 +245,7 @@ static inline void rmd160_compress(rmd160_ctx *ctx, uint32_t *buf)
     ctx->h[0] = T;
 }
 
-void digestif_rmd160_update(rmd160_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_rmd160_update(rmd160_ctx *ctx, uint8_t *data, size_t len)
 {
   uint32_t t;
 

@@ -25,6 +25,7 @@
 #ifndef CRYPTOHASH_SHA256_H
 #define CRYPTOHASH_SHA256_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct
@@ -43,11 +44,11 @@ typedef struct
 #define SHA256_CTX_SIZE		sizeof(sha256_ctx)
 
 void digestif_sha224_init(sha224_ctx *ctx);
-void digestif_sha224_update(sha224_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_sha224_update(sha224_ctx *ctx, uint8_t *data, size_t len);
 void digestif_sha224_finalize(sha224_ctx *ctx, uint8_t *out);
 
 void digestif_sha256_init(sha256_ctx *ctx);
-void digestif_sha256_update(sha256_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_sha256_update(sha256_ctx *ctx, uint8_t *data, size_t len);
 void digestif_sha256_finalize(sha256_ctx *ctx, uint8_t *out);
 
 #endif

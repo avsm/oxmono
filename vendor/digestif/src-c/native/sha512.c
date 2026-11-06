@@ -127,12 +127,12 @@ static void sha512_do_chunk(sha512_ctx *ctx, uint64_t *buf)
 	ctx->h[4] += e; ctx->h[5] += f; ctx->h[6] += g; ctx->h[7] += h;
 }
 
-void digestif_sha384_update(sha384_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_sha384_update(sha384_ctx *ctx, uint8_t *data, size_t len)
 {
 	digestif_sha512_update(ctx, data, len);
 }
 
-void digestif_sha512_update(sha512_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_sha512_update(sha512_ctx *ctx, uint8_t *data, size_t len)
 {
 	unsigned int index, to_fill;
 

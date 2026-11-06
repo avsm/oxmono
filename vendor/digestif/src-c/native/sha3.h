@@ -3,6 +3,7 @@
 #ifndef CRYPTOHASH_SHA3_H
 #define CRYPTOHASH_SHA3_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 
@@ -18,7 +19,7 @@ typedef struct
 #define SHA3_CTX_SIZE		sizeof(sha3_ctx)
 
 void digestif_sha3_init(sha3_ctx *ctx, int mdlen);
-void digestif_sha3_update(sha3_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_sha3_update(sha3_ctx *ctx, uint8_t *data, size_t len);
 void digestif_sha3_finalize(sha3_ctx *ctx, uint8_t *out, uint8_t padding);
 
 #endif

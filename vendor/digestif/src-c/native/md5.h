@@ -25,6 +25,7 @@
 #ifndef CRYPTOHASH_MD5_H
 #define CRYPTOHASH_MD5_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct
@@ -38,7 +39,7 @@ typedef struct
 #define MD5_CTX_SIZE    sizeof(md5_ctx)
 
 void digestif_md5_init(md5_ctx *ctx);
-void digestif_md5_update(md5_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_md5_update(md5_ctx *ctx, uint8_t *data, size_t len);
 void digestif_md5_finalize(md5_ctx *ctx, uint8_t *out);
 
 #endif

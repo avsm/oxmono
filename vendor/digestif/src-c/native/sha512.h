@@ -24,6 +24,7 @@
 #ifndef CRYPTOHASH_SHA512_H
 #define CRYPTOHASH_SHA512_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct
@@ -42,11 +43,11 @@ typedef struct
 #define SHA512_CTX_SIZE		sizeof(sha512_ctx)
 
 void digestif_sha384_init(sha384_ctx *ctx);
-void digestif_sha384_update(sha384_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_sha384_update(sha384_ctx *ctx, uint8_t *data, size_t len);
 void digestif_sha384_finalize(sha384_ctx *ctx, uint8_t *out);
 
 void digestif_sha512_init(sha512_ctx *ctx);
-void digestif_sha512_update(sha512_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_sha512_update(sha512_ctx *ctx, uint8_t *data, size_t len);
 void digestif_sha512_finalize(sha512_ctx *ctx, uint8_t *out);
 
 #endif

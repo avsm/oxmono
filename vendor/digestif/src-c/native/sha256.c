@@ -110,12 +110,12 @@ static void sha256_do_chunk(sha256_ctx *ctx, uint32_t buf[])
 	ctx->h[4] += e; ctx->h[5] += f; ctx->h[6] += g; ctx->h[7] += h;
 }
 
-void digestif_sha224_update(sha224_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_sha224_update(sha224_ctx *ctx, uint8_t *data, size_t len)
 {
 	digestif_sha256_update(ctx, data, len);
 }
 
-void digestif_sha256_update(sha256_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_sha256_update(sha256_ctx *ctx, uint8_t *data, size_t len)
 {
 	uint32_t index, to_fill;
 

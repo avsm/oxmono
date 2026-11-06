@@ -662,7 +662,7 @@ static void whirlpool_do_chunk(uint64_t *hash, uint64_t* p_block)
  * @param msg message chunk
  * @param size length of the message chunk
  */
-void digestif_whirlpool_update(whirlpool_ctx* ctx, uint8_t *data, uint32_t len)
+void digestif_whirlpool_update(whirlpool_ctx* ctx, uint8_t *data, size_t len)
 {
 	unsigned int index, to_fill;
 

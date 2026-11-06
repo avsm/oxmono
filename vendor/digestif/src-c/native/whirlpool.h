@@ -22,6 +22,7 @@
 #ifndef CRYPTOHASH_WHIRLPOOL_H
 #define CRYPTOHASH_WHIRLPOOL_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct
@@ -35,7 +36,7 @@ typedef struct
 #define WHIRLPOOL_CTX_SIZE		sizeof(whirlpool_ctx)
 
 void digestif_whirlpool_init(whirlpool_ctx* ctx);
-void digestif_whirlpool_update(whirlpool_ctx* ctx, uint8_t *data, uint32_t len);
+void digestif_whirlpool_update(whirlpool_ctx* ctx, uint8_t *data, size_t len);
 void digestif_whirlpool_finalize(whirlpool_ctx* ctx, uint8_t *out);
 
 #endif

@@ -126,7 +126,7 @@ static void md5_do_chunk(md5_ctx *ctx, uint32_t *buf)
 	ctx->h[0] += a; ctx->h[1] += b; ctx->h[2] += c; ctx->h[3] += d;
 }
 
-void digestif_md5_update(md5_ctx *ctx, uint8_t *data, uint32_t len)
+void digestif_md5_update(md5_ctx *ctx, uint8_t *data, size_t len)
 {
 	uint32_t index, to_fill;
 

@@ -24,7 +24,7 @@
       (value ctx, value src, value off, value len) {                         \
     digestif_ ## name ## _update (                                           \
       (name ## _ctx *) String_val (ctx),                                     \
-      _ba_uint8_off (src, off), Int_val (len));                              \
+      _ba_uint8_off (src, off), Long_val (len));                             \
     return Val_unit;                                                         \
   }
 
@@ -34,7 +34,7 @@
       (value ctx, value src, value off, value len) {                         \
     digestif_sha3_update (                                                   \
       (sha3_ctx *) String_val (ctx),                                         \
-      _ba_uint8_off (src, off), Int_val (len));                              \
+      _ba_uint8_off (src, off), Long_val (len));                             \
     return Val_unit;                                                         \
   }
 #else
@@ -56,7 +56,7 @@ CAMLextern void caml_leave_blocking_section (void);
       (value ctx, value src, value off, value len) {                         \
     CAMLparam4 (ctx, src, off, len);                                         \
     uint8_t *off_ = ((uint8_t*) Caml_ba_data_val(src)) + Long_val (off);     \
-    uint32_t len_ = Long_val (len);                                          \
+    size_t len_ = Long_val (len);                                            \
     name ## _ctx ctx_;                                                       \
     memcpy(&ctx_, Bytes_val(ctx), sizeof(name ## _ctx));                     \
     caml_enter_blocking_section();                                           \
@@ -72,7 +72,7 @@ CAMLextern void caml_leave_blocking_section (void);
       (value ctx, value src, value off, value len) {                         \
     CAMLparam4 (ctx, src, off, len);                                         \
     uint8_t *off_ = ((uint8_t*) Caml_ba_data_val(src)) + Long_val (off);     \
-    uint32_t len_ = Long_val (len);                                          \
+    size_t len_ = Long_val (len);                                            \
     sha3_ctx ctx_;                                                           \
     memcpy(&ctx_, Bytes_val(ctx), sizeof(sha3_ctx));                         \
     caml_enter_blocking_section();                                           \
@@ -104,7 +104,7 @@ CAMLextern void caml_leave_blocking_section (void);
       (value ctx, value src, value off, value len) {                         \
     digestif_ ## name ## _update (                                           \
       (name ## _ctx *) String_val (ctx),                                     \
-      _st_uint8_off (src, off), Int_val (len));                              \
+      _st_uint8_off (src, off), Long_val (len));                             \
     return Val_unit;                                                         \
   }                                                                          \
                                                                              \
@@ -167,7 +167,7 @@ caml_digestif_blake3_st_init_derive_key(value ctx, value context,
                                         value off, value len)
 {
   digestif_blake3_init_derive_key_raw(
-    (blake3_ctx *) String_val(ctx), _st_uint8_off(context, off), Int_val(len));
+    (blake3_ctx *) String_val(ctx), _st_uint8_off(context, off), Long_val(len));
   return Val_unit;
 }
 
@@ -294,7 +294,7 @@ caml_digestif_keccak_256_st_finalize
       (value ctx, value src, value off, value len) {                         \
     digestif_sha3_update (                                                   \
       (sha3_ctx *) String_val (ctx),                                         \
-      _st_uint8_off (src, off), Int_val (len));                              \
+      _st_uint8_off (src, off), Long_val (len));                             \
     return Val_unit;                                                         \
   }                                                                          \
                                                                              \

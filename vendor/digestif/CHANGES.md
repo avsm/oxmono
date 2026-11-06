@@ -2,6 +2,9 @@
 
 - Clarify opam descriptions of package functionality, upstream scope and local
   adaptations.
+- Hash single C-backend feeds of 4 GiB or more in full. Their lengths were
+  truncated to 32 bits.
+- Correct the expected SHA3-224 digest of the slow 2^32 + 1 byte test.
 
 ### v1.4.0 2026-10-15 Nantes (France)
 

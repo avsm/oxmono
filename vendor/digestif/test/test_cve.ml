@@ -57,7 +57,7 @@ let sha3_cve_2022_37454_1 =
   Alcotest.(check (testable Digestif.SHA3_224.pp Digestif.SHA3_224.equal))
     "result" hash
     (Digestif.SHA3_224.of_hex
-       "bdd5167212d2dc69665f5a8875ab87f23d5ce7849132f56371a19096")
+       "ec66be1ebccf055f839fccf2d12e641dcbbda4f5c71a3bdee6509495")
 
 let () =
   Alcotest.run "digestif (CVE)"

@@ -50,7 +50,7 @@ PACKED(struct blake2b_param
 
 void digestif_blake2b_init(blake2b_ctx *ctx);
 void digestif_blake2b_init_with_outlen_and_key(blake2b_ctx *ctx, size_t outlen, const void *key, size_t keylen);
-void digestif_blake2b_update(blake2b_ctx *ctx, uint8_t *data, uint32_t len);
+void digestif_blake2b_update(blake2b_ctx *ctx, uint8_t *data, size_t len);
 void digestif_blake2b_finalize(blake2b_ctx *ctx, uint8_t *out);
 
 #endif

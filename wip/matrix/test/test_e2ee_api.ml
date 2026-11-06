@@ -11,6 +11,9 @@
     Python's [hashlib]/[cryptography], so they check this implementation against
     another rather than against itself. *)
 
+(* The test runs in one domain, so mutating process-global state is safe. *)
+[@@@alert "-unsafe_multidomain"]
+
 open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error

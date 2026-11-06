@@ -3,6 +3,9 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+(* The test runs in one domain, so mutating process-global state is safe. *)
+[@@@alert "-unsafe_multidomain"]
+
 (** Tests for {!Jmap_eio.Auth} and {!Jmap_eio.Transport}: what a credential puts
     on the wire, where it comes from, and how a deadline ends an exchange. *)
 

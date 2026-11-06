@@ -11,6 +11,9 @@
     points XDG at a temporary directory; the explicit-root test does not touch
     the XDG environment. *)
 
+(* The test runs in one domain, so mutating process-global state is safe. *)
+[@@@alert "-unsafe_multidomain"]
+
 open Recording
 module Client = Matrix_client.Client
 module Auth = Matrix_client.Auth

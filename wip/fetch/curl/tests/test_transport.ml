@@ -1,3 +1,6 @@
+(* The test runs in one domain, so mutating process-global state is safe. *)
+[@@@alert "-unsafe_multidomain"]
+
 open Eio.Std
 open Fetch
 

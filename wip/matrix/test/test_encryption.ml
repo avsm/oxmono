@@ -13,6 +13,9 @@
     system CSPRNG, so a failure reproduces exactly; each machine gets its own
     seed so that two "identical" devices do not accidentally share keys. *)
 
+(* The test runs in one domain, so mutating process-global state is safe. *)
+[@@@alert "-unsafe_multidomain"]
+
 open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error

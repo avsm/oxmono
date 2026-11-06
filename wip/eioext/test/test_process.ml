@@ -66,6 +66,17 @@ let main env =
    with
   | _ -> failwith "expected consumer error"
   | exception Failure message when message = "original consumer error" -> ());
+  check "executable resolves through PATH"
+    (Filename.basename (Eioext.Process.executable ~process_mgr "sh") = "sh");
+  check "explicit executable path is unchanged"
+    (Eioext.Process.executable ~process_mgr "/bin/sh" = "/bin/sh");
+  (match
+     within (fun () -> Eioext.Process.run ~process_mgr (shell "exit 3"))
+   with
+  | () -> failwith "nonzero status accepted"
+  | exception Eio.Exn.Io (Eio.Process.E (Eio.Process.Child_error (`Exited 3)), _)
+    ->
+      ());
   print_endline "Eioext process bounds, groups and cancellation passed"
 
 let () = Eio_main.run main

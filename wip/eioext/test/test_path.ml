@@ -3,7 +3,7 @@ let check message value = if not value then failwith message
 let refused f =
   match f () with
   | _ -> failwith "operation should have been refused"
-  | exception (Eioext.Path.Error _ | Eio.Io _) -> ()
+  | exception (Eioext.Path.Error _ | Eio.Io _ | Unix.Unix_error _) -> ()
 
 let rec remove path =
   match (Unix.lstat path).Unix.st_kind with
@@ -38,6 +38,31 @@ let main env =
       refused (fun () -> Eioext.Path.read_private ~max_bytes:6 (path "alias"));
       refused (fun () -> Eioext.Path.read_private ~max_bytes:6 (path "fifo"));
       refused (fun () -> Eioext.Path.with_lock (path "fifo") ignore);
+      refused (fun () -> Eioext.Path.create_private (path "value") "clobber");
+      refused (fun () -> Eioext.Native.create_private (native "value") "x");
+      refused (fun () -> Eioext.Native.create_private (native "alias") "x");
+      check "refused creation preserves file"
+        (Eioext.Native.read_private ~max_bytes:6 (native "value") = "before");
+      Eioext.Native.mkdir_private (native "dir/nested");
+      Eioext.Native.require_private_dir (native "dir/nested");
+      Eioext.Path.require_private_dir (path "dir");
+      Unix.symlink "dir" (native "dirlink");
+      refused (fun () -> Eioext.Native.require_private_dir (native "dirlink"));
+      refused (fun () -> Eioext.Path.require_private_dir (path "dirlink"));
+      refused (fun () -> Eioext.Native.mkdir_private (native "dirlink"));
+      Unix.chmod (native "dir") 0o750;
+      refused (fun () -> Eioext.Native.require_private_dir (native "dir"));
+      refused (fun () -> Eioext.Path.require_private_dir (path "dir"));
+      Unix.chmod (native "dir") 0o700;
+      Eioext.Native.atomic_write ~mode:0o640 (native "shared") "data";
+      check "native atomic write honours mode"
+        ((Unix.stat (native "shared")).Unix.st_perm = 0o640);
+      check "regular read ignores permissions"
+        (Eioext.Native.read_regular ~max_bytes:4 (native "shared") = "data");
+      refused (fun () ->
+          Eioext.Native.read_private ~max_bytes:4 (native "shared"));
+      refused (fun () ->
+          Eioext.Native.read_regular ~max_bytes:3 (native "shared"));
       Eioext.Native.create_private
         (native (Printf.sprintf ".eioext-%d-0" (Unix.getpid ())))
         "stale";

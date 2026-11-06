@@ -731,6 +731,51 @@ exports `ce-butterflies-snapshot-7.{jsonl,parquet,summary.json}` to
 `taposaur/.local/exports/` and `/data/papers/taposaur/reviews/ce-butterflies/`.
 A copy of the store before the migration is `abstracts.db.pre-schema2.bak`.
 The early batches, SICI DOIs from 10.1002, matched about half the DOIs.
+The list budget lasted past 1,500 batches this time; single reads began
+near 150,000 DOIs at about 10 a second.
+
+### Provenance trail in the corpus (2026-11-06, from 10:30 UTC)
+
+The user then asked for the Parquet to carry where the title, abstract and
+full text came from, the journal as OpenAlex id and name, and a type that
+names sources such as OpenAlex or GROBID; asked to clarify, they chose one
+struct per field, the live catalogue's cached resolution as the source of
+artifact-level detail (as of export time, like the text), OpenAlex venues
+for every row best effort, the full-text acquisition trail and provenance
+for authors, year and identifiers as well; not the review-inclusion
+origins. The pipeline wrapper was stopped after the fetch started so the
+export could wait for this work; the fetch itself kept running (PID in
+`works-fetch.pid`).
+
+Rows now have `<field>_provenance` for title, abstract, authors, journal,
+publisher, year, pmid, pmcid and text: `{kind; provider; artifact;
+converter; version; digest; retrieved}` (Parquet STRUCT, RFC 3339 time as
+TIMESTAMP). The kind is the resolver source class in reader's terms:
+grobid, pub2tei, s2orc, publisher_xml, index, manifest, correction,
+crossref, datacite, openalex, review_input, or catalogue when the frozen
+label cannot be refined. A frozen "catalogue" label is refined through
+`Taposaur_catalog.Metadata.detail` and `Taposaur_paper.of_cache_string`
+when the live resolution still selects the frozen value; "openalex · sha"
+labels gain the retrieval time from the store when digests agree;
+"input:KEY:LOCATION" labels become review_input with the key and location.
+`text_acquisition` is the manifest entry the TEI was converted from (its
+`from`, else the first artifact of the format the converter reads): file,
+format, source, strategy, origin, URL, status, version, confidence, digest
+and time. `journal_openalex_id`/`_name`/`_match` come from the member's work
+venue, else a venue keyed by ISSN (first ISSN-shaped run, since GROBID
+often leaves "0030-1299 OIKOS 96:1 (2002)" in the field), else by folded
+journal name, from every work's primary source, the `sources` table and
+`--journal-links`. Work evidence gained `venue`; the store is schema 3
+with `sources(key, venue, sha256)`; `taposaur abstracts redecode` rebuilds
+works from retained bodies (the fetch under way stores works without
+venues) and `taposaur abstracts sources KEYS` reads sources singly by
+`issn:` or S id. Snapshot 6 holds 603 distinct ISSN strings (396 parse)
+and 421 journal names; `butterflies-source-keys.txt` lists 601 keys.
+`butterflies-works-finish.sh` (PID in `butterflies-works-finish.pid`, log
+`butterflies-works.log`) waits for the fetch, then runs redecode, sources,
+fill, snapshot 7 (parent 6) and the export with `--live --evidence
+--journal-links`, converting to Parquet with the struct columns declared in
+`corpus-parquet.sh`.
 
 ### Remaining before a bulk run
 

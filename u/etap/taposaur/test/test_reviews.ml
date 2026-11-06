@@ -437,15 +437,21 @@ let corpus () = with_temp (fun env sw root _ ->
   let evidence = {Abstract_evidence.doi="10.1000/b";abstract="Evidence abstract";
     provider="openalex";endpoint="works";sha256=String.make 64 'b';retrieved=0.} in
   let abstracts d = if Doi.to_string d = "10.1000/b" then Some evidence else None in
+  let venue = {Work_evidence.id="S1"; name=Some "Work Journal"; issn_l=Some "1234-5678";
+    issns=["1234-5678"]; kind=Some "journal"; host=None} in
   let work d = {Work_evidence.doi=Doi.to_string d; provider="openalex";
     endpoint="works"; sha256=String.make 64 'c'; retrieved=0.;
+    venue=(if Doi.to_string d = "10.1000/b" then Some venue else None);
     bibliography={Bibliography.empty with title=Some "Work title";
       journal=Some "Work journal"; year=Some 2020;
       authors=[{Author.given=Some "Ada"; family="Lovelace"}]}} in
   let works d = Some (work d) in
+  let ev = {Taposaur_corpus.abstract=abstracts; work=works;
+    venue_by_issn=(fun _ -> None);
+    venue_by_name=(fun k -> if k = "livejournal" then Some venue else None)} in
   let live = ref [] in
-  ignore (Taposaur_corpus.export ~catalogue:catalog ~abstracts ~works ~archive ~store
-    ~snapshot:snap (fun row -> live := row :: !live));
+  ignore (Taposaur_corpus.export ~catalogue:catalog ~evidence:ev ~provenance:catalog
+    ~archive ~store ~snapshot:snap (fun row -> live := row :: !live));
   let la = List.nth (List.rev !live) 0 and lb = List.nth (List.rev !live) 1 in
   equal "live title supersedes" "Updated title" (Option.get la.title);
   equal "live journal added" "Live journal" (Option.get la.journal);
@@ -469,6 +475,36 @@ let corpus () = with_temp (fun env sw root _ ->
     && List.assoc_opt "year" la.sources = Some (Work_evidence.label (work (Result.get_ok (Doi.of_string "10.1000/a")))));
   check "frozen rows carry no sources for blank fields" true
     (b.sources = [] && includes line "\"sources\":{}");
+  (* Provenance: the work's fields name the OpenAlex response, the text
+     names its TEI, and a catalogue label without a cached resolution
+     stays "catalogue". *)
+  let p = Option.get lb.title_provenance in
+  check "work provenance" true (p.kind = "openalex" && p.digest = Some (String.make 64 'c')
+    && p.retrieved = Some "1970-01-01T00:00:00.000Z");
+  check "abstract evidence provenance" true
+    ((Option.get lb.abstract_provenance).digest = Some (String.make 64 'b'));
+  check "venue from the work" true (lb.journal_openalex_id = Some "S1"
+    && lb.journal_openalex_name = Some "Work Journal" && lb.journal_openalex_match = Some "work");
+  check "venue by name" true (la.journal_openalex_id = Some "S1" && la.journal_openalex_match = Some "name");
+  check "catalogue provenance without a resolution" true
+    ((Option.get la.title_provenance).kind = "catalogue");
+  check "year provenance from the work" true
+    ((Option.get la.year_provenance).kind = "openalex");
+  check "no provenance without a value" true (lb.pmid_provenance = None);
+  let tp = Option.get a.text_provenance in
+  check "text provenance" true (tp.kind = "grobid" && tp.artifact = Some "grobid.tei.xml"
+    && tp.converter = Some "grobid" && tp.digest = a.tei_sha256
+    && tp.retrieved = Some "2026-09-14T05:54:04.598Z");
+  check "text acquisition absent without a source document" true (a.text_acquisition = None);
+  check "frozen title provenance" true ((Option.get a.title_provenance).kind = "catalogue");
+  check "provenance round trip" true
+    (get (R.decode Taposaur_corpus.row_jsont (Taposaur_corpus.encode_row lb)) = lb);
+  check "issn keys" true (Taposaur_corpus.issn_key "00014575" = Some "0001-4575"
+    && Taposaur_corpus.issn_key "0030-1299 OIKOS 96:1 (2002)" = Some "0030-1299"
+    && Taposaur_corpus.issn_key "1536-244x" = Some "1536-244X"
+    && Taposaur_corpus.issn_key "Volume 2007, Number 9" = None);
+  check "name keys" true (Taposaur_corpus.name_key "The Journal of Ecology"
+    = Taposaur_corpus.name_key "JOURNAL OF ECOLOGY.");
   check "frozen rows unchanged" true
     (List.length (S.rows store snap) = 2 &&
      (List.hd (S.rows store snap)).bibliography.title = Some "Held paper");

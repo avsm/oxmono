@@ -136,6 +136,46 @@ let fill store_path db doi_file =
     ~details:["examined",string_of_int !examined;"filled",string_of_int !filled] ();
   Printf.printf "Examined %d; filled %d catalogue rows\n" !examined !filled)
 
+let redecode store_path =
+  execute ~action:"abstracts.redecode" ~subject:store_path (fun env sw audit ->
+  let store = B.open_write ~audit ~sw (env#fs / store_path) in
+  let examined, changed = B.redecode store in
+  Taposaur_audit.record audit ~action:"abstracts.redecode.result" ~subject:store_path
+    ~details:["examined",string_of_int examined;"changed",string_of_int changed] ();
+  Printf.printf "Examined %d works; rewrote %d\n" examined changed)
+
+(* Sources are read singly, which OpenAlex does not charge for. *)
+let sources store_path key_file interval api_key_env =
+  let api_key = Option.bind api_key_env (fun name ->
+    match Sys.getenv_opt name with None | Some "" -> None | k -> k) in
+  execute ~action:"abstracts.sources" ~subject:store_path
+    ~details:["keys",key_file;"keyed",string_of_bool (api_key <> None)] (fun env sw audit ->
+  let store = B.open_write ~audit ~sw (env#fs / store_path) in
+  let http = Fetch.with_limits ~clock:env#mono_clock ~max_concurrent:1
+    ~min_interval:(Duration.of_f interval) (Clients.http ~sw env) in
+  let client = B.client ~audit ~clock:env#clock ?api_key http in
+  let keys = String.split_on_char '\n' (Eio.Path.load (env#fs / key_file))
+    |> List.filter_map (fun l -> match String.trim l with
+      | "" -> None | s when s.[0] = '#' -> None | s -> Some s) in
+  let found = ref 0 and missing = ref 0 and refusals = ref 0 in
+  let rec go = function
+    | [] -> ()
+    | key :: rest ->
+      match B.lookup_source client store key with
+      | Ok (Some _) -> incr found; refusals := 0; go rest
+      | Ok None -> incr missing; refusals := 0; go rest
+      | exception Invalid_argument e -> Printf.eprintf "%s: %s\n%!" key e; go rest
+      | Error (B.Budget | B.Rate_limited as r) ->
+        incr refusals;
+        if !refusals > 5 then failwith ("Stopped after repeated " ^ B.refusal_name r);
+        Eio.Time.sleep env#clock (10. *. float_of_int !refusals); go (key :: rest)
+      | Error r -> Printf.eprintf "%s: %s\n%!" key (B.refusal_name r); go rest in
+  go keys;
+  Taposaur_audit.record audit ~action:"abstracts.sources.result" ~subject:store_path
+    ~details:["keys",string_of_int (List.length keys);"found",string_of_int !found;
+      "missing",string_of_int !missing] ();
+  Printf.printf "Keys %d; found %d; missing %d\n" (List.length keys) !found !missing)
+
 let store = Arg.(value & opt string "taposaur-abstracts.db" & info ["store"]
   ~doc:"Abstract evidence SQLite database. Also TAPOSAUR_ABSTRACTS_DB for readers.")
 let db = Arg.(value & opt string "taposaur.db" & info ["db"] ~doc:"Local catalogue.")
@@ -150,6 +190,15 @@ let command = Cmd.group (Cmd.info "abstracts"
       Arg.(value & opt (some int) None & info ["limit"] ~doc:"Maximum DOIs to query.") $
       Arg.(value & opt float 0.1 & info ["interval"]
         ~doc:"Seconds between requests; OpenAlex allows 10 a second without a key, 30 with one.") $
+      Arg.(value & opt (some string) None & info ["api-key-env"]
+        ~doc:"Environment variable holding an OpenAlex API key. The value is never printed."));
+  Cmd.v (Cmd.info "redecode" ~doc:"Decode retained responses again into work evidence, without network requests.")
+    Term.(const redecode $ store);
+  Cmd.v (Cmd.info "sources" ~doc:"Look up OpenAlex sources by ISSN or source id for the keys listed in a file.")
+    Term.(const sources $ store $
+      Arg.(required & pos 0 (some string) None & info [] ~docv:"KEYS"
+        ~doc:"File of keys, one per line: issn:NNNN-NNNN or an OpenAlex S id.") $
+      Arg.(value & opt float 0.1 & info ["interval"] ~doc:"Seconds between requests.") $
       Arg.(value & opt (some string) None & info ["api-key-env"]
         ~doc:"Environment variable holding an OpenAlex API key. The value is never printed."));
   Cmd.v (Cmd.info "fill" ~doc:"Fill catalogue rows that lack an abstract from stored evidence.")

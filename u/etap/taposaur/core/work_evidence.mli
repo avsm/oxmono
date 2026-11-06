@@ -5,10 +5,20 @@
     body can be reread. The abstract travels separately as
     {!Abstract_evidence}. Evidence fills fields the archive and the review
     inputs left blank; it never replaces a value they supply. *)
+type venue = {
+  id : string;  (** The service's identifier, such as an OpenAlex source id. *)
+  name : string option;
+  issn_l : string option;
+  issns : string list;
+  kind : string option;  (** journal, repository, conference, ... *)
+  host : string option;  (** Publisher or host organisation. *)
+}
+val venue_jsont : venue Jsont.t
 type t = {
   doi : string;  (** Canonical DOI the response matched. *)
   bibliography : Bibliography.t;
   (** Nonblank fields only; [abstract] is always [None]. *)
+  venue : venue option;  (** The work's primary source, when identified. *)
   provider : string;  (** Service identity, such as [openalex]. *)
   endpoint : string;  (** Service base URL. *)
   sha256 : string;  (** Digest of the retained response body. *)

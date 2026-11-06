@@ -14,7 +14,7 @@ let doi s = get (Doi.of_string s)
 let with_temp f = Tap_test.with_temp "abstract-test-"
   (fun env sw root _ -> f env sw root)
 let work ?(inverted={|{"Birds":[0],"migrate":[1],"south.":[2]}|}) d =
-  Printf.sprintf {|{"id":"https://openalex.org/W1","doi":"https://doi.org/%s","title":"Bird migration","display_name":"Bird migration","authorships":[{"author_position":"first","author":{"id":"https://openalex.org/A1","display_name":"Ian S. Pearse"},"raw_author_name":"PEARSE, IAN"},{"author":{"display_name":null},"raw_author_name":"Smith, J."},{"author":{"display_name":"Plato"}}],"primary_location":{"source":{"display_name":"Ecological Entomology","issn_l":"0307-6946","issn":["0307-6946","1365-2311"],"host_organization_name":"Wiley","type":"journal"}},"publication_year":2011,"publication_date":"2011-09-13","biblio":{"volume":"36","issue":"5","first_page":"635","last_page":"642"},"ids":{"openalex":"https://openalex.org/W1","pmid":"https://pubmed.ncbi.nlm.nih.gov/12345","pmcid":"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC67"},"abstract_inverted_index":%s}|} d inverted
+  Printf.sprintf {|{"id":"https://openalex.org/W1","doi":"https://doi.org/%s","title":"Bird migration","display_name":"Bird migration","authorships":[{"author_position":"first","author":{"id":"https://openalex.org/A1","display_name":"Ian S. Pearse"},"raw_author_name":"PEARSE, IAN"},{"author":{"display_name":null},"raw_author_name":"Smith, J."},{"author":{"display_name":"Plato"}}],"primary_location":{"source":{"id":"https://openalex.org/S30982003","display_name":"Ecological Entomology","issn_l":"0307-6946","issn":["0307-6946","1365-2311"],"host_organization_name":"Wiley","type":"journal"}},"publication_year":2011,"publication_date":"2011-09-13","biblio":{"volume":"36","issue":"5","first_page":"635","last_page":"642"},"ids":{"openalex":"https://openalex.org/W1","pmid":"https://pubmed.ncbi.nlm.nih.gov/12345","pmcid":"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC67"},"abstract_inverted_index":%s}|} d inverted
 let results works = {|{"meta":{"count":1},"results":[|} ^ String.concat "," works ^ "]}"
 
 let reconstruction () =
@@ -55,6 +55,12 @@ let works () =
   equal "pmid from url" "12345" (Option.get b.pmid);
   equal "pmcid from url" "PMC67" (Option.get b.pmcid);
   check "no abstract in work evidence" true (b.abstract = None);
+  check "venue" true (w.venue = Some {Work_evidence.id="S30982003";
+    name=Some "Ecological Entomology"; issn_l=Some "0307-6946";
+    issns=["0307-6946";"1365-2311"]; kind=Some "journal"; host=Some "Wiley"});
+  let v = get (B.decode_source {|{"id":"https://openalex.org/S1","display_name":"PLoS ONE","issn_l":"1932-6203","issn":["1932-6203"],"type":"journal","host_organization_name":"Public Library of Science"}|}) in
+  equal "source id" "S1" v.id;
+  check "source without id refused" true (Result.is_error (B.decode_source {|{"display_name":"x"}|}));
   check "fields named" true (Work_evidence.fields w =
     ["title";"authors";"journal";"publisher";"published";"year";"volume";
      "issue";"pages";"issn";"doi";"pmcid";"pmid"]);
@@ -149,7 +155,7 @@ let lookups () = with_temp (fun env sw root ->
   check "iteration in doi order" true (List.rev !seen = ["10.1000/a"; "10.1000/c"]))
 
 (* A version 1 store, which held abstracts only, is read as is and
-   migrated by the first writable open. *)
+   migrated to the current version by the first writable open. *)
 let migration () = with_temp (fun env sw root ->
   let path = root / "abstracts" in
   let a = doi "10.1000/a" in
@@ -175,16 +181,63 @@ let migration () = with_temp (fun env sw root ->
     let st = Sqlite3.prepare s "PRAGMA user_version" in
     ignore (Sqlite3.step st); let v = Sqlite3.column_int st 0 in
     ignore (Sqlite3.finalize st); ignore (Sqlite3.db_close s); v in
-  count "schema version 2" 2 version;
-  raw "PRAGMA user_version=3";
+  count "schema version 3" 3 version;
+  raw "PRAGMA user_version=4";
   check "newer version refused" true
     (try ignore (B.open_read ~sw path); false with Failure _ -> true))
+
+let contains ~sub s =
+  let n = String.length sub and m = String.length s in
+  let rec go i = i + n <= m && (String.sub s i n = sub || go (i + 1)) in go 0
+
+(* Works stored before the decoder knew a field are rebuilt from their
+   retained bodies; sources are read singly and retained. *)
+let venues () = with_temp (fun env sw root ->
+  let path = root / "abstracts" in
+  let store = B.open_write ~sw path in
+  let calls = ref 0 in
+  let http = Fetch_mock.client (fun req -> incr calls;
+    let url = Fetch.Middleware.Url.to_string req.url in
+    if contains ~sub:"filter=doi:" url then
+      Fetch_mock.respond (results [work "10.1000/a"]) req
+    else if contains ~sub:"/sources/" url then begin
+      check "source select" true (contains ~sub:("select=" ^ B.source_select) url);
+      if contains ~sub:"0000-0000" url then Fetch_mock.respond ~status:404 "{}" req
+      else Fetch_mock.respond {|{"id":"https://openalex.org/S30982003","display_name":"Ecological Entomology","issn_l":"0307-6946","issn":["0307-6946"],"type":"journal"}|} req
+    end else Fetch_mock.respond ~status:500 "unexpected" req) in
+  let client = B.client ~clock:env#clock http in
+  let a = doi "10.1000/a" in
+  ignore (get (Result.map_error B.refusal_name (B.lookup_many client store [a])));
+  let w = Option.get (B.find_work store a) in
+  check "venue decoded on fetch" true (Option.map (fun v -> v.Work_evidence.id) w.venue = Some "S30982003");
+  (* Forget the venue, as a version 2 store would have stored the work. *)
+  let s = Sqlite3.db_open (Eio.Path.native_exn path) in
+  let stripped = get (Jsont_bytesrw.encode_string Work_evidence.jsont {w with venue = None}) in
+  let st = Sqlite3.prepare s "UPDATE works SET evidence=? WHERE doi='10.1000/a'" in
+  Sqlite3.Rc.check (Sqlite3.bind_text st 1 stripped); ignore (Sqlite3.step st);
+  ignore (Sqlite3.finalize st); ignore (Sqlite3.db_close s);
+  check "venue forgotten" true ((Option.get (B.find_work store a)).venue = None);
+  let examined, changed = B.redecode store in
+  count "works examined" 1 examined; count "works rewritten" 1 changed;
+  check "venue restored" true (Option.get (B.find_work store a) = w);
+  check "redecode is idempotent" true (B.redecode store = (1, 0));
+  let n = !calls in
+  let v = get (Result.map_error B.refusal_name (B.lookup_source client store "issn:0307-6946")) in
+  equal "source by issn" "Ecological Entomology" (Option.get (Option.get v).name);
+  check "source retained" true (B.find_source store "issn:0307-6946" <> None && !calls = n + 1);
+  check "retained source skips the network" true
+    (B.lookup_source client store "issn:0307-6946" = Ok v && !calls = n + 1);
+  check "unknown issn" true (B.lookup_source client store "issn:0000-0000" = Ok None);
+  check "bad key refused" true
+    (try ignore (B.lookup_source client store "junk"); false with Invalid_argument _ -> true);
+  let seen = ref [] in B.iter_sources store (fun k _ -> seen := k :: !seen);
+  check "sources iterated" true (!seen = ["issn:0307-6946"]))
 
 let evidence d = {Abstract_evidence.doi=Doi.to_string d; abstract="From OpenAlex.";
   provider="openalex"; endpoint="http://x"; sha256=String.make 64 'a'; retrieved=1.}
 let work_evidence ?(title="From OpenAlex") d =
   {Work_evidence.doi=Doi.to_string d; provider="openalex"; endpoint="http://x";
-   sha256=String.make 64 'c'; retrieved=1.;
+   sha256=String.make 64 'c'; retrieved=1.; venue=None;
    bibliography={Bibliography.empty with title=Some title; journal=Some "Journal";
      year=Some 2001; authors=[{Author.given=None; family="Plato"}]}}
 
@@ -271,7 +324,8 @@ let () = Alcotest.run "abstracts" [
                Alcotest.test_case "work bibliography" `Quick works;
                Alcotest.test_case "batching" `Quick batching];
   "store", [Alcotest.test_case "lookups" `Quick lookups;
-            Alcotest.test_case "version 1 migration" `Quick migration];
+            Alcotest.test_case "version 1 migration" `Quick migration;
+            Alcotest.test_case "venues and redecoding" `Quick venues];
   "resolver", [Alcotest.test_case "evidence" `Quick resolver];
   "catalogue", [Alcotest.test_case "fill" `Quick catalogue];
   "reviews", [Alcotest.test_case "snapshot evidence" `Quick snapshots]]

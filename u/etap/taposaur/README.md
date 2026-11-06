@@ -458,8 +458,10 @@ and refuses to overwrite an existing one.
 `taposaur review corpus SNAPSHOT --output FILE.jsonl` writes one JSON object
 per member in DOI order: the frozen title, abstract, authors, journal,
 publisher, year and identifiers with the source of the title, abstract and
-publisher and a `sources` map naming the source of every field that has
-one, the holdings recorded at capture, and the body prose of the
+publisher, a `sources` map naming the source label of every field that has
+one, a provenance record for the title, abstract, authors, journal,
+publisher, year, PMID and PMCID, the OpenAlex source id and name of the
+journal, the holdings recorded at capture, and the body prose of the
 paper's preferred TEI document read from the archive when the export runs
 (Pub2TEI before GROBID, published versions first, the first with prose
 wins). Rows are flat, every key is present and absent values are `null`, so
@@ -475,22 +477,54 @@ duckdb -c "COPY (SELECT * FROM read_json('snapshot-7.jsonl',
   volume:'VARCHAR', issue:'VARCHAR', pages:'VARCHAR', issn:'VARCHAR',
   pmid:'VARCHAR', pmcid:'VARCHAR', title_source:'VARCHAR',
   abstract_source:'VARCHAR', publisher_source:'VARCHAR',
-  sources:'MAP(VARCHAR, VARCHAR)',
+  sources:'MAP(VARCHAR, VARCHAR)', title_provenance:'PROVENANCE',
+  abstract_provenance:'PROVENANCE', authors_provenance:'PROVENANCE',
+  journal_provenance:'PROVENANCE', publisher_provenance:'PROVENANCE',
+  year_provenance:'PROVENANCE', pmid_provenance:'PROVENANCE',
+  pmcid_provenance:'PROVENANCE', journal_openalex_id:'VARCHAR',
+  journal_openalex_name:'VARCHAR', journal_openalex_match:'VARCHAR',
   in_catalogue:'BOOLEAN', pdf:'BOOLEAN', xml:'BOOLEAN', tei:'BOOLEAN',
   s2orc:'BOOLEAN', tei_file:'VARCHAR', tei_converter:'VARCHAR',
   tei_sha256:'VARCHAR', tei_bytes:'BIGINT', text:'VARCHAR',
-  text_error:'VARCHAR'})) TO 'snapshot-7.parquet'
+  text_error:'VARCHAR', text_provenance:'PROVENANCE',
+  text_acquisition:'STRUCT(file VARCHAR, format VARCHAR, source VARCHAR,
+    strategy VARCHAR, origin VARCHAR, url VARCHAR, status INTEGER,
+    version VARCHAR, confidence VARCHAR, digest VARCHAR,
+    retrieved TIMESTAMP)'})) TO 'snapshot-7.parquet'
   (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 10000)"
 ```
 
+where `PROVENANCE` stands for `STRUCT(kind VARCHAR, provider VARCHAR,
+artifact VARCHAR, converter VARCHAR, version VARCHAR, digest VARCHAR,
+retrieved TIMESTAMP)`. A provenance names where a value came from:
+`kind` is `grobid`, `pub2tei` or `s2orc` for a converted document,
+`publisher_xml` for publisher markup, `index` for the original corpus
+index row, `manifest`, `correction`, `crossref` or `datacite` for publisher
+mirrors, `openalex` for work or abstract evidence, `review_input` for the
+review's own supplied metadata, or `catalogue` when the catalogue supplied
+the value but its resolution is unavailable or has changed since; `provider`
+is the acquisition strategy or archive source of an artifact, the service,
+the input key or the corrector; `artifact` the archive file or input
+location; `digest` the SHA-256 of the file or retained response; and
+`retrieved` the conversion or retrieval time. `text_provenance` names the
+TEI the text came from and `text_acquisition` the PDF, XML or JSON it was
+converted from with its archive source, strategy, origin, URL, HTTP status,
+version, confidence and time. `journal_openalex_match` says whether the
+venue came from the member's own OpenAlex work, from its ISSN, or from its
+journal name.
+
 `--live CATALOG` replays the snapshot's catalogue-then-input policy against
 the live catalogue, so nonblank current values, holdings and presence
-supersede the frozen ones with source `catalogue`; `--evidence` fills a
+supersede the frozen ones with source `catalogue`, and its cached
+resolutions refine each `catalogue` provenance to the document, index row,
+mirror or correction the resolver selected; `--evidence` fills a
 still-blank abstract from the configured evidence store, then the other
 blank bibliographic fields (title, authors, journal, publisher, dates,
 volume, issue, pages, ISSN, PubMed identifiers) from its work evidence,
-with the evidence label as each field's source. Both leave the snapshot
-untouched and are for exports that
+with the evidence label as each field's source, and names OpenAlex venues
+from the works' primary sources and the sources looked up by
+`taposaur abstracts sources`, with `--journal-links FILE` adding
+journal-name to source-id links. Both leave the snapshot untouched and are for exports that
 must carry metadata gathered since the capture. Members the export does not
 find in the catalogue are written without an archive lookup. Each row names the TEI file, its converter, SHA-256 and
 size, so the text can be traced to an archive artifact; `text_error`

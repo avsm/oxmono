@@ -1,10 +1,24 @@
-type t = {doi:string; bibliography:Bibliography.t; provider:string;
-  endpoint:string; sha256:string; retrieved:float}
+type venue = {id:string; name:string option; issn_l:string option;
+  issns:string list; kind:string option; host:string option}
+let venue_jsont =
+  Jsont.Object.map (fun id name issn_l issns kind host ->
+    {id;name;issn_l;issns;kind;host})
+  |> Jsont.Object.mem "id" Jsont.string ~enc:(fun v -> v.id)
+  |> Jsont.Object.opt_mem "name" Jsont.string ~enc:(fun v -> v.name)
+  |> Jsont.Object.opt_mem "issn_l" Jsont.string ~enc:(fun v -> v.issn_l)
+  |> Jsont.Object.mem "issns" (Jsont.list Jsont.string)
+       ~dec_absent:(fun () -> []) ~enc:(fun v -> v.issns)
+  |> Jsont.Object.opt_mem "kind" Jsont.string ~enc:(fun v -> v.kind)
+  |> Jsont.Object.opt_mem "host" Jsont.string ~enc:(fun v -> v.host)
+  |> Jsont.Object.finish
+type t = {doi:string; bibliography:Bibliography.t; venue:venue option;
+  provider:string; endpoint:string; sha256:string; retrieved:float}
 let jsont =
-  Jsont.Object.map (fun doi bibliography provider endpoint sha256 retrieved ->
-    {doi;bibliography;provider;endpoint;sha256;retrieved})
+  Jsont.Object.map (fun doi bibliography venue provider endpoint sha256 retrieved ->
+    {doi;bibliography;venue;provider;endpoint;sha256;retrieved})
   |> Jsont.Object.mem "doi" Jsont.string ~enc:(fun r -> r.doi)
   |> Jsont.Object.mem "bibliography" Bibliography.jsont ~enc:(fun r -> r.bibliography)
+  |> Jsont.Object.opt_mem "venue" venue_jsont ~enc:(fun r -> r.venue)
   |> Jsont.Object.mem "provider" Jsont.string ~enc:(fun r -> r.provider)
   |> Jsont.Object.mem "endpoint" Jsont.string ~enc:(fun r -> r.endpoint)
   |> Jsont.Object.mem "sha256" Jsont.string ~enc:(fun r -> r.sha256)

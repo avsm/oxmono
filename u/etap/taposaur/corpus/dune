@@ -6,9 +6,11 @@
   taposaur.archive
   taposaur.catalog
   taposaur.document
+  taposaur.paper
   taposaur.review
   taposaur.review-store
   eio
+  ptime
   digestif
   jsont
   jsont.bytesrw))

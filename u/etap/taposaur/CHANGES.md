@@ -9,6 +9,17 @@
   bibliographic field from it through `Taposaur_review.fill` with the
   evidence label as the field's source, and corpus rows gain a `sources`
   map naming the source of every field that has one.
+- Corpus rows carry a provenance trail: a provenance record (kind,
+  provider, artifact, converter, version, digest, retrieval time) for the
+  title, abstract, authors, journal, publisher, year, PMID, PMCID and the
+  body text, refined from the live catalogue's cached resolution to the
+  converted document, publisher XML, index row, mirror or correction the
+  resolver selected; the acquisition of the document the text was
+  converted from; and the journal's OpenAlex source id and name from the
+  member's work, its ISSN or its name. The evidence store (schema 3) keeps
+  each work's venue and sources looked up singly by `taposaur abstracts
+  sources`, and `taposaur abstracts redecode` rebuilds works from retained
+  responses.
 - Review schema 3 stores a cached snapshot export longer than 64 MiB as
   ordered parts behind a descriptor, since one SQLite blob holds at most a
   billion bytes; reads reassemble and verify the whole export against the

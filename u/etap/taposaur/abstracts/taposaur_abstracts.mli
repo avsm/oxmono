@@ -7,9 +7,9 @@
     way and reports when the daily budget or rate limit refuses it. Every
     matched work yields {!Taposaur.Work_evidence} (title, authors, venue,
     dates, identifiers) and, when its inverted index reconstructs,
-    {!Taposaur.Abstract_evidence}. The store is SQLite at schema version 2;
-    a writable open migrates version 1, and a read-only version 1 store
-    answers {!find_work} with [None]. *)
+    {!Taposaur.Abstract_evidence}. The store is SQLite at schema version 3;
+    a writable open migrates older versions, and a read-only version 1
+    store answers {!find_work} and {!find_source} with [None]. *)
 type read
 type write
 type 'a store
@@ -34,6 +34,17 @@ val record : 'a store -> sha256:string -> string option
 val count : 'a store -> int
 (** [count store] is the number of DOIs with abstract evidence. *)
 val count_works : 'a store -> int
+val iter_works : 'a store -> (Taposaur.Work_evidence.t -> unit) -> unit
+(** [iter_works store f] visits work evidence in DOI order. *)
+val find_source : 'a store -> string -> Taposaur.Work_evidence.venue option
+(** [find_source store key] is a venue looked up by [issn:NNNN-NNNN] or an
+    OpenAlex source id such as [S30982003]. *)
+val iter_sources : 'a store -> (string -> Taposaur.Work_evidence.venue -> unit) -> unit
+val redecode : write store -> int * int
+(** [redecode store] decodes every retained response that produced work
+    evidence again and rewrites the works that differ, so fields the
+    decoder learnt later (such as the venue) reach works fetched before
+    it. Returns the works examined and changed. No network requests. *)
 val iter : 'a store -> (Taposaur.Abstract_evidence.t -> unit) -> unit
 (** [iter store f] visits accepted evidence in DOI order. *)
 
@@ -75,16 +86,27 @@ val decode : provider:string -> endpoint:string -> doi:Taposaur.Doi.t ->
   string -> (Taposaur.Abstract_evidence.t, string) result
 (** Pure validation of one OpenAlex work: the DOI must match and the
     inverted index must reconstruct to a nonblank abstract. *)
+val lookup_source : client -> write store -> string ->
+  (Taposaur.Work_evidence.venue option, refusal) result
+(** [lookup_source client store key] is the retained venue for [key]
+    ([issn:NNNN-NNNN] or an OpenAlex S id) or one single-source read,
+    which is free of the credit budget; the body is retained and a 404 is
+    [Ok None]. Raises [Invalid_argument] for another key shape. *)
+val decode_source : string -> (Taposaur.Work_evidence.venue, string) result
+(** Pure decoding of one OpenAlex source into a venue. *)
 val decode_work : provider:string -> endpoint:string -> doi:Taposaur.Doi.t ->
   string -> (Taposaur.Work_evidence.t, string) result
 (** Pure decoding of one OpenAlex work's bibliography: the DOI must match.
     Titles prefer [title] over [display_name]; authors come from each
     authorship's display name, split as "Family, Given" or at the last
     space; the journal, publisher and ISSN come from the primary location's
-    source; pages join first and last with an en dash; PubMed identifiers
-    are the last path segment of their URLs. *)
+    source, whose id, name, ISSNs, type and host also form the venue;
+    pages join first and last with an en dash; PubMed identifiers are the
+    last path segment of their URLs. *)
 val select : string
-(** The OpenAlex [select] parameter both lookups send. *)
+(** The OpenAlex [select] parameter both work lookups send. *)
+val source_select : string
+(** The [select] parameter source lookups send. *)
 val reconstruct : int list Jsont.String_map.t -> string option
 (** [reconstruct index] rebuilds abstract text from an OpenAlex inverted
     index, or [None] when it is empty or absurdly long. *)

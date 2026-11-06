@@ -202,16 +202,51 @@ let command = Cmd.group (Cmd.info "review"
         "jsonl","jsonl";"manifest","manifest"]) "csv" & info ["format"]) $
       Arg.(value & opt (some string) None & info ["output"]));
   cmd "corpus" "Write snapshot rows joined with archive body text as JSON lines."
-    Term.(const (fun path id root output domains live abstracts -> execute ~action:"cli.review.corpus" (fun env sw _audit ->
+    Term.(const (fun path id root output domains live abstracts journal_links -> execute ~action:"cli.review.corpus" (fun env sw _audit ->
       if domains < 1 || domains > 100 then invalid_arg "domains must be 1..100";
       let store = read_store env sw path in
       let catalogue = Option.map (catalogue env sw) live in
       let evidence = if not abstracts then None else
         match Taposaur_abstracts.open_configured ~sw ~fs:env#fs with
         | None -> invalid_arg "--evidence needs TAPOSAUR_ABSTRACTS_DB or taposaur-abstracts.db"
-        | Some evidence -> Some evidence in
-      let abstracts = Option.map Taposaur_abstracts.find evidence in
-      let works = Option.map Taposaur_abstracts.find_work evidence in
+        | Some store ->
+          (* Venues known by ISSN and by name, from every work's primary
+             source, the sources looked up singly, and the journal-name
+             to source-id links when the source itself is known. *)
+          let by_issn = Hashtbl.create 4096 and by_name = Hashtbl.create 4096
+          and by_id = Hashtbl.create 4096 in
+          let learn (v : Taposaur.Work_evidence.venue) =
+            Hashtbl.replace by_id v.id v;
+            List.iter (fun issn -> Option.iter (fun k ->
+              if not (Hashtbl.mem by_issn k) then Hashtbl.replace by_issn k v)
+              (K.issn_key issn)) (Option.to_list v.issn_l @ v.issns);
+            Option.iter (fun n -> let k = K.name_key n in
+              if k <> "" && not (Hashtbl.mem by_name k) then Hashtbl.replace by_name k v)
+              v.name in
+          Taposaur_abstracts.iter_works store (fun w -> Option.iter learn w.venue);
+          Taposaur_abstracts.iter_sources store (fun _ v -> learn v);
+          let link_jsont = Jsont.Object.map (fun journal source_id -> journal, source_id)
+            |> Jsont.Object.mem "journal" Jsont.string ~enc:fst
+            |> Jsont.Object.mem "source_id" Jsont.string ~enc:snd
+            |> Jsont.Object.finish in
+          Option.iter (fun file ->
+            List.iter (fun line -> match String.trim line with
+              | "" -> ()
+              | line -> match Jsont_bytesrw.decode_string link_jsont line with
+                | Error e -> failwith e
+                | Ok (journal, source_id) ->
+                  match Hashtbl.find_opt by_id source_id with
+                  | Some v -> let k = K.name_key journal in
+                    if k <> "" && not (Hashtbl.mem by_name k) then Hashtbl.replace by_name k v
+                  | None -> ())
+              (String.split_on_char '\n' (Eio.Path.load (env#fs / file)))) journal_links;
+          Printf.eprintf "Venues: %d by ISSN, %d by name\n%!"
+            (Hashtbl.length by_issn) (Hashtbl.length by_name);
+          Some {K.abstract = Taposaur_abstracts.find store;
+                work = Taposaur_abstracts.find_work store;
+                venue_by_issn = Hashtbl.find_opt by_issn;
+                venue_by_name = Hashtbl.find_opt by_name} in
+      let provenance = catalogue in
       let archive = Taposaur_archive.open_root ~sw (env#fs / root) in
       let pool = if domains = 1 then None else Some (Eio.Executor_pool.create
         ~sw ~domain_count:domains (Eio.Stdenv.domain_mgr env)) in
@@ -219,7 +254,7 @@ let command = Cmd.group (Cmd.info "review"
       let written = ref 0 in
       let summary = Eio.Path.with_open_out ~create:(`Exclusive 0o600)
         (env#fs / output) (fun flow -> Eio.Buf_write.with_flow flow (fun w ->
-          K.export ?pool ~fibers ?catalogue ?abstracts ?works ~archive ~store
+          K.export ?pool ~fibers ?catalogue ?evidence ?provenance ~archive ~store
             ~snapshot:id (fun row ->
             Eio.Buf_write.string w (K.encode_row row);
             Eio.Buf_write.char w '\n';
@@ -235,9 +270,11 @@ let command = Cmd.group (Cmd.info "review"
       Arg.(value & opt int 16 & info ["domains"]
         ~doc:"Domains reading the archive concurrently (1..100). The io_uring backend needs locked memory per domain; set EIO_BACKEND=posix for large counts.") $
       Arg.(value & opt (some string) None & info ["live"] ~docv:"CATALOG"
-        ~doc:"Catalogue whose nonblank values, holdings and presence supersede the frozen ones (source \"catalogue\").") $
+        ~doc:"Catalogue whose nonblank values, holdings and presence supersede the frozen ones (source \"catalogue\") and whose cached resolutions give each field's provenance.") $
       Arg.(value & flag & info ["evidence"; "abstracts"]
-        ~doc:"Fill still-blank abstracts and bibliographic fields from the configured evidence store (TAPOSAUR_ABSTRACTS_DB)."));
+        ~doc:"Fill still-blank abstracts and bibliographic fields from the configured evidence store (TAPOSAUR_ABSTRACTS_DB) and name OpenAlex venues from it.") $
+      Arg.(value & opt (some string) None & info ["journal-links"] ~docv:"FILE"
+        ~doc:"Journal-name to OpenAlex source-id JSONL, consulted for venues of rows whose journal has no ISSN match."));
   cmd "cache-statistics" "Cache coverage from frozen snapshot observations."
     Term.(const (fun path id -> execute ~action:"cli.review.cache-statistics" (fun env sw audit ->
       S.cache_statistics (write_store ?audit env sw path) id;

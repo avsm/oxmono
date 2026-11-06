@@ -35,15 +35,18 @@ CREATE TABLE attempts(id INTEGER PRIMARY KEY,doi TEXT NOT NULL,provider TEXT NOT
 CREATE INDEX attempts_doi ON attempts(doi,id);
 CREATE TABLE abstracts(doi TEXT PRIMARY KEY,evidence TEXT NOT NULL);
 CREATE TABLE works(doi TEXT PRIMARY KEY,evidence TEXT NOT NULL);
+CREATE TABLE sources(key TEXT PRIMARY KEY,venue TEXT NOT NULL,sha256 TEXT NOT NULL);
 PRAGMA application_id=1414351187;
-PRAGMA user_version=2;
+PRAGMA user_version=3;
 |}
 (* Version 1 stores held abstracts only; version 2 adds the bibliographic
-   work evidence decoded from the same responses. *)
-let schema_version = 2
+   work evidence decoded from the same responses; version 3 adds venues
+   looked up by ISSN or source id. *)
+let schema_version = 3
 let works_schema = {|
 CREATE TABLE IF NOT EXISTS works(doi TEXT PRIMARY KEY,evidence TEXT NOT NULL);
-PRAGMA user_version=2;
+CREATE TABLE IF NOT EXISTS sources(key TEXT PRIMARY KEY,venue TEXT NOT NULL,sha256 TEXT NOT NULL);
+PRAGMA user_version=3;
 |}
 let open_db ?audit ~sw ~readonly path =
   if not readonly then Eio.Path.with_open_out ~follow:false
@@ -80,6 +83,13 @@ let find t doi = run t (fun db -> stmt db
     | Q.Rc.DONE -> None
     | Q.Rc.ROW -> Some (get (Jsont_bytesrw.decode_string E.jsont (Q.column_text s 0)))
     | rc -> Q.Rc.check rc;assert false))
+let decode_venue s = get (Jsont_bytesrw.decode_string W.venue_jsont s)
+let find_source t key = if not t.works then None else run t (fun db -> stmt db
+  "SELECT venue FROM sources WHERE key=?" [Q.Data.TEXT key]
+  (fun s -> match Q.step s with
+    | Q.Rc.DONE -> None
+    | Q.Rc.ROW -> Some (decode_venue (Q.column_text s 0))
+    | rc -> Q.Rc.check rc;assert false))
 let find_work t doi = if not t.works then None else run t (fun db -> stmt db
   "SELECT evidence FROM works WHERE doi=?" [Q.Data.TEXT (Doi.to_string doi)]
   (fun s -> match Q.step s with
@@ -99,6 +109,16 @@ let count t = run t (fun db -> stmt db "SELECT count(*) FROM abstracts" []
 let count_works t = if not t.works then 0 else run t (fun db ->
   stmt db "SELECT count(*) FROM works" []
   (fun s -> ignore (Q.step s); Q.column_int s 0))
+let iter_works t f = if t.works then run t (fun db ->
+  stmt db "SELECT evidence FROM works ORDER BY doi" []
+  (fun s -> let rec loop () = match Q.step s with
+    | Q.Rc.ROW -> f (get (Jsont_bytesrw.decode_string W.jsont (Q.column_text s 0))); loop ()
+    | Q.Rc.DONE -> () | rc -> Q.Rc.check rc in loop ()))
+let iter_sources t f = if t.works then run t (fun db ->
+  stmt db "SELECT key, venue FROM sources ORDER BY key" []
+  (fun s -> let rec loop () = match Q.step s with
+    | Q.Rc.ROW -> f (Q.column_text s 0) (decode_venue (Q.column_text s 1)); loop ()
+    | Q.Rc.DONE -> () | rc -> Q.Rc.check rc in loop ()))
 let iter t f = run t (fun db -> stmt db "SELECT evidence FROM abstracts ORDER BY doi" []
   (fun s -> let rec loop () = match Q.step s with
     | Q.Rc.ROW -> f (get (Jsont_bytesrw.decode_string E.jsont (Q.column_text s 0))); loop ()
@@ -136,16 +156,30 @@ let authorship_jsont =
   |> oobj "author" person_jsont (fun a -> a.author)
   |> ostr "raw_author_name" (fun a -> a.raw_author_name)
   |> Jsont.Object.finish
-type source = {source_name:string option; issn_l:string option;
-  issns:string list option; host:string option}
+type source = {source_id:string option; source_name:string option;
+  issn_l:string option; issns:string list option; source_type:string option;
+  host:string option}
 let source_jsont =
-  Jsont.Object.map (fun source_name issn_l issns host ->
-    {source_name;issn_l;issns;host})
+  Jsont.Object.map (fun source_id source_name issn_l issns source_type host ->
+    {source_id;source_name;issn_l;issns;source_type;host})
+  |> ostr "id" (fun s -> s.source_id)
   |> ostr "display_name" (fun s -> s.source_name)
   |> ostr "issn_l" (fun s -> s.issn_l)
   |> oobj "issn" (Jsont.list Jsont.string) (fun s -> s.issns)
+  |> ostr "type" (fun s -> s.source_type)
   |> ostr "host_organization_name" (fun s -> s.host)
   |> Jsont.Object.finish
+let source_select = "id,display_name,issn_l,issn,type,host_organization_name"
+let source_id_of_url s = match String.rindex_opt s '/' with
+  | None -> s | Some i -> String.sub s (i+1) (String.length s-i-1)
+let venue_of_source (s : source) = Option.map (fun id ->
+  let nonblank = function
+    | Some v when String.trim v <> "" -> Some (String.trim v) | _ -> None in
+  {W.id = source_id_of_url id; name = nonblank s.source_name;
+   issn_l = nonblank s.issn_l;
+   issns = List.filter_map (fun i -> nonblank (Some i)) (Option.value ~default:[] s.issns);
+   kind = nonblank s.source_type; host = nonblank s.host})
+  (match s.source_id with Some id when String.trim id <> "" -> Some id | _ -> None)
 type location = {source:source option}
 let location_jsont = Jsont.Object.map (fun source -> {source})
   |> oobj "source" source_jsont (fun l -> l.source) |> Jsont.Object.finish
@@ -258,8 +292,13 @@ let evidence_of_work ~provider ~endpoint ~sha256 ~retrieved doi w =
   | Some abstract -> Ok {E.doi=Doi.to_string doi;abstract;provider;endpoint;
       sha256;retrieved}
 let work_of_work ~provider ~endpoint ~sha256 ~retrieved doi w =
-  {W.doi=Doi.to_string doi;bibliography=bibliography_of_work doi w;provider;
-   endpoint;sha256;retrieved}
+  {W.doi=Doi.to_string doi;bibliography=bibliography_of_work doi w;
+   venue=Option.bind w.location (fun l -> Option.bind l.source venue_of_source);
+   provider;endpoint;sha256;retrieved}
+let decode_source body = match Jsont_bytesrw.decode_string source_jsont body with
+  | Error _ -> Error "invalid_json"
+  | Ok s -> match venue_of_source s with
+    | None -> Error "missing_source_id" | Some v -> Ok v
 let decode_both ~provider ~endpoint ~doi body =
   match Jsont_bytesrw.decode_string work_jsont body with
   | Error _ -> Error "invalid_json"
@@ -277,6 +316,43 @@ let decode_results body =
   | Error _ -> Error "invalid_json"
   | Ok works -> Ok (List.filter_map (fun w ->
       Option.map (fun doi -> doi, w) (work_doi w)) works)
+
+(* Work evidence is rebuilt from the retained responses, one body at a
+   time, so that fields added to the decoder reach works fetched before
+   it knew them without another request. *)
+let redecode (t : write store) =
+  let by_sha = Hashtbl.create 4096 in
+  iter_works t (fun w -> Hashtbl.replace by_sha w.sha256
+    (w :: Option.value ~default:[] (Hashtbl.find_opt by_sha w.sha256)));
+  let changed = ref 0 and examined = ref 0 in
+  Hashtbl.iter (fun sha256 works ->
+    match record t ~sha256 with
+    | None -> ()
+    | Some body ->
+      let found = match decode_results body with
+        | Ok results -> results
+        | Error _ -> (match Jsont_bytesrw.decode_string work_jsont body with
+          | Ok w -> Option.to_list (Option.map (fun d -> d, w) (work_doi w))
+          | Error _ -> []) in
+      let updates = List.filter_map (fun (old : W.t) ->
+        incr examined;
+        match Doi.of_string old.doi with
+        | Error _ -> None
+        | Ok doi ->
+          match List.find_opt (fun (d, _) -> Doi.equal d doi) found with
+          | None -> None
+          | Some (_, w) ->
+            let fresh = work_of_work ~provider:old.provider ~endpoint:old.endpoint
+              ~sha256 ~retrieved:old.retrieved doi w in
+            if fresh = old then None else Some fresh) works in
+      if updates <> [] then begin
+        changed := !changed + List.length updates;
+        run t (fun db -> transaction db (fun () ->
+          List.iter (fun (w : W.t) -> command db
+            "INSERT OR REPLACE INTO works VALUES(?,?)" [TEXT w.doi;TEXT (encode_work w)])
+            updates))
+      end) by_sha;
+  !examined, !changed
 
 type client = {http:Fetch.plain; endpoint:string; api_key:string option;
   clock:float Eio.Time.clock_ty Eio.Resource.t; timeout:float;
@@ -422,6 +498,46 @@ let lookup t store doi =
         retain store ~body:(Some body) ~retrieved ~status
           [doi, decision, Result.to_option abstract, work];
         Ok (Result.to_option abstract))
+
+(* Sources are read singly by ISSN or OpenAlex id, which OpenAlex does
+   not charge against the credit budget. *)
+let source_key key =
+  let key = String.trim key in
+  if String.length key > 5 && String.sub key 0 5 = "issn:" then Ok key
+  else if key <> "" && key.[0] = 'S' &&
+    String.for_all (fun c -> c >= '0' && c <= '9') (String.sub key 1 (String.length key - 1))
+  then Ok key else Error "Source keys are issn:NNNN-NNNN or an OpenAlex S id"
+let lookup_source t store key =
+  let key = match source_key key with Ok k -> k | Error e -> invalid_arg e in
+  match find_source store key with
+  | Some v -> Ok (Some v)
+  | None ->
+  let url = t.endpoint ^ "/sources/" ^ pct key ^ "?select=" ^ source_select ^
+    key_query t in
+  Taposaur_audit.with_operation ?session:t.audit ~action:"abstracts.source"
+    ~subject:key ~details:["provider",provider;"endpoint",t.endpoint]
+    ~success:Result.is_ok
+    (fun _ ->
+      let response = try Ok (fetch t url) with
+        | Eio.Time.Timeout -> Error (Transport "timeout")
+        | Eio.Io _ -> Error (Transport "transport_error")
+        | Eio.Buf_read.Buffer_limit_exceeded -> Error (Transport "oversized_response") in
+      match response with
+      | Error r -> Error r
+      | Ok (429, _) -> Error Rate_limited
+      | Ok ((402 | 403), _) -> Error Budget
+      | Ok (404, _) -> Ok None
+      | Ok (status, _) when status <> 200 -> Error (Http status)
+      | Ok (_, body) ->
+        match decode_source body with
+        | Error e -> Error (Transport e)
+        | Ok venue ->
+          let sha = hash body in
+          run store (fun db -> transaction db (fun () ->
+            command db "INSERT OR IGNORE INTO records VALUES(?,?)" [TEXT sha;BLOB body];
+            command db "INSERT OR REPLACE INTO sources VALUES(?,?,?)"
+              [TEXT key;TEXT (get (Jsont_bytesrw.encode_string W.venue_jsont venue));TEXT sha]));
+          Ok (Some venue))
 
 let default_path () = Option.value ~default:"taposaur-abstracts.db"
   (Sys.getenv_opt "TAPOSAUR_ABSTRACTS_DB")

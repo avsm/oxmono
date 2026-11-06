@@ -625,7 +625,7 @@ and apply_timer eng ms =
                if ms > 0 then Eio_unix.sleep (float_of_int ms /. 1000.)
                else Eio.Fiber.yield ();
                if gen = eng.timer_gen && engine_live eng then
-                 curl_call eng (fun () -> Curl.Multi.action_timeout eng.mt))
+                 curl_call eng (fun () -> ignore (Curl.Multi.action_timeout' eng.mt)))
          with
         | Eio.Cancel.Cancelled _ as ex -> raise ex
         | ex ->
@@ -1042,7 +1042,7 @@ module Backend = struct
                 (fun () -> Eio.Promise.await up.stop);
               `Stop_daemon)
       | _ -> ());
-      curl_call eng (fun () -> Curl.Multi.action_timeout eng.mt);
+      curl_call eng (fun () -> ignore (Curl.Multi.action_timeout' eng.mt));
       (* The response is ready at the final completed head. The callback only
          records a pending wake; [curl_call] resolves it after returning from C.
          [cleaned] also ends the wait — the switch may be released while

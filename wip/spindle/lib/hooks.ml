@@ -21,6 +21,8 @@ type t = {
   fetch : Fetch.plain;
   allow_private : bool;
   clock : float Eio.Time.clock_ty Eio.Resource.t;
+  timeout : Eio.Time.Timeout.t;  (** Bounds one attempt. *)
+  sleep : float -> unit;
   sw : Eio.Switch.t;
   workers : Eio.Semaphore.t;
   lock : Eio.Mutex.t;
@@ -28,7 +30,7 @@ type t = {
   hosts : (string, host) Hashtbl.t;
 }
 
-(* A host's deliveries in flight and waiting. *)
+(* A repository's deliveries in flight and waiting. *)
 and host = { slots : Eio.Semaphore.t; mutable waiting : int }
 
 let v ~sw ~store ~settings ~allow_private system =
@@ -47,6 +49,8 @@ let v ~sw ~store ~settings ~allow_private system =
     fetch = Fetch.restrict fetch;
     allow_private;
     clock = system#clock;
+    timeout = Eio.Time.Timeout.seconds system#mono_clock 10.;
+    sleep = Eio.Time.Mono.sleep system#mono_clock;
     sw;
     workers = Eio.Semaphore.make 8;
     lock = Eio.Mutex.create ();
@@ -249,10 +253,8 @@ let update t ~repo body =
   in
   Store.put t.store "webhook" key (encode (set "updatedAt" (str (stamp t)) w))
 
-let deliveries_of t key =
-  List.filter
-    (fun (k, _) -> String.starts_with ~prefix:(key ^ " ") k)
-    (Store.list t.store "delivery")
+(* Delivery keys are a webhook's key, a space and a sequence number. *)
+let deliveries_of t key = Store.list_prefix t.store "delivery" (key ^ " ")
 
 let delete t ~repo id =
   Eio.Mutex.use_rw ~protect:true t.lock @@ fun () ->
@@ -337,7 +339,7 @@ let signature secret body =
 (* One attempt. Transport errors and server errors may be retried. *)
 let attempt t ~url ~headers body =
   match
-    Eio.Time.with_timeout_exn t.clock 10. (fun () ->
+    Eio.Time.Timeout.run_exn t.timeout (fun () ->
         Fetch.with_response ~headers ~body:(Fetch.String body) ~redirects:0
           t.fetch `POST url (fun r ->
             (Fetch.status r, Network.read_limited (Fetch.body r) 10240)))
@@ -427,7 +429,7 @@ let send t key w ~event ~agent ~full_name body =
     | Ok (code, response) -> (code, response, code >= 200 && code < 300)
     | Error answer when n < 3 ->
         ignore answer;
-        Eio.Time.sleep t.clock delay;
+        t.sleep delay;
         go (n + 1) (Float.min 10. (delay *. 2.))
     | Error (Some (code, response)) ->
         ( code,
@@ -441,12 +443,14 @@ let send t key w ~event ~agent ~full_name body =
       record t key ~id ~event ~url ~body ~code ~response ~success)
 
 (* Deliveries run in the background, eight at once, with at most 1024
-   waiting. One host has at most two in flight and 64 waiting, so a dead host
-   cannot hold up the rest, as in the reference spindle. Past either limit a
-   failed delivery is recorded instead. *)
+   waiting. One repository's webhooks have at most two in flight and 64
+   waiting, so a dead host cannot hold up the rest. They are counted by
+   repository rather than by host, since a repository's owner can name as
+   many hosts as they like. Past either limit a failed delivery is recorded
+   instead. *)
 let enqueue t key w ~event ~agent ~full_name body =
   let url = get "url" w in
-  let name = try Network.origin ~allow_http:true url with Invalid _ -> url in
+  let name = get "repo" w in
   let host =
     match Hashtbl.find_opt t.hosts name with
     | Some h -> h

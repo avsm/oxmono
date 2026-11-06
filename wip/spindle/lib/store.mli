@@ -60,6 +60,10 @@ val fold :
 (** [fold store namespace ~init ~f ()] visits keys in batches of 128 without
     retaining the namespace in memory. Concurrent writes may be observed. *)
 
+val list_prefix : t -> string -> string -> (string * string) list
+(** [list_prefix store namespace prefix] is every key and value of
+    [namespace] whose key starts with [prefix], in key order. *)
+
 val fold_views :
   t -> repo:string -> init:'a -> f:('a -> string * string -> 'a) -> 'a
 (** [fold_views store ~repo ~init ~f] is {!fold} over the [pipeline-view]

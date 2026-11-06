@@ -92,8 +92,40 @@ let test_delimiter_allocations () =
     | Error _ -> () | Ok _ -> failwith "accepted missing delimiter")
     [""; " \t\n"; "-"; "--"; " \012 -- "; "x---"]
 
+let test_round_trip_and_fields () =
+  let check message condition = if not condition then failwith message in
+  let t =
+    Frontmatter.of_string_exn "---\ntitle: Old\ncount: 3\ndraft: yes\n---\nBody\n"
+  in
+  check "typed lookups"
+    (Frontmatter.find_int "count" t = Some 3
+    && Frontmatter.find_bool "draft" t = Some true
+    && Frontmatter.find_string "missing" t = None);
+  let t = Frontmatter.set_field "title" (`String "New") t in
+  let t = Frontmatter.set_field "extra" (`Float 1.5) t in
+  let t' = Frontmatter.of_string_exn (Frontmatter.to_string t) in
+  check "replaced field survives serialisation"
+    (Frontmatter.find_string "title" t' = Some "New");
+  check "added field survives serialisation"
+    (Frontmatter.find_float "extra" t' = Some 1.5);
+  check "body survives serialisation" (Frontmatter.body t' = Frontmatter.body t);
+  let crlf = Frontmatter.of_string "---\r\ntitle: Win\r\n---\r\nBody\r\n" in
+  check "CRLF delimiters accepted"
+    (match crlf with
+    | Ok t -> Frontmatter.find_string "title" t = Some "Win"
+    | Error _ -> false);
+  check "unterminated frontmatter rejected"
+    (Result.is_error (Frontmatter.of_string "---\ntitle: x\nbody\n"));
+  let date y m d = Ptime.of_date (y, m, d) in
+  check "dated slug"
+    (Frontmatter.slug_of_fname "2025-01-15-my-post.md"
+    = Ok ("my-post", date 2025 1 15));
+  check "undated slug"
+    (Frontmatter.slug_of_fname "my-post.md" = Ok ("my-post", None))
+
 let () =
   test_delimiter_allocations ();
+  test_round_trip_and_fields ();
   Printf.printf "=== Testing basic frontmatter ===\n";
   let r1 = test_basic () in
   Printf.printf "\n=== Testing no frontmatter ===\n";

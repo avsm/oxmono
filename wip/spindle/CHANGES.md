@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Keep the inbox's size as events arrive instead of measuring it for each
+  event, and drop log lines a workflow writes after its pipeline is wiped.
+
 - Share webhook delivery slots by repository rather than by host, time
   deliveries with the monotonic clock, and read only a webhook's own
   deliveries.

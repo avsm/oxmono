@@ -125,7 +125,8 @@ val batch :
 
 val append_log : t -> pipeline:string -> workflow:string -> string -> int64
 (** [append_log store ~pipeline ~workflow event] durably appends [event] and
-    returns its sequence. Sequences are never reused. A workflow's journal
+    returns its sequence. It appends nothing and returns 0 when [pipeline]
+    is not stored, as after it was wiped. Sequences are never reused. A workflow's journal
     is its log, kept until its pipeline is deleted. *)
 
 val delete_logs : t -> pipeline:string -> workflow:string -> unit

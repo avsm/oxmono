@@ -101,6 +101,27 @@ let open_ ~sw directory =
     CREATE INDEX IF NOT EXISTS view_repo
       ON kv(json_extract(value,'$.repo'),key)
       WHERE namespace='pipeline-view';
+    CREATE TABLE IF NOT EXISTS inbox_usage (
+      id INTEGER PRIMARY KEY CHECK (id=0), count INTEGER NOT NULL,
+      bytes INTEGER NOT NULL);
+    INSERT OR REPLACE INTO inbox_usage
+      SELECT 0,count(*),COALESCE(sum(length(CAST(value AS BLOB))),0)
+      FROM kv WHERE namespace='inbox';
+    CREATE TRIGGER IF NOT EXISTS inbox_insert AFTER INSERT ON kv
+      WHEN NEW.namespace='inbox' BEGIN
+      UPDATE inbox_usage SET count=count+1,
+        bytes=bytes+length(CAST(NEW.value AS BLOB));
+    END;
+    CREATE TRIGGER IF NOT EXISTS inbox_update AFTER UPDATE OF value ON kv
+      WHEN NEW.namespace='inbox' BEGIN
+      UPDATE inbox_usage SET bytes=bytes+length(CAST(NEW.value AS BLOB))
+        -length(CAST(OLD.value AS BLOB));
+    END;
+    CREATE TRIGGER IF NOT EXISTS inbox_delete AFTER DELETE ON kv
+      WHEN OLD.namespace='inbox' BEGIN
+      UPDATE inbox_usage SET count=count-1,
+        bytes=bytes-length(CAST(OLD.value AS BLOB));
+    END;
     CREATE TABLE IF NOT EXISTS workflow_log (
       seq INTEGER PRIMARY KEY AUTOINCREMENT, pipeline TEXT NOT NULL,
       workflow TEXT NOT NULL, value TEXT NOT NULL);
@@ -276,12 +297,13 @@ let append_log t ~pipeline ~workflow value =
   locked t (fun () ->
       match
         rows t
-          "INSERT INTO workflow_log(pipeline,workflow,value) VALUES(?,?,?) \
-           RETURNING seq"
-          [ text pipeline; text workflow; text value ]
+          "INSERT INTO workflow_log(pipeline,workflow,value) SELECT ?,?,? \
+           WHERE EXISTS (SELECT 1 FROM kv WHERE namespace='pipeline' AND \
+           key=?) RETURNING seq"
+          [ text pipeline; text workflow; text value; text pipeline ]
       with
       | [ row ] -> Sqlite3.Data.to_int64_exn row.(0)
-      | _ -> assert false)
+      | _ -> 0L)
 
 let delete_logs t ~pipeline ~workflow =
   locked t (fun () ->
@@ -322,7 +344,25 @@ let set_limits t (policy : Operations.t) =
   t.inbox_limit <- policy.inbox_limit;
   t.inbox_bytes <- policy.inbox_megabytes * 1024 * 1024
 
+(* The inbox is measured as each event arrives, so its count and size are
+   kept by triggers. They are recounted when the store opens. A replacing
+   insert would skip the delete trigger, so the inbox is never written that
+   way. *)
 let usage_unlocked t namespace =
+  if namespace = "inbox" then
+    match
+      rows t
+        {|SELECT u.count,u.bytes,
+           COALESCE((SELECT min(updated) FROM age WHERE namespace='inbox'),0.0)
+           FROM inbox_usage u|}
+        []
+    with
+    | [ row ] ->
+        ( Sqlite3.Data.to_int_exn row.(0),
+          Sqlite3.Data.to_int_exn row.(1),
+          Sqlite3.Data.to_float_exn row.(2) )
+    | _ -> assert false
+  else
   match
     rows t
       {|SELECT count(*),COALESCE(sum(length(CAST(kv.value AS BLOB))),0),

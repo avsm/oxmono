@@ -1,3 +1,7 @@
+(* The test runs in one domain, so the environment it rewrites for the cache
+   and fake downloader checks is never read concurrently. *)
+[@@@alert "-unsafe_multidomain"]
+
 module M = Apple_mlx_embeddings.Model
 
 let check name condition = if not condition then failwith name

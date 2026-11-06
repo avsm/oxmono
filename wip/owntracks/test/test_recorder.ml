@@ -39,6 +39,11 @@ let test_errors () =
   (match R.list_users (client 200 "not json" 100) with
   | Error (R.Invalid_response _) -> ()
   | _ -> Alcotest.fail "lost JSON error");
+  (* The same body is accepted under a larger limit, so the failure below
+     is the limit and not the body. *)
+  (match R.list_users (client 200 "[\"too long\"]" 100) with
+  | Ok [ "too long" ] -> ()
+  | _ -> Alcotest.fail "rejected a body within the limit");
   match R.list_users (client 200 "[\"too long\"]" 4) with
   | Error (R.Invalid_response _) -> ()
   | _ -> Alcotest.fail "lost byte limit"

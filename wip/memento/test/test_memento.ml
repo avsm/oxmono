@@ -217,8 +217,9 @@ let () =
   let denied = Fetch.restrict ~filter:(fun _ -> `Reject "denied") client in
   let before = List.length !calls in
   check "caller URL policy preserved"
-    (try ignore (Memento_fetch.timemap denied "https://archive.example/map"); false with _ -> List.length !calls = before);
+    (try ignore (Memento_fetch.timemap denied "https://archive.example/map"); false
+     with Eio.Io (Fetch.E (Fetch.Denied _), _) -> List.length !calls = before);
   check "redirect loop bounded"
     (try ignore (Memento_fetch.negotiate ~redirects:2 client ~datetime:a.datetime
-        "https://archive.example/cycle"); false with _ -> true);
+        "https://archive.example/cycle"); false with Eio.Io _ -> true);
   Printf.printf "Memento: %d checks passed\n" !checks

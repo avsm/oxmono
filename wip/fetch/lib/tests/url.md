@@ -232,12 +232,12 @@ normalization as initial URLs:
 A host rule written against one spelling therefore covers the rest:
 
 ```ocaml
-# let no_loopback (req : Middleware.request) =
+# let no_loopback (req : Middleware.request @ local) =
     if Middleware.Url.host req.url = "127.0.0.1" then
       `Reject "loopback is out of bounds"
     else `Allow;;
-val no_loopback : Middleware.request -> [> `Allow | `Reject of string ] =
-  <fun>
+val no_loopback :
+  Middleware.request @ local -> [> `Allow | `Reject of string ] = <fun>
 # let guarded =
     Fetch.restrict ~filter:no_loopback (Fetch_mock.client (Fetch_mock.respond "ok"));;
 val guarded : plain = Eio.Resource.T (<poly>, <abstr>)

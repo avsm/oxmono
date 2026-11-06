@@ -132,7 +132,7 @@ val raises_invalid : (unit -> 'a) -> bool = <fun>
     { target = "/next>;<evil"; rel = None; media_type = None; title = None;
       hreflang = None; params = [] };;
 val forged : Header.link =
-  {Fetch.Header.target = "/next>;<evil"; rel = None; media_type = None;
+  {Header.target = "/next>;<evil"; rel = None; media_type = None;
    title = None; hreflang = None; params = []}
 # raises_invalid (fun () -> Header.encode Header.links [forged] |> ignore);;
 - : bool = true

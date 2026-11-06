@@ -602,11 +602,11 @@ example application approves only POSTs ending in `/api/keys/query`:
     in
     let lx = List.length xs and ls = List.length suffix in
     lx >= ls && List.equal String.equal (drop (lx - ls) xs) suffix
-  let route_allows (req : Middleware.request) =
+  let route_allows (req : Middleware.request @ local) =
     req.meth = `POST && ends_with ["api"; "keys"; "query"]
       (Middleware.Url.path_segments req.url);;
 val ends_with : string list -> string list -> bool = <fun>
-val route_allows : Middleware.request -> bool = <fun>
+val route_allows : Middleware.request @ local -> bool = <fun>
 # Eio_mock.Backend.run_full @@ fun env ->
   Eio.Switch.run @@ fun sw ->
     let probe path =
@@ -662,7 +662,13 @@ hops retry a 503, but the predicate sees each canonical request only once:
     let config = Retry.v ~jitter:false ~backoff_factor:(Duration.of_sec 0) ~max_retries:1
       ~allowed_methods:[`GET; `POST]
       ~retry_request:(fun req ->
-        seen := (req.meth, Middleware.Url.path_segments req.url, req.body) :: !seen;
+        let body =
+          match req.body with
+          | Empty -> "empty"
+          | String s when String.equal s "payload" -> "payload"
+          | _ -> "other"
+        in
+        seen := (req.meth, Middleware.Url.path_segments req.url, body) :: !seen;
         true) () in
     let client = Fetch_mock.client server
       |> Fetch.with_retry ~clock:env#mono_clock
@@ -671,7 +677,7 @@ hops retry a 503, but the predicate sees each canonical request only once:
       "https://api.example/unused/../start" in
     let result = (status r, !attempts,
       match List.rev !seen with
-      | [(`POST, ["start"], String "payload"); (`GET, ["finish"], Empty)] -> true
+      | [(`POST, ["start"], "payload"); (`GET, ["finish"], "empty")] -> true
       | _ -> false) in
     close r; result;;
 - : int * int * bool = (200, 4, true)

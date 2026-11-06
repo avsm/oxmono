@@ -214,8 +214,8 @@ subdomain of a host say, goes in `restrict ~filter`. That is the escape
 hatch for wildcard matching, and it sees the parsed URL:
 
 ```ocaml
-let subdomain_of suffix (req : Middleware.request) =
-  let host = host req in
+let subdomain_of suffix (req : Middleware.request @ local) =
+  let host = Middleware.Url.host req.url in
   let n = String.length host and m = String.length suffix in
   if host = suffix
      || (n > m + 1 && String.sub host (n - m - 1) (m + 1) = "." ^ suffix)

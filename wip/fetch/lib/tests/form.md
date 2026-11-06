@@ -33,6 +33,15 @@ let read_body = function
 
 let drain body = Eio_mock.Backend.run @@ fun () -> read_body body
 
+(* Multipart framing uses CRLF. [print_crlf s] prints [s] with each CRLF shown
+   as a line feed, since the expected output below is stored with LF endings. *)
+let print_crlf s =
+  String.iteri
+    (fun i c ->
+      if not (c = '\r' && i + 1 < String.length s && s.[i + 1] = '\n') then
+        print_char c)
+    s
+
 let note = "%PDF-1.4 not really\n"
 
 (* A server that hands a urlencoded body straight back, and a token
@@ -148,7 +157,7 @@ let streamed () =
 The buffered body frames each part between the boundary lines:
 
 ```ocaml
-# print_string (drain buffered);;
+# print_crlf (drain buffered);;
 --BOUND
 Content-Disposition: form-data; name="consolidate"
 
@@ -166,7 +175,7 @@ Content-Type: application/pdf
 The streamed one puts the same bytes on the wire:
 
 ```ocaml
-# print_string (drain (streamed ()));;
+# print_crlf (drain (streamed ()));;
 --BOUND
 Content-Disposition: form-data; name="consolidate"
 
@@ -323,7 +332,7 @@ a name or a filename may hold a quote, a CR or an LF and still name the
 same control the form did:
 
 ```ocaml
-# print_string (drain
+# print_crlf (drain
     (snd (Form.multipart ~boundary:"BOUND"
             [ Form.file ~name:"in\"put" ~filename:"a\r\nb\".pdf"
                 ~content_type:"application/pdf" "x" ])));;
@@ -368,7 +377,7 @@ one puts it in the part, and `headers` adds part headers after the ones
 the part derives:
 
 ```ocaml
-# print_string (drain
+# print_crlf (drain
     (snd (Form.multipart ~boundary:"BOUND"
             [ Form.field ~content_type:"application/json" "meta" {|{"n":1}|};
               Form.field ~headers:[ ("Content-Transfer-Encoding", "8bit") ]
@@ -435,7 +444,7 @@ Invalid_argument "Fetch.Form.multipart: boundary occurs in a part".
 ## Mixed parts keep their order
 
 ```ocaml
-# print_string (drain
+# print_crlf (drain
     (snd (Form.multipart ~boundary:"BOUND"
             [ Form.field "first" "1";
               Form.stream ~name:"input" ~filename:"a.pdf"

@@ -7,6 +7,17 @@ let spec ?(queue="work") key =
   D.Spec.v ~queue ~kind:"process-test" ~version:1 ~payload:"data" ~key ()
 let open_queue env sw path = Duraml_sqlite.open_ ~sw ~clock:env#clock
   ~random:env#secure_random ~poll_interval:(span 0.01) Eio.Path.(env#fs / path)
+(* [with_path prefix f] is [f path] for an unused database path, whose files
+   are removed afterwards. *)
+let with_path prefix f =
+  let path=Filename.temp_file prefix ".db" in Unix.unlink path;
+  Fun.protect (fun () -> f path) ~finally:(fun () ->
+    List.iter (fun suffix -> let p=path^suffix in
+      if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"])
+(* [scalar db sql] is the first column of the first row [sql] yields. *)
+let scalar db sql = let s=Sqlite3.prepare db sql in
+  ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
+  ignore (Sqlite3.finalize s); v
 let child mode path marker = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
   let ready () = Eio.Path.save ~create:(`Or_truncate 0o600)
     Eio.Path.(env#fs / marker) "ready" in
@@ -135,14 +146,39 @@ let cancel_busy_writer () = with_store (fun env sw root path q ->
       "after-cancellation")
       (D.list q (D.query ()))))
 let refuses () = Eio_main.run (fun env ->
-  let path=Filename.temp_file "duraml-unrelated-" ".db" in
-  Fun.protect ~finally:(fun () -> Sys.remove path) (fun () ->
+  with_path "duraml-unrelated-" @@ fun path ->
+  let db=Sqlite3.db_open path in
+  Sqlite3.Rc.check (Sqlite3.exec db "CREATE TABLE unrelated(value TEXT)");
+  ignore (Sqlite3.db_close db);
+  Eio.Switch.run (fun sw -> check "unrelated database refused" true
+    (try ignore (open_queue env sw path);false
+     with Eio.Io (D.E (D.Storage _),_) -> true)))
+(* A store from a newer schema, or another application's database, is
+   refused by both writable and read-only opens and is left unchanged. *)
+let refuses_foreign_schema () = Eio_main.run (fun env ->
+  List.iter (fun (name,pragma) ->
+    with_path "duraml-foreign-" @@ fun path ->
+    Eio.Switch.run (fun sw -> ignore (D.enqueue (open_queue env sw path)
+      (spec "kept")));
     let db=Sqlite3.db_open path in
-    Sqlite3.Rc.check (Sqlite3.exec db "CREATE TABLE unrelated(value TEXT)");
+    Sqlite3.Rc.check (Sqlite3.exec db pragma);
+    let before=scalar db "PRAGMA user_version"
+      ^ "/" ^ scalar db "PRAGMA application_id" in
     ignore (Sqlite3.db_close db);
-    Eio.Switch.run (fun sw -> check "unrelated database refused" true
-      (try ignore (open_queue env sw path);false
-       with Eio.Io (D.E (D.Storage _),_) -> true))))
+    List.iter (fun read_only -> Eio.Switch.run (fun sw ->
+      check name true (try
+        ignore (Duraml_sqlite.open_ ~sw ~clock:env#clock
+          ~random:env#secure_random ~read_only Eio.Path.(env#fs / path));
+        false
+      with Eio.Io (D.E (D.Storage _),_) -> true))) [false;true];
+    let db=Sqlite3.db_open ~mode:`READONLY path in
+    check (name ^ " left unchanged") true
+      (scalar db "PRAGMA user_version" ^ "/"
+       ^ scalar db "PRAGMA application_id" = before);
+    ignore (Sqlite3.db_close db))
+    ["newer schema refused","PRAGMA user_version=6";
+     "older unknown schema refused","PRAGMA user_version=1";
+     "foreign application refused","PRAGMA application_id=1"])
 let read_only () = with_store (fun env sw _ path q ->
   ignore (D.enqueue q (spec "inspected"));
   let reader=Duraml_sqlite.open_ ~sw ~clock:env#clock ~random:env#secure_random
@@ -164,8 +200,9 @@ let read_only () = with_store (fun env sw _ path q ->
     with Eio.Io _ | Sqlite3.Error _ | Sqlite3.SqliteError _ -> true))
 (* A schema-2 store, as written before lanes existed, upgrades in place on
    its first writable open and dispatches its old jobs oldest-first. *)
-let upgrade () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
-  let path=Filename.temp_file "duraml-v2-" ".db" in Unix.unlink path;
+let upgrade () = Eio_main.run (fun env ->
+  with_path "duraml-v2-" @@ fun path ->
+  Eio.Switch.run (fun sw ->
   let db=Sqlite3.db_open path in
   let job n at = Printf.sprintf {|{"id":"%d","spec":{"queue":"work",
 "kind":"process-test","version":1,"payload":"data","key":"k%d"},
@@ -214,9 +251,7 @@ INSERT INTO events VALUES(1,'{"sequence":"1",
          (D.settle q c (D.complete (D.Succeeded "ok"))=D.Applied)
    | D.Await _ -> Alcotest.fail "Expected claim");
   let db=Sqlite3.db_open ~mode:`READONLY path in
-  let scalar sql = let s=Sqlite3.prepare db sql in
-    ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
-    ignore (Sqlite3.finalize s); v in
+  let scalar=scalar db in
   check "schema upgraded" true (scalar "PRAGMA user_version"="5");
   check "payload moved out of the record" true
     (scalar "SELECT data FROM payloads WHERE job=1"="data" &&
@@ -230,14 +265,12 @@ INSERT INTO events VALUES(1,'{"sequence":"1",
   ignore (Sqlite3.db_close db);
   let reader=Duraml_sqlite.open_ ~sw ~clock:env#clock
     ~random:env#secure_random ~read_only:true Eio.Path.(env#fs / path) in
-  count "reader sees upgraded store" 2 (List.length (D.list reader (D.query ())));
-  List.iter (fun suffix -> let p=path^suffix in
-    if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"]))
+  count "reader sees upgraded store" 2 (List.length (D.list reader (D.query ())))))
 (* A schema-4 store, whose records hold payloads and claim specifications,
    upgrades in place, and a claim taken before the upgrade still renews and
    settles. The schema-4 records are made from schema-5 ones. *)
 let upgrade_4 () = Eio_main.run (fun env ->
-  let path=Filename.temp_file "duraml-v4-" ".db" in Unix.unlink path;
+  with_path "duraml-v4-" @@ fun path ->
   let claim=Eio.Switch.run (fun sw ->
     let q=open_queue env sw path in
     ignore (D.enqueue q (spec "running"));
@@ -263,27 +296,22 @@ PRAGMA user_version=4;|});
       (D.Spec.payload (D.Claim.spec next)="data" &&
        D.Spec.key (D.Claim.spec next)=Some "queued"));
   let db=Sqlite3.db_open ~mode:`READONLY path in
-  let scalar sql = let s=Sqlite3.prepare db sql in
-    ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
-    ignore (Sqlite3.finalize s); v in
+  let scalar=scalar db in
   check "schema 5" true (scalar "PRAGMA user_version"="5");
   check "attempts hold no specification" true
     (scalar "SELECT count(*) FROM attempts \
       WHERE json_extract(data,'$.claim.spec') IS NOT NULL"="0");
-  ignore (Sqlite3.db_close db);
-  List.iter (fun suffix -> let p=path^suffix in
-    if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"])
+  ignore (Sqlite3.db_close db))
 (* A renewal leaves the payload row as it is, and a symbolic link to a
    store is refused. *)
-let renewal_and_links () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
-  let path=Filename.temp_file "duraml-renew-" ".db" in Unix.unlink path;
+let renewal_and_links () = Eio_main.run (fun env ->
+  with_path "duraml-renew-" @@ fun path ->
+  Eio.Switch.run (fun sw ->
   let q=open_queue env sw path in
   ignore (D.enqueue q (spec "k"));
   let c=D.take q ~queue:"work" ~lease:(span 60.) in
   let db=Sqlite3.db_open path in
-  let scalar sql = let s=Sqlite3.prepare db sql in
-    ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
-    ignore (Sqlite3.finalize s); v in
+  let scalar=scalar db in
   Sqlite3.Rc.check (Sqlite3.exec db {|
 CREATE TABLE writes(n INTEGER);
 CREATE TRIGGER payload_insert AFTER INSERT ON payloads
@@ -299,12 +327,11 @@ CREATE TRIGGER payload_update AFTER UPDATE ON payloads
     ignore (Duraml_sqlite.open_ ~sw ~clock:env#clock ~random:env#secure_random
       ~read_only:true Eio.Path.(env#fs / link)); false
     with Eio.Io _ -> true);
-  Sys.remove link;
-  List.iter (fun suffix -> let p=path^suffix in
-    if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"]))
+  Sys.remove link))
 (* A damaged record is a storage failure, and emptied lanes are forgotten. *)
-let damaged () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
-  let path=Filename.temp_file "duraml-damaged-" ".db" in Unix.unlink path;
+let damaged () = Eio_main.run (fun env ->
+  with_path "duraml-damaged-" @@ fun path ->
+  Eio.Switch.run (fun sw ->
   let q=open_queue env sw path in
   ignore (D.enqueue q (D.Spec.v ~queue:"work" ~kind:"process-test" ~version:1
     ~payload:"data" ~lane:"once" ()));
@@ -312,9 +339,7 @@ let damaged () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
   ignore (D.settle q c (D.complete (D.Succeeded "ok")));
   ignore (D.enqueue q (spec "bad"));
   let db=Sqlite3.db_open path in
-  let scalar sql = let s=Sqlite3.prepare db sql in
-    ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
-    ignore (Sqlite3.finalize s); v in
+  let scalar=scalar db in
   check "emptied lane forgotten" true
     (scalar "SELECT count(*) FROM lanes WHERE lane='once'"="0");
   Sqlite3.Rc.check (Sqlite3.exec db
@@ -323,9 +348,7 @@ let damaged () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
   ignore (Sqlite3.db_close db);
   check "damaged record is a storage failure" true (try
     ignore (D.list q (D.query ())); false
-    with Eio.Io (D.E (D.Storage _),_) -> true);
-  List.iter (fun suffix -> let p=path^suffix in
-    if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"]))
+    with Eio.Io (D.E (D.Storage _),_) -> true)))
 let () =
   if Array.length Sys.argv=5 && Sys.argv.(1)="--child" then
     child Sys.argv.(2) Sys.argv.(3) Sys.argv.(4)
@@ -336,6 +359,7 @@ let () =
       "cross-process wakeup",polling;
       "clock after transaction lock",stale_clock_after_lock;
       "cancel blocked writer",cancel_busy_writer;
-      "refuse unrelated store",refuses;"read-only inspection",read_only;
+      "refuse unrelated store",refuses;
+      "refuse foreign schema",refuses_foreign_schema;"read-only inspection",read_only;
       "upgrade from schema 2",upgrade;"upgrade from schema 4",upgrade_4;
       "renewal and links",renewal_and_links;"damaged records",damaged]]

@@ -1,3 +1,7 @@
+(library
+ (name arod_check)
+ (modules arod_check))
+
 (test
  (name test_static)
  (modules test_static)
@@ -92,7 +96,7 @@
 (test
  (name test_routes)
  (modules test_routes)
- (libraries duration arod arod.handlers arod.server bushel proffer proffer.mock))
+ (libraries arod_check duration arod arod.handlers arod.server bushel proffer proffer.mock))
 
 (test
  (name test_bytesrw)
@@ -107,7 +111,7 @@
 (test
  (name test_json)
  (modules test_json)
- (libraries arod arod.handlers arod.search bushel))
+ (libraries arod_check arod arod.handlers arod.search bushel))
 
 (test
  (name test_url_render)
@@ -117,12 +121,12 @@
 (test
  (name test_search)
  (modules test_search)
- (libraries arod.search bushel eio eio_main))
+ (libraries arod_check arod.search bushel eio eio_main))
 
 (test
  (name test_search_page)
  (modules test_search_page)
- (libraries arod arod.component arod.search bushel htmlit))
+ (libraries arod_check arod arod.component arod.search bushel htmlit))
 
 ; render_capture.sh is a tool too, and a shell script rather than an
 ; executable because it serves the site and drives it with curl. It needs a
@@ -132,7 +136,7 @@
 (test
  (name test_markdown_export)
  (modules test_markdown_export)
- (libraries arod arod.component bushel))
+ (libraries arod_check arod arod.component bushel))
 
 (test
  (name test_ctx_releases)
@@ -149,17 +153,17 @@
  (modules test_notes_releases)
  (deps
   (glob_files fixtures/notes/notes_no_releases.html))
- (libraries arod arod.component bushel htmlit))
+ (libraries arod_check arod arod.component bushel htmlit))
 
 (test
  (name test_snake)
  (modules test_snake)
- (libraries arod arod.component))
+ (libraries arod_check arod arod.component))
 
 (test
  (name test_markdown_pages)
  (modules test_markdown_pages)
- (libraries arod arod.component arod.handlers bushel sortal.schema))
+ (libraries arod_check arod arod.component arod.handlers bushel sortal.schema))
 
 (test
  (name test_pull)

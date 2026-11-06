@@ -1,26 +1,7 @@
 (* Registered releases appear in the notes view as one line inside the month
    they were made, among the notes of that month. *)
 
-let check name cond =
-  if not cond then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
-
-let index_of hay needle =
-  let n = String.length needle and h = String.length hay in
-  let rec go i =
-    if i + n > h then None
-    else if String.sub hay i n = needle then Some i
-    else go (i + 1)
-  in
-  go 0
-
-let contains hay needle = index_of hay needle <> None
-
-let before hay a b =
-  match (index_of hay a, index_of hay b) with
-  | Some i, Some j -> i < j
-  | _ -> false
+open Arod_check
 
 let cfg : Arod.Config.t =
   { Arod.Config.default with
@@ -109,7 +90,7 @@ let () =
   (* The row of mdx 2.6.0 is read from its name onwards, since other rows have
      dates and summaries of their own. *)
   let row =
-    match index_of html "mdx 2.6.0" with
+    match find html "mdx 2.6.0" with
     | Some i -> String.sub html i (String.length html - i)
     | None -> ""
   in
@@ -188,10 +169,10 @@ let () =
     (contains tall "--lines:5" && contains tall "--lines:2");
   check "a row with a long synopsis is taller, and the next row is lower"
     (let top_of marker =
-       match index_of tall marker with
+       match find tall marker with
        | None -> -1.
        | Some i ->
-         let j = Option.get (index_of (String.sub tall i (String.length tall - i)) "top:") in
+         let j = Option.get (find (String.sub tall i (String.length tall - i)) "top:") in
          let rest = String.sub tall (i + j + 4) 16 in
          float_of_string (String.sub rest 0 (String.index rest 'e' - 0))
      in
@@ -209,12 +190,12 @@ let () =
   in
   let release_tops =
     let rec go from acc =
-      match index_of (String.sub run from (String.length run - from)) "sn-item sn-release" with
+      match find (String.sub run from (String.length run - from)) "sn-item sn-release" with
       | None -> List.rev acc
       | Some i ->
         let at = from + i in
         let rest = String.sub run at (String.length run - at) in
-        let j = Option.get (index_of rest "top:") in
+        let j = Option.get (find rest "top:") in
         let tail = String.sub rest (j + 4) 16 in
         let top = float_of_string (String.sub tail 0 (String.index tail 'e')) in
         go (at + 10) (top :: acc)

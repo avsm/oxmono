@@ -2,18 +2,7 @@
    from synthetic entries and links, so each check names the one property
    of the model it holds. The real corpus is not in the repository. *)
 
-let checks = ref 0
-
-let check name cond =
-  incr checks;
-  if not cond then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
-
-let contains hay needle =
-  let n = String.length needle and h = String.length hay in
-  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
-  go 0
+open Arod_check
 
 (* Each on-disk test below opens its own temp directory, so it removes it
    again once done rather than leaking it into the system temp dir. *)

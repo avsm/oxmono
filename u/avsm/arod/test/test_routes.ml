@@ -8,13 +8,7 @@
 module H = Httpz.Header_name
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+open Arod_check
 
 let cfg : Arod.Config.t =
   {
@@ -156,11 +150,6 @@ let env =
    and the bytes are stable, but they are still whole pages: what is checked
    is that the route reached the render that belongs to it, not what that
    render says. [test_md_golden] owns the bytes. *)
-let contains hay needle =
-  let n = String.length needle and h = String.length hay in
-  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
-  go 0
-
 let site = Arod_server.Site.build cfg
 let header_other o n = Proffer_mock.header_other o n
 let get ?headers target = Proffer_mock.request ?headers site env

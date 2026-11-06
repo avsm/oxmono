@@ -1,18 +1,7 @@
 (* The search page markup is pinned by shape, not byte: each check names one
    element the JavaScript or the reader relies on. *)
 
-let checks = ref 0
-
-let check name cond =
-  incr checks;
-  if not cond then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
-
-let contains hay needle =
-  let n = String.length needle and h = String.length hay in
-  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
-  go 0
+open Arod_check
 
 let cfg : Arod.Config.t =
   { Arod.Config.default with

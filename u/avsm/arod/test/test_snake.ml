@@ -6,22 +6,11 @@
 
 module S = Arod_component.Snake
 
-let checks = ref 0
-
-let check name cond =
-  incr checks;
-  if not cond then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+open Arod_check
 
 let near ?(eps = 1e-6) a b = Float.abs (a -. b) < eps
 
 let rec range a b step = if a > b then [] else a :: range (a +. step) b step
-
-let contains s sub =
-  let n = String.length sub in
-  let rec go i = i + n <= String.length s && (String.sub s i n = sub || go (i + 1)) in
-  go 0
 
 let () =
   check "the spine starts at the left of its lane" (near (S.spine_x 0.) S.xl);

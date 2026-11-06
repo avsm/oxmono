@@ -13,7 +13,7 @@
    The stats views are not pinned here. Each takes a database handle, and the
    route that serves it needs an access log the test corpus does not have. *)
 
-let checks = ref 0
+open Arod_check
 
 let eq name got want =
   incr checks;
@@ -176,17 +176,6 @@ let () =
    [Env.t.search_page] and never call through to it. Whole pages are not
    pinned byte for byte, as they are elsewhere: only the fragment/page
    branching and the title it picks are checked, with [contains]. *)
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
-
-let contains hay needle =
-  let n = String.length needle and h = String.length hay in
-  let rec go i = i + n <= h && (String.sub hay i n = needle || go (i + 1)) in
-  go 0
-
 let search_page q ~fragment =
   Arod_handlers.Render.search_page ~ctx ~q ~order:`Relevance ~fragment
     Arod_search.empty

@@ -2,29 +2,7 @@
    HTML listing uses, one heading per year, and the detail a reader of the
    HTML card gets. *)
 
-let checks = ref 0
-
-let check name cond =
-  incr checks;
-  if not cond then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
-
-let find hay needle =
-  let n = String.length needle and h = String.length hay in
-  let rec go i =
-    if i + n > h then None
-    else if String.sub hay i n = needle then Some i
-    else go (i + 1)
-  in
-  go 0
-
-let contains hay needle = find hay needle <> None
-
-let before hay a b =
-  match (find hay a, find hay b) with
-  | Some i, Some j -> i < j
-  | _ -> false
+open Arod_check
 
 let cfg : Arod.Config.t =
   { Arod.Config.default with

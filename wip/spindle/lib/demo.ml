@@ -53,7 +53,7 @@ let print ?(delay = 2.) clock ctx r =
 let compiler_var = "SPINDLE_COMPILER"
 let green s = "\027[32m" ^ s ^ "\027[0m"
 
-let solve ?(compilers = [ "ocaml-4.14"; "ocaml-5.5"; "oxcaml-5.2minus39" ])
+let solve ?(compilers = [ "ocaml-4.14"; "ocaml-5.5"; "oxcaml-5.4.0-ox9" ])
     clock =
   let random = Random.State.make_self_init () in
   let pause low high =

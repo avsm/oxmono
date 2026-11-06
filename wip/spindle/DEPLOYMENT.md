@@ -115,7 +115,7 @@ before moving a binary between hosts. Build from the oxmono root with the
 existing OxCaml switch:
 
 ```sh
-opam exec --switch=5.2.0+ox -- dune build --profile release-check \
+opam exec --switch=5.4.0+ox9 -- dune build --profile release-check \
   @wip/spindle/all
 sudo install -m 0755 _build/default/wip/spindle/bin/main.exe \
   /usr/local/bin/ocaml-spindle

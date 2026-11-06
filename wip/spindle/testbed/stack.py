@@ -21,7 +21,7 @@ def run(*args, **kwargs):
 
 
 def build(core):
-    run("opam", "exec", "--switch=5.2.0+ox", "--", "dune", "build",
+    run("opam", "exec", "--switch=5.4.0+ox9", "--", "dune", "build",
         "--profile", "release-check", "wip/spindle/bin/main.exe",
         "wip/atp/bin/tangled/cli/main.exe", cwd=REPO)
     for source, target in (("wip/spindle/bin/main.exe", "spindle"),

@@ -73,7 +73,7 @@ let () =
   List.iter
     (fun (_, platform) -> assert (valid (Variant.v ~platform "5.4.1").name))
     Variant.platforms;
-  assert (Variant.oxcaml.name = "5.2.0+ox:x86_64:Debian-13");
+  assert (Variant.oxcaml.name = "5.4.0+ox9:x86_64:Debian-13");
   assert (win.name = "5.4.1:x86_64:Windows-mingw");
   assert (valid Variant.oxcaml.name);
   (* The project is solved per compiler, with its test dependencies, and an
@@ -252,10 +252,10 @@ let () =
       ~opam_files:[ "demo.opam" ] ~packages:[] ()
   in
   assert (
-    let n = String.length "oxcaml-compiler.5.2.0minus39" in
+    let n = String.length "oxcaml-compiler.5.4.0-ox9" in
     let rec at i =
       i + n <= String.length ox
-      && (String.sub ox i n = "oxcaml-compiler.5.2.0minus39" || at (i + 1))
+      && (String.sub ox i n = "oxcaml-compiler.5.4.0-ox9" || at (i + 1))
     in
     at 0);
   (* OBuilder's operation lines become steps, without their colours. *)

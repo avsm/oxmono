@@ -23,7 +23,7 @@ def main():
         else "test"
     subprocess.run(["python3", "wip/atp/testbed/run.py", bootstrap],
                    cwd=repo, check=True)
-    subprocess.run(["opam", "exec", "--switch=5.2.0+ox", "--", "dune", "build",
+    subprocess.run(["opam", "exec", "--switch=5.4.0+ox9", "--", "dune", "build",
                     "--profile", "release-check", "@wip/spindle/all"],
                    cwd=repo, check=True)
     prepare()

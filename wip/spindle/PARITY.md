@@ -91,7 +91,7 @@ from its outbox for three days.
 ## Reproduction
 
 ```sh
-opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
+opam exec --switch=5.4.0+ox9 -- dune runtest --profile release-check --force \
   wip/spindle/test wip/httpz/websocket_eio/test
 python3 wip/spindle/testbed/run.py test
 python3 wip/spindle/testbed/stack.py test

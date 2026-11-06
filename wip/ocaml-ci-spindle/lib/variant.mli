@@ -33,7 +33,7 @@ val v : ?platform:platform -> string -> t
     image for its minor version. [platform] is [Debian X86_64] by default. *)
 
 val oxcaml : t
-(** [oxcaml] builds with [oxcaml-compiler.5.2.0minus39] on Debian 13, as oxmono
+(** [oxcaml] builds with [oxcaml-compiler.5.4.0-ox9] on Debian 13, as oxmono
     does. *)
 
 val version : t -> string

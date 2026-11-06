@@ -127,7 +127,7 @@ let options =
     $ value
         (flag
         & info [ "oxcaml" ]
-            ~doc:"Also build with OxCaml 5.2.0minus39, as oxmono does.")
+            ~doc:"Also build with OxCaml 5.4.0-ox9, as oxmono does.")
     $ diagnose)
 
 let () =

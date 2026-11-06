@@ -137,7 +137,7 @@ can use it to log its builds' progress as it happens.
 
 `spindle --executor=solve` uses `Spindle.Demo.solve`, which simulates
 this: its `solve` workflow pretends to solve for `ocaml-4.14`, `ocaml-5.5`
-and `oxcaml-5.2minus39`, then spawns a workflow for each that logs made-up
+and `oxcaml-5.4.0-ox9`, then spawns a workflow for each that logs made-up
 build and test output after short random waits.
 
 A custom spindle is a binary that calls `Spindle_cli.main` from the
@@ -398,7 +398,7 @@ OAuth client's identity names.
 ## Verification
 
 ```sh
-opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
+opam exec --switch=5.4.0+ox9 -- dune runtest --profile release-check --force \
   wip/spindle/test wip/httpz/websocket_eio/test
 ```
 

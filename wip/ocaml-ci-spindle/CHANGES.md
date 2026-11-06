@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Build the OxCaml variant with OxCaml 5.4.0-ox9.
 - Fetch `x-opam-repositories` remotes only at a public address, checked when
   each is fetched and pinned for git, with no redirects, no explicit port,
   no symbolic links in the checkout, none of the host's git configuration,

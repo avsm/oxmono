@@ -24,7 +24,7 @@ It takes every option of the `spindle` command, and these of its own:
 | `--platforms LIST` | Platforms that build the newest compiler once its x86_64 build passes, from `arm64`, `ppc64le`, `riscv64` and `windows`. `arm64` by default. |
 | `--full-platforms LIST` | Further such platforms, built only for a pull request labelled `ci:full`. `ppc64le`, `riscv64` and `windows` by default. |
 | `--day10 ARCHES` | Debian architectures built with day10 on the `day10-linux-ARCH` pools instead of OBuilder, from `x86_64`, `arm64`, `ppc64le` and `riscv64`, or `none`. `x86_64,riscv64` by default. |
-| `--oxcaml` | Also build with OxCaml 5.2.0minus39, as oxmono does. |
+| `--oxcaml` | Also build with OxCaml 5.4.0-ox9, as oxmono does. |
 | `--opam-cache DIR` | Where opam-repository is cloned to solve. |
 | `--remote-hosts HOSTS` | The only hosts a project's `x-opam-repositories` may name, since the build workers fetch them too. `github.com,gitlab.com,codeberg.org,bitbucket.org,git.sr.ht,tangled.org` by default. |
 | `--diagnose` | Ask a language model about the failed builds of pull requests labelled `ci:diagnose`. Off by default. |

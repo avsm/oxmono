@@ -95,12 +95,12 @@ let v ?(platform = Debian X86_64) version =
 
 let oxcaml =
   {
-    name = "5.2.0+ox:x86_64:Debian-13";
-    image = "ocaml/opam:debian-13-ocaml-5.2";
+    name = "5.4.0+ox9:x86_64:Debian-13";
+    image = "ocaml/opam:debian-13-ocaml-5.4";
     pool = "linux-x86_64";
     os = Linux;
     vars = debian X86_64;
-    compiler = ("oxcaml-compiler", "5.2.0minus39");
+    compiler = ("oxcaml-compiler", "5.4.0-ox9");
     requires = [];
     oxcaml = true;
     day10 = false;

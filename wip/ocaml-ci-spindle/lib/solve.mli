@@ -22,7 +22,7 @@ type request = {
           They are solved at version [dev], with their test dependencies. *)
   compiler : string * string;
       (** The package that fixes the compiler and its exact version, such as
-          [("ocaml", "5.4.0")] or [("oxcaml-compiler", "5.2.0minus39")]. *)
+          [("ocaml", "5.4.0")] or [("oxcaml-compiler", "5.4.0-ox9")]. *)
   requires : string list;
       (** Other packages the solution must hold, at any version. *)
 }

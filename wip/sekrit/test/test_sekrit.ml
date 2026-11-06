@@ -22,7 +22,62 @@ let rec remove path =
       Unix.rmdir path
   | _ -> Unix.unlink path
 
+let test_envelope () =
+  let key = Sekrit.Secret.of_string (String.make 32 'k') in
+  let other = Sekrit.Secret.of_string (String.make 32 'o') in
+  let sealed = Sekrit.Envelope.seal ~key ~context:"test/v1" "payload" in
+  check "envelope roundtrip"
+    (Sekrit.Envelope.open_ ~key ~context:"test/v1" sealed = "payload");
+  check "empty plaintext roundtrip"
+    (Sekrit.Envelope.open_ ~key ~context:"test/v1"
+       (Sekrit.Envelope.seal ~key ~context:"test/v1" "")
+    = "");
+  check "envelope wrong key refused"
+    (refused (fun () ->
+         Sekrit.Envelope.open_ ~key:other ~context:"test/v1" sealed));
+  check "envelope wrong context refused"
+    (refused (fun () -> Sekrit.Envelope.open_ ~key ~context:"test/v2" sealed));
+  check "short key refused"
+    (refused (fun () ->
+         Sekrit.Envelope.seal
+           ~key:(Sekrit.Secret.of_string "short")
+           ~context:"test/v1" "payload"));
+  check "empty context refused"
+    (refused (fun () -> Sekrit.Envelope.seal ~key ~context:"" "payload"));
+  List.iter
+    (fun envelope ->
+      check "malformed envelope refused"
+        (refused (fun () ->
+             Sekrit.Envelope.open_ ~key ~context:"test/v1" envelope)))
+    [
+      "";
+      "payload";
+      String.sub sealed 0 35;
+      String.sub sealed 0 (String.length sealed - 1);
+      "XEKRIT" ^ String.sub sealed 6 (String.length sealed - 6);
+    ]
+
+let test_reference () =
+  let named = Sekrit.Reference.of_string "sekrit:mail/password" in
+  check "named reference"
+    (Sekrit.Reference.source named = `Named "mail/password");
+  check "named reference prints"
+    (Sekrit.Reference.to_string named = "sekrit:mail/password");
+  check "path reference"
+    (Sekrit.Reference.source (Sekrit.Reference.of_string "/run/secret")
+    = `File "/run/secret");
+  List.iter
+    (fun text ->
+      check "invalid named reference refused"
+        (refused (fun () -> Sekrit.Reference.of_string text)))
+    [ "sekrit:"; "sekrit:a b"; "sekrit:" ^ String.make 257 'a'; "sekrit:x\000" ];
+  let backend = Sekrit.Backend.v ~find:(fun _ -> None) in
+  check "unconfigured named secret refused"
+    (refused (fun () -> Sekrit.resolve ~backend named))
+
 let () =
+  test_envelope ();
+  test_reference ();
   let base = Filename.temp_file "sekrit-test-" "" in
   Unix.unlink base;
   Unix.mkdir base 0o700;
@@ -99,6 +154,16 @@ let () =
         (refused (fun () ->
              Sekrit.Store.init
                (Sekrit.Store.v ~root ~key_file:(Filename.concat root "key") ())));
+      Sekrit.Store.put store ~name:"temporary" ~replace:false
+        (Sekrit.Secret.of_string "short-lived");
+      Sekrit.Store.remove store "temporary";
+      check "removed secret absent" (Sekrit.Store.find store "temporary" = None);
+      check "remove keeps other secrets"
+        (Sekrit.Store.list store = [ "mail/password" ]);
+      check "removing a missing secret refused"
+        (refused (fun () -> Sekrit.Store.remove store "temporary"));
+      check "invalid store name refused"
+        (refused (fun () -> Sekrit.Store.remove store "../escape"));
       let private_path = Filename.concat base "private" in
       Eioext.Native.create_private private_path "  spaces preserved  \r\n";
       check "password whitespace preserved"

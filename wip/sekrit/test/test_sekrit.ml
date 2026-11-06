@@ -149,6 +149,20 @@ let () =
       check "missing key never regenerated"
         (refused (fun () -> Sekrit.Store.init store));
       check "key remains missing" (not (Sys.file_exists key_file));
+      check "missing key named"
+        (match Sekrit.Store.list store with
+        | _ -> false
+        | exception Sekrit.Error m ->
+            String.starts_with ~prefix:"Master key is missing" m);
+      check "missing key directory named"
+        (match
+           Sekrit.Sealed_file.write
+             ~key_file:(Filename.concat base "absent/dir/master.key")
+             ~context:"sekrit/vault/v1" vault "x"
+         with
+        | () -> false
+        | exception Sekrit.Error m ->
+            String.starts_with ~prefix:"Master key is missing" m);
       Unix.rename (key_file ^ ".saved") key_file;
       check "key cannot live in store"
         (refused (fun () ->

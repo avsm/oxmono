@@ -6,7 +6,8 @@ let io f =
   try f () with
   | Eioext.Native.Error message -> fail message
   | Eioext.Native.Busy _ -> fail "Secret store is busy"
-  | Unix.Unix_error (Unix.ENOENT, _, _) ->
+  | Unix.Unix_error (Unix.ENOENT, _, _) | Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _)
+    ->
       fail "Secret file or key is missing. Initialize with sekrit init if new."
   | Unix.Unix_error _ | Sys_error _ ->
       fail "Cannot access private secret storage"
@@ -186,15 +187,26 @@ module Envelope = struct
     magic ^ nonce ^ ciphertext
 end
 
+(* A missing key is the usual first-run mistake, so it is named, as the Eio
+   backend names it. *)
+let native_key key_file =
+  match Eioext.Native.read_private ~max_bytes:32 key_file with
+  | value when String.length value = 32 -> Secret.of_string value
+  | _ -> fail "Invalid master key length"
+  | exception
+      ( Unix.Unix_error (Unix.ENOENT, _, _)
+      | Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) ) ->
+      fail
+        "Master key is missing. Run sekrit init for a new store, or restore \
+         the original key for existing encrypted data."
+
 module Sealed_file = struct
   let is_sealed = Envelope.is_sealed
 
   let read ~key_file ~context path =
     io (fun () ->
         separate ~key_file ~directory:(Filename.dirname path);
-        let key =
-          Eioext.Native.read_private ~max_bytes:32 key_file |> Secret.of_string
-        in
+        let key = native_key key_file in
         let envelope =
           Eioext.Native.read_private ~max_bytes:(Envelope.max_bytes + 36) path
         in
@@ -204,9 +216,7 @@ module Sealed_file = struct
     io (fun () ->
         separate ~key_file ~directory:(Filename.dirname path);
         Eioext.Native.require_private_dir (Filename.dirname path);
-        let key =
-          Eioext.Native.read_private ~max_bytes:32 key_file |> Secret.of_string
-        in
+        let key = native_key key_file in
         Eioext.Native.atomic_write path (Envelope.seal ~key ~context plaintext))
 end
 

@@ -82,9 +82,9 @@ let messages env =
   let dir = Filename.temp_file "tangled-matrix-" "" in
   Sys.remove dir;
   Sys.mkdir dir 0o700;
-  let path =
-    Eio.Path.(Eio.Stdenv.fs env / Filename.concat dir "messages.json")
-  in
+  let root = Eio.Path.(Eio.Stdenv.fs env / dir) in
+  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root) @@ fun () ->
+  let path = Eio.Path.(root / "messages.json") in
   let t = Messages.load path in
   assert (Messages.entries t = []);
   let entry pipeline finished : Messages.entry =

@@ -7,24 +7,37 @@ for the repository and import scope.
 The refresh adds BLAKE3, exposes keyed BLAKE2 functors and optimizes the
 OCaml hash cores. The C backend remains the workspace default.
 
-Local patches are confined to four files:
+Local patches cover the shared sources and both backends:
 
 - `src/digestif.mli` retains the portable digest API and raw digest/HMAC helpers.
 - `src-c/digestif_native.ml` marks the C entry points portable, including
   BLAKE3. The underlying C and header files are unchanged upstream sources.
 - `src-c/digestif.ml` preserves portable functor boundaries and implements
   the raw helpers. BLAKE3 uses a 32-byte digest and 64-byte HMAC block.
-- `src-ocaml/digestif.ml` retains the corresponding helper interface. This
-  optional backend still fails the existing OxCaml local-buffer callback
-  checks. Its pristine release passes on stock OCaml.
+- `src/digestif_by.ml` and `src/digestif_bi.ml` mark their externals
+  portable. `Digestif_by.blit` is a global wrapper around OxCaml's
+  local-taking `Bytes.blit`, and string readers serve the lookup tables.
+- `src-ocaml/digestif.ml` retains the corresponding helper interface and
+  requires portable hash cores. Unkeyed BLAKE2 contexts start from a fresh
+  empty key rather than the shared `Bytes.empty`.
+- `src-ocaml/baijiu_*.ml` declare their cores portable. Read-only lookup
+  tables are strings or immutable arrays, local operator externals are
+  portable and partially applied `feed` functions are eta-expanded. The
+  algorithms are otherwise unchanged.
 
-The compiler checks the C backend's portable declarations. Its 695 upstream
-cases pass on both OxCaml and pristine stock OCaml 5.4.1. The pristine OCaml
-backend passes 694 quick cases. `wip/d10/test/compat/digestif_probe.ml`
-checks the added portable BLAKE3 helpers against the upstream module API.
+The compiler checks both backends' portable declarations. On OxCaml
+5.4.0+ox9 the C backend passes its 695 upstream cases and the OCaml backend
+passes its 694 quick cases plus the slow one-million-byte RIPEMD-160 case.
+Of the slow SHA3 CVE-2022-37454 cases, the OCaml backend fails the
+2^32 + 1 byte case. Its digest matches Python's `hashlib`. The upstream
+expectation is the SHA3-224 digest of one zero byte, which the C backend
+produces because `digestif_sha3_update` truncates the length to `uint32_t`.
+`wip/d10/test/compat/digestif_probe.ml` checks the added portable BLAKE3
+helpers against the upstream module API.
 
 On refresh, merge against the recorded upstream commit, retain these patches,
-run `@@vendor/digestif/test/c/runtest` explicitly and run the D10, Siftbot and
+run `@@vendor/digestif/test/c/runtest` and
+`@@vendor/digestif/test/ocaml/runtest` explicitly and run the D10, Siftbot and
 HTTPz consumer tests. Recursive vendor aliases skip the upstream tests.
 
 Digestif - Hash algorithms in C and OCaml

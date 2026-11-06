@@ -4,19 +4,19 @@ module Bi = Digestif_bi
 module Int64 = struct
   include Int64
 
-  external ( lsl ) : int64 -> int -> int64 = "%int64_lsl"
-  external ( lsr ) : int64 -> int -> int64 = "%int64_lsr"
-  external ( asr ) : int64 -> int -> int64 = "%int64_asr"
-  external ( lor ) : int64 -> int64 -> int64 = "%int64_or"
-  external ( land ) : int64 -> int64 -> int64 = "%int64_and"
-  external ( lxor ) : int64 -> int64 -> int64 = "%int64_xor"
-  external ( + ) : int64 -> int64 -> int64 = "%int64_add"
+  external ( lsl ) : int64 -> int -> int64 @@ portable = "%int64_lsl"
+  external ( lsr ) : int64 -> int -> int64 @@ portable = "%int64_lsr"
+  external ( asr ) : int64 -> int -> int64 @@ portable = "%int64_asr"
+  external ( lor ) : int64 -> int64 -> int64 @@ portable = "%int64_or"
+  external ( land ) : int64 -> int64 -> int64 @@ portable = "%int64_and"
+  external ( lxor ) : int64 -> int64 -> int64 @@ portable = "%int64_xor"
+  external ( + ) : int64 -> int64 -> int64 @@ portable = "%int64_add"
 
   let[@inline] ror64 a n = (a lsr n) lor (a lsl (64 - n))
   let[@inline] rol64 a n = (a lsl n) lor (a lsr (64 - n))
 end
 
-module type S = sig
+module type S = sig @@ portable
   type kind = [ `WHIRLPOOL ]
   type ctx = { mutable size : int64; b : bytes; h : bytes }
 
@@ -751,14 +751,14 @@ module Unsafe : S = struct
       (fun i ->
         Array.iteri (fun j x -> By.unsafe_set_64 b (((i * 256) + j) * 8) x))
       k ;
-    b
+    By.unsafe_to_string b
 
   let[@inline] wp_op src off shift =
     let r = ref Int64.zero in
     for i = 0 to 7 do
       let v = By.unsafe_get_64 src (off + ((shift + 8 - i) land 7 * 8)) in
       let j = Int64.(to_int ((v asr (56 - (8 * i))) land 0xffL)) in
-      let x = By.unsafe_get_64 k (((i * 256) + j) * 8) in
+      let x = By.unsafe_get_64_string k (((i * 256) + j) * 8) in
       r := Int64.(!r lxor x)
     done ;
     !r
@@ -831,10 +831,12 @@ module Unsafe : S = struct
     if !len <> 0 then blit buf !off ctx.b !idx !len ;
     ()
 
-  let unsafe_feed_bytes = feed ~blit:By.blit ~be64_to_cpu:By.be64_to_cpu
+  let unsafe_feed_bytes ctx buf off len =
+    feed ~blit:By.blit ~be64_to_cpu:By.be64_to_cpu ctx buf off len
 
-  let unsafe_feed_bigstring =
-    feed ~blit:By.blit_from_bigstring ~be64_to_cpu:Bi.be64_to_cpu
+  let unsafe_feed_bigstring ctx buf off len =
+    feed ~blit:By.blit_from_bigstring ~be64_to_cpu:Bi.be64_to_cpu ctx buf off
+      len
 
   let unsafe_get ctx =
     let index = Int64.(to_int (ctx.size land 0x3FL)) + 1 in

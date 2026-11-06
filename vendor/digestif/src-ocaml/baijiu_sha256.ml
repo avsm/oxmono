@@ -4,13 +4,13 @@ module Bi = Digestif_bi
 module Int32 = struct
   include Int32
 
-  external ( lsl ) : int32 -> int -> int32 = "%int32_lsl"
-  external ( lsr ) : int32 -> int -> int32 = "%int32_lsr"
-  external ( asr ) : int32 -> int -> int32 = "%int32_asr"
-  external ( lor ) : int32 -> int32 -> int32 = "%int32_or"
-  external ( lxor ) : int32 -> int32 -> int32 = "%int32_xor"
-  external ( land ) : int32 -> int32 -> int32 = "%int32_and"
-  external ( + ) : int32 -> int32 -> int32 = "%int32_add"
+  external ( lsl ) : int32 -> int -> int32 @@ portable = "%int32_lsl"
+  external ( lsr ) : int32 -> int -> int32 @@ portable = "%int32_lsr"
+  external ( asr ) : int32 -> int -> int32 @@ portable = "%int32_asr"
+  external ( lor ) : int32 -> int32 -> int32 @@ portable = "%int32_or"
+  external ( lxor ) : int32 -> int32 -> int32 @@ portable = "%int32_xor"
+  external ( land ) : int32 -> int32 -> int32 @@ portable = "%int32_and"
+  external ( + ) : int32 -> int32 -> int32 @@ portable = "%int32_add"
 
   let[@inline] rol32 a n = (a lsl n) lor (a lsr (32 - n))
   let[@inline] ror32 a n = (a lsr n) lor (a lsl (32 - n))
@@ -19,11 +19,11 @@ end
 module Int64 = struct
   include Int64
 
-  external ( land ) : int64 -> int64 -> int64 = "%int64_and"
-  external ( lsl ) : int64 -> int -> int64 = "%int64_lsl"
+  external ( land ) : int64 -> int64 -> int64 @@ portable = "%int64_and"
+  external ( lsl ) : int64 -> int -> int64 @@ portable = "%int64_lsl"
 end
 
-module type S = sig
+module type S = sig @@ portable
   type kind = [ `SHA256 ]
   type ctx = { mutable size : int64; b : bytes; h : bytes }
 
@@ -60,22 +60,23 @@ module Unsafe : S = struct
     }
 
   let k =
-    of_array
-      [|
-        0x428a2f98l; 0x71374491l; 0xb5c0fbcfl; 0xe9b5dba5l; 0x3956c25bl;
-        0x59f111f1l; 0x923f82a4l; 0xab1c5ed5l; 0xd807aa98l; 0x12835b01l;
-        0x243185bel; 0x550c7dc3l; 0x72be5d74l; 0x80deb1fel; 0x9bdc06a7l;
-        0xc19bf174l; 0xe49b69c1l; 0xefbe4786l; 0x0fc19dc6l; 0x240ca1ccl;
-        0x2de92c6fl; 0x4a7484aal; 0x5cb0a9dcl; 0x76f988dal; 0x983e5152l;
-        0xa831c66dl; 0xb00327c8l; 0xbf597fc7l; 0xc6e00bf3l; 0xd5a79147l;
-        0x06ca6351l; 0x14292967l; 0x27b70a85l; 0x2e1b2138l; 0x4d2c6dfcl;
-        0x53380d13l; 0x650a7354l; 0x766a0abbl; 0x81c2c92el; 0x92722c85l;
-        0xa2bfe8a1l; 0xa81a664bl; 0xc24b8b70l; 0xc76c51a3l; 0xd192e819l;
-        0xd6990624l; 0xf40e3585l; 0x106aa070l; 0x19a4c116l; 0x1e376c08l;
-        0x2748774cl; 0x34b0bcb5l; 0x391c0cb3l; 0x4ed8aa4al; 0x5b9cca4fl;
-        0x682e6ff3l; 0x748f82eel; 0x78a5636fl; 0x84c87814l; 0x8cc70208l;
-        0x90befffal; 0xa4506cebl; 0xbef9a3f7l; 0xc67178f2l;
-      |]
+    By.unsafe_to_string
+    @@ of_array
+         [|
+           0x428a2f98l; 0x71374491l; 0xb5c0fbcfl; 0xe9b5dba5l; 0x3956c25bl;
+           0x59f111f1l; 0x923f82a4l; 0xab1c5ed5l; 0xd807aa98l; 0x12835b01l;
+           0x243185bel; 0x550c7dc3l; 0x72be5d74l; 0x80deb1fel; 0x9bdc06a7l;
+           0xc19bf174l; 0xe49b69c1l; 0xefbe4786l; 0x0fc19dc6l; 0x240ca1ccl;
+           0x2de92c6fl; 0x4a7484aal; 0x5cb0a9dcl; 0x76f988dal; 0x983e5152l;
+           0xa831c66dl; 0xb00327c8l; 0xbf597fc7l; 0xc6e00bf3l; 0xd5a79147l;
+           0x06ca6351l; 0x14292967l; 0x27b70a85l; 0x2e1b2138l; 0x4d2c6dfcl;
+           0x53380d13l; 0x650a7354l; 0x766a0abbl; 0x81c2c92el; 0x92722c85l;
+           0xa2bfe8a1l; 0xa81a664bl; 0xc24b8b70l; 0xc76c51a3l; 0xd192e819l;
+           0xd6990624l; 0xf40e3585l; 0x106aa070l; 0x19a4c116l; 0x1e376c08l;
+           0x2748774cl; 0x34b0bcb5l; 0x391c0cb3l; 0x4ed8aa4al; 0x5b9cca4fl;
+           0x682e6ff3l; 0x748f82eel; 0x78a5636fl; 0x84c87814l; 0x8cc70208l;
+           0x90befffal; 0xa4506cebl; 0xbef9a3f7l; 0xc67178f2l;
+         |]
 
   let[@inline] e0 x = Int32.(ror32 x 2 lxor ror32 x 13 lxor ror32 x 22)
   let[@inline] e1 x = Int32.(ror32 x 6 lxor ror32 x 11 lxor ror32 x 25)
@@ -111,7 +112,7 @@ module Unsafe : S = struct
         !h
         + e1 !e
         + (!g lxor (!e land (!f lxor !g)))
-        + By.unsafe_get_32 k (i * 4)
+        + By.unsafe_get_32_string k (i * 4)
         + By.unsafe_get_32 w (i * 4) in
       let t2 = e0 !a + (!a land !b lor (!c land (!a lor !b))) in
       h := !g ;
@@ -163,10 +164,12 @@ module Unsafe : S = struct
     if !len <> 0 then blit buf !off ctx.b !idx !len ;
     ()
 
-  let unsafe_feed_bytes = feed ~blit:By.blit ~be32_to_cpu:By.be32_to_cpu
+  let unsafe_feed_bytes ctx buf off len =
+    feed ~blit:By.blit ~be32_to_cpu:By.be32_to_cpu ctx buf off len
 
-  let unsafe_feed_bigstring =
-    feed ~blit:By.blit_from_bigstring ~be32_to_cpu:Bi.be32_to_cpu
+  let unsafe_feed_bigstring ctx buf off len =
+    feed ~blit:By.blit_from_bigstring ~be32_to_cpu:Bi.be32_to_cpu ctx buf off
+      len
 
   let unsafe_get ctx =
     let index = Int64.(to_int (ctx.size land 0x3FL)) in

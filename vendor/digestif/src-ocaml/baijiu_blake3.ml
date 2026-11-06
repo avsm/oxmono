@@ -4,14 +4,16 @@
 module By = Digestif_by
 module Bi = Digestif_bi
 
+let ( .:() ) = Iarray.get
+
 module Int32 = struct
   include Int32
 
-  external ( lsl ) : int32 -> int -> int32 = "%int32_lsl"
-  external ( lsr ) : int32 -> int -> int32 = "%int32_lsr"
-  external ( lor ) : int32 -> int32 -> int32 = "%int32_or"
-  external ( lxor ) : int32 -> int32 -> int32 = "%int32_xor"
-  external ( + ) : int32 -> int32 -> int32 = "%int32_add"
+  external ( lsl ) : int32 -> int -> int32 @@ portable = "%int32_lsl"
+  external ( lsr ) : int32 -> int -> int32 @@ portable = "%int32_lsr"
+  external ( lor ) : int32 -> int32 -> int32 @@ portable = "%int32_or"
+  external ( lxor ) : int32 -> int32 -> int32 @@ portable = "%int32_xor"
+  external ( + ) : int32 -> int32 -> int32 @@ portable = "%int32_add"
 
   let[@inline] ror x n = (x lsr n) lor (x lsl (32 - n))
 end
@@ -34,22 +36,23 @@ let of_array a =
   b
 
 let iv =
-  of_array
-    [|
-      0x6a09e667l; 0xbb67ae85l; 0x3c6ef372l; 0xa54ff53al; 0x510e527fl;
-      0x9b05688cl; 0x1f83d9abl; 0x5be0cd19l;
-    |]
+  By.unsafe_to_string
+  @@ of_array
+       [|
+         0x6a09e667l; 0xbb67ae85l; 0x3c6ef372l; 0xa54ff53al; 0x510e527fl;
+         0x9b05688cl; 0x1f83d9abl; 0x5be0cd19l;
+       |]
 
 let schedule =
-  [|
-    [| 0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15 |];
-    [| 2; 6; 3; 10; 7; 0; 4; 13; 1; 11; 12; 5; 9; 14; 15; 8 |];
-    [| 3; 4; 10; 12; 13; 2; 7; 14; 6; 5; 9; 0; 11; 15; 8; 1 |];
-    [| 10; 7; 12; 9; 14; 3; 13; 15; 4; 0; 11; 2; 5; 8; 1; 6 |];
-    [| 12; 13; 9; 11; 15; 10; 14; 8; 7; 2; 5; 3; 0; 1; 6; 4 |];
-    [| 9; 14; 11; 5; 8; 12; 15; 1; 13; 3; 0; 10; 2; 6; 4; 7 |];
-    [| 11; 15; 5; 0; 1; 9; 8; 6; 14; 10; 2; 12; 3; 4; 7; 13 |];
-  |]
+  [:
+    [: 0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15 :];
+    [: 2; 6; 3; 10; 7; 0; 4; 13; 1; 11; 12; 5; 9; 14; 15; 8 :];
+    [: 3; 4; 10; 12; 13; 2; 7; 14; 6; 5; 9; 0; 11; 15; 8; 1 :];
+    [: 10; 7; 12; 9; 14; 3; 13; 15; 4; 0; 11; 2; 5; 8; 1; 6 :];
+    [: 12; 13; 9; 11; 15; 10; 14; 8; 7; 2; 5; 3; 0; 1; 6; 4 :];
+    [: 9; 14; 11; 5; 8; 12; 15; 1; 13; 3; 0; 10; 2; 6; 4; 7 :];
+    [: 11; 15; 5; 0; 1; 9; 8; 6; 14; 10; 2; 12; 3; 4; 7; 13 :];
+  :]
 
 type output = {
   input_cv : By.t;
@@ -91,8 +94,8 @@ let bytes_of_words words =
 
 let[@inline] g v m s i a b c d =
   let a = a * 4 and b = b * 4 and c = c * 4 and d = d * 4 in
-  let m0 = By.unsafe_get_32 m (s.(2 * i) * 4) in
-  let m1 = By.unsafe_get_32 m (s.((2 * i) + 1) * 4) in
+  let m0 = By.unsafe_get_32 m (s.:(2 * i) * 4) in
+  let m1 = By.unsafe_get_32 m (s.:((2 * i) + 1) * 4) in
   let open Int32 in
   let va = By.unsafe_get_32 v a + By.unsafe_get_32 v b + m0 in
   let vd = ror (By.unsafe_get_32 v d lxor va) 16 in
@@ -114,13 +117,13 @@ let compress cv block block_len counter flags =
   done ;
   let v = By.create 64 in
   By.blit cv 0 v 0 32 ;
-  By.blit iv 0 v 32 16 ;
+  By.blit_string iv 0 v 32 16 ;
   By.unsafe_set_32 v 48 (Int64.to_int32 counter) ;
   By.unsafe_set_32 v 52 Int64.(to_int32 (shift_right_logical counter 32)) ;
   By.unsafe_set_32 v 56 (Int32.of_int block_len) ;
   By.unsafe_set_32 v 60 (Int32.of_int flags) ;
   for r = 0 to 6 do
-    let s = schedule.(r) in
+    let s = schedule.:(r) in
     g v m s 0 0 4 8 12 ;
     g v m s 1 1 5 9 13 ;
     g v m s 2 2 6 10 14 ;
@@ -263,7 +266,8 @@ let unsafe_feed ~blit ctx input off len =
     remaining := !remaining - take
   done
 
-let unsafe_feed_bytes = unsafe_feed ~blit:By.blit
+let unsafe_feed_bytes ctx input off len =
+  unsafe_feed ~blit:By.blit ctx input off len
 
 let unsafe_feed_bigstring (ctx : ctx) (input : Bi.t) off len =
   unsafe_feed ~blit:By.blit_from_bigstring ctx input off len
@@ -303,7 +307,7 @@ let dup ctx =
     flags = ctx.flags;
   }
 
-let init () = init_base iv 0
+let init () = init_base (By.unsafe_of_string iv) 0
 
 let init_keyed key =
   if String.length key <> key_len
@@ -311,7 +315,7 @@ let init_keyed key =
   init_base (words_of_bytes (By.unsafe_of_string key)) keyed_hash
 
 let context_key context =
-  let ctx = init_base iv derive_key_context in
+  let ctx = init_base (By.unsafe_of_string iv) derive_key_context in
   unsafe_feed_bytes ctx (By.unsafe_of_string context) 0 (String.length context) ;
   unsafe_get ctx |> words_of_bytes
 

@@ -4,13 +4,13 @@ module Bi = Digestif_bi
 module Int32 = struct
   include Int32
 
-  external ( lsl ) : int32 -> int -> int32 = "%int32_lsl"
-  external ( lsr ) : int32 -> int -> int32 = "%int32_lsr"
-  external ( asr ) : int32 -> int -> int32 = "%int32_asr"
-  external ( lor ) : int32 -> int32 -> int32 = "%int32_or"
-  external ( lxor ) : int32 -> int32 -> int32 = "%int32_xor"
-  external ( land ) : int32 -> int32 -> int32 = "%int32_and"
-  external ( + ) : int32 -> int32 -> int32 = "%int32_add"
+  external ( lsl ) : int32 -> int -> int32 @@ portable = "%int32_lsl"
+  external ( lsr ) : int32 -> int -> int32 @@ portable = "%int32_lsr"
+  external ( asr ) : int32 -> int -> int32 @@ portable = "%int32_asr"
+  external ( lor ) : int32 -> int32 -> int32 @@ portable = "%int32_or"
+  external ( lxor ) : int32 -> int32 -> int32 @@ portable = "%int32_xor"
+  external ( land ) : int32 -> int32 -> int32 @@ portable = "%int32_and"
+  external ( + ) : int32 -> int32 -> int32 @@ portable = "%int32_add"
 
   let[@inline] rol32 a n = (a lsl n) lor (a lsr (32 - n))
 end
@@ -18,11 +18,11 @@ end
 module Int64 = struct
   include Int64
 
-  external ( land ) : int64 -> int64 -> int64 = "%int64_and"
-  external ( lsl ) : int64 -> int -> int64 = "%int64_lsl"
+  external ( land ) : int64 -> int64 -> int64 @@ portable = "%int64_and"
+  external ( lsl ) : int64 -> int -> int64 @@ portable = "%int64_lsl"
 end
 
-module type S = sig
+module type S = sig @@ portable
   type ctx
   type kind = [ `SHA1 ]
 
@@ -156,10 +156,12 @@ module Unsafe : S = struct
     if !len <> 0 then blit buf !off ctx.b !idx !len ;
     ()
 
-  let unsafe_feed_bytes = feed ~blit:By.blit ~be32_to_cpu:By.be32_to_cpu
+  let unsafe_feed_bytes ctx buf off len =
+    feed ~blit:By.blit ~be32_to_cpu:By.be32_to_cpu ctx buf off len
 
-  let unsafe_feed_bigstring =
-    feed ~blit:By.blit_from_bigstring ~be32_to_cpu:Bi.be32_to_cpu
+  let unsafe_feed_bigstring ctx buf off len =
+    feed ~blit:By.blit_from_bigstring ~be32_to_cpu:Bi.be32_to_cpu ctx buf off
+      len
 
   let unsafe_get ctx =
     let index = Int64.(to_int (ctx.size land 0x3FL)) in

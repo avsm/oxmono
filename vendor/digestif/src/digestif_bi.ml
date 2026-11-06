@@ -20,8 +20,11 @@ let init l f =
   done ;
   v
 
-external unsafe_get_32 : t -> int -> int32 = "%caml_bigstring_get32u"
-external unsafe_get_64 : t -> int -> int64 = "%caml_bigstring_get64u"
+external unsafe_get_32 : t -> int -> int32 @@ portable
+  = "%caml_bigstring_get32u"
+
+external unsafe_get_64 : t -> int -> int64 @@ portable
+  = "%caml_bigstring_get64u"
 
 let unsafe_get_nat : t -> int -> nativeint =
  fun s i ->
@@ -29,8 +32,11 @@ let unsafe_get_nat : t -> int -> nativeint =
   then Nativeint.of_int32 @@ unsafe_get_32 s i
   else Int64.to_nativeint @@ unsafe_get_64 s i
 
-external unsafe_set_32 : t -> int -> int32 -> unit = "%caml_bigstring_set32u"
-external unsafe_set_64 : t -> int -> int64 -> unit = "%caml_bigstring_set64u"
+external unsafe_set_32 : t -> int -> int32 -> unit @@ portable
+  = "%caml_bigstring_set32u"
+
+external unsafe_set_64 : t -> int -> int64 -> unit @@ portable
+  = "%caml_bigstring_set64u"
 
 let unsafe_set_nat : t -> int -> nativeint -> unit =
  fun s i v ->
@@ -45,11 +51,13 @@ let blit_from_bytes src src_off dst dst_off len =
     Array1.set dst (dst_off + i) (Bytes.get src (src_off + i))
   done
 
-external swap32 : int32 -> int32 = "%bswap_int32"
-external swap64 : int64 -> int64 = "%bswap_int64"
-external swapnat : nativeint -> nativeint = "%bswap_native"
-external byte_to_cpu : t -> int -> int = "%caml_ba_unsafe_ref_1"
-external cpu_to_byte : t -> int -> int -> unit = "%caml_ba_unsafe_set_1"
+external swap32 : int32 -> int32 @@ portable = "%bswap_int32"
+external swap64 : int64 -> int64 @@ portable = "%bswap_int64"
+external swapnat : nativeint -> nativeint @@ portable = "%bswap_native"
+external byte_to_cpu : t -> int -> int @@ portable = "%caml_ba_unsafe_ref_1"
+
+external cpu_to_byte : t -> int -> int -> unit @@ portable
+  = "%caml_ba_unsafe_set_1"
 
 let cpu_to_be32 s i v =
   if Sys.big_endian then unsafe_set_32 s i v else unsafe_set_32 s i (swap32 v)

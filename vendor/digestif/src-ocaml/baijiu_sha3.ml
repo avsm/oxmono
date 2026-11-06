@@ -1,19 +1,20 @@
 module By = Digestif_by
 module Bi = Digestif_bi
 
+let ( .:() ) = Iarray.get
 let nist_padding = 0x06L
 let keccak_padding = 0x01L
 
 module Int64 = struct
   include Int64
 
-  external ( lsl ) : int64 -> int -> int64 = "%int64_lsl"
-  external ( lsr ) : int64 -> int -> int64 = "%int64_lsr"
-  external ( asr ) : int64 -> int -> int64 = "%int64_asr"
-  external ( lor ) : int64 -> int64 -> int64 = "%int64_or"
-  external ( land ) : int64 -> int64 -> int64 = "%int64_and"
-  external ( lxor ) : int64 -> int64 -> int64 = "%int64_xor"
-  external ( + ) : int64 -> int64 -> int64 = "%int64_add"
+  external ( lsl ) : int64 -> int -> int64 @@ portable = "%int64_lsl"
+  external ( lsr ) : int64 -> int -> int64 @@ portable = "%int64_lsr"
+  external ( asr ) : int64 -> int -> int64 @@ portable = "%int64_asr"
+  external ( lor ) : int64 -> int64 -> int64 @@ portable = "%int64_or"
+  external ( land ) : int64 -> int64 -> int64 @@ portable = "%int64_and"
+  external ( lxor ) : int64 -> int64 -> int64 @@ portable = "%int64_xor"
+  external ( + ) : int64 -> int64 -> int64 @@ portable = "%int64_add"
 
   let[@inline] lnot a = a lxor -1L
   let[@inline] ror64 a n = (a lsr n) lor (a lsl (64 - n))
@@ -47,30 +48,31 @@ struct
 
   let keccakf_rounds = 24
 
-  let keccaft_rndc : bytes =
-    of_array
-      [|
-        0x0000000000000001L; 0x0000000000008082L; 0x800000000000808aL;
-        0x8000000080008000L; 0x000000000000808bL; 0x0000000080000001L;
-        0x8000000080008081L; 0x8000000000008009L; 0x000000000000008aL;
-        0x0000000000000088L; 0x0000000080008009L; 0x000000008000000aL;
-        0x000000008000808bL; 0x800000000000008bL; 0x8000000000008089L;
-        0x8000000000008003L; 0x8000000000008002L; 0x8000000000000080L;
-        0x000000000000800aL; 0x800000008000000aL; 0x8000000080008081L;
-        0x8000000000008080L; 0x0000000080000001L; 0x8000000080008008L;
-      |]
+  let keccaft_rndc : string =
+    By.unsafe_to_string
+    @@ of_array
+         [|
+           0x0000000000000001L; 0x0000000000008082L; 0x800000000000808aL;
+           0x8000000080008000L; 0x000000000000808bL; 0x0000000080000001L;
+           0x8000000080008081L; 0x8000000000008009L; 0x000000000000008aL;
+           0x0000000000000088L; 0x0000000080008009L; 0x000000008000000aL;
+           0x000000008000808bL; 0x800000000000008bL; 0x8000000000008089L;
+           0x8000000000008003L; 0x8000000000008002L; 0x8000000000000080L;
+           0x000000000000800aL; 0x800000008000000aL; 0x8000000080008081L;
+           0x8000000000008080L; 0x0000000080000001L; 0x8000000080008008L;
+         |]
 
-  let keccaft_rotc : int array =
-    [|
+  let keccaft_rotc : int iarray =
+    [:
       1; 3; 6; 10; 15; 21; 28; 36; 45; 55; 2; 14; 27; 41; 56; 8; 25; 43; 62; 18;
       39; 61; 20; 44;
-    |]
+    :]
 
-  let keccakf_piln : int array =
-    [|
+  let keccakf_piln : int iarray =
+    [:
       10; 7; 11; 17; 18; 3; 5; 16; 8; 21; 24; 4; 15; 23; 19; 13; 12; 2; 20; 14;
       22; 9; 6; 1;
-    |]
+    :]
 
   let sha3_keccakf (q : bytes) =
     let bc = By.create (5 * 8) in
@@ -102,9 +104,9 @@ struct
       (* Rho Pi *)
       let t = ref (By.unsafe_get_64 q 8) in
       for i = 0 to 23 do
-        let j = keccakf_piln.(i) in
+        let j = keccakf_piln.:(i) in
         let v = By.unsafe_get_64 q (j * 8) in
-        By.unsafe_set_64 q (j * 8) (Int64.rol64 !t keccaft_rotc.(i)) ;
+        By.unsafe_set_64 q (j * 8) (Int64.rol64 !t keccaft_rotc.:(i)) ;
         t := v
       done ;
 
@@ -125,15 +127,15 @@ struct
 
       (* Iota *)
       By.unsafe_set_64 q 0
-        (By.unsafe_get_64 q 0 lxor By.unsafe_get_64 keccaft_rndc (r * 8))
+        (By.unsafe_get_64 q 0 lxor By.unsafe_get_64_string keccaft_rndc (r * 8))
     done
 
   let masks =
-    [|
+    [:
       0xffffffffffffff00L; 0xffffffffffff00ffL; 0xffffffffff00ffffL;
       0xffffffff00ffffffL; 0xffffff00ffffffffL; 0xffff00ffffffffffL;
       0xff00ffffffffffffL; 0x00ffffffffffffffL;
-    |]
+    :]
 
   let feed : type a.
       get_uint8:(a -> int -> int) -> ctx -> a -> int -> int -> unit =
@@ -154,7 +156,7 @@ struct
       let v = v lxor Int64.of_int (get_uint8 buf (off + i)) in
       By.unsafe_set_64 ctx.q
         (!j / 8 * 8)
-        (q land masks.(!j && 0x7) lor (v lsl ((!j && 0x7) * 8))) ;
+        (q land masks.:(!j && 0x7) lor (v lsl ((!j && 0x7) * 8))) ;
       incr j ;
       if !j >= ctx.rsize
       then (

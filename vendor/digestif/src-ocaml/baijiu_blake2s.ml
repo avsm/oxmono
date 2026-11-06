@@ -1,21 +1,22 @@
 module By = Digestif_by
 module Bi = Digestif_bi
 
+let ( .:() ) = Iarray.get
 let failwith fmt = Format.kasprintf failwith fmt
 
 module Int32 = struct
   include Int32
 
-  external ( lsl ) : int32 -> int -> int32 = "%int32_lsl"
-  external ( lsr ) : int32 -> int -> int32 = "%int32_lsr"
-  external ( asr ) : int32 -> int -> int32 = "%int32_asr"
-  external ( lor ) : int32 -> int32 -> int32 = "%int32_or"
-  external ( lxor ) : int32 -> int32 -> int32 = "%int32_xor"
-  external ( land ) : int32 -> int32 -> int32 = "%int32_and"
+  external ( lsl ) : int32 -> int -> int32 @@ portable = "%int32_lsl"
+  external ( lsr ) : int32 -> int -> int32 @@ portable = "%int32_lsr"
+  external ( asr ) : int32 -> int -> int32 @@ portable = "%int32_asr"
+  external ( lor ) : int32 -> int32 -> int32 @@ portable = "%int32_or"
+  external ( lxor ) : int32 -> int32 -> int32 @@ portable = "%int32_xor"
+  external ( land ) : int32 -> int32 -> int32 @@ portable = "%int32_and"
 
   let lnot = Int32.lognot
 
-  external ( + ) : int32 -> int32 -> int32 = "%int32_add"
+  external ( + ) : int32 -> int32 -> int32 @@ portable = "%int32_add"
 
   let[@inline] rol32 a n = (a lsl n) lor (a lsr (32 - n))
   let[@inline] ror32 a n = (a lsr n) lor (a lsl (32 - n))
@@ -24,19 +25,19 @@ end
 module Int64 = struct
   include Int64
 
-  external ( land ) : int64 -> int64 -> int64 = "%int64_and"
-  external ( lsl ) : int64 -> int -> int64 = "%int64_lsl"
-  external ( lsr ) : int64 -> int -> int64 = "%int64_lsr"
-  external ( lor ) : int64 -> int64 -> int64 = "%int64_or"
-  external ( asr ) : int64 -> int -> int64 = "%int64_asr"
-  external ( lxor ) : int64 -> int64 -> int64 = "%int64_xor"
-  external ( + ) : int64 -> int64 -> int64 = "%int64_add"
+  external ( land ) : int64 -> int64 -> int64 @@ portable = "%int64_and"
+  external ( lsl ) : int64 -> int -> int64 @@ portable = "%int64_lsl"
+  external ( lsr ) : int64 -> int -> int64 @@ portable = "%int64_lsr"
+  external ( lor ) : int64 -> int64 -> int64 @@ portable = "%int64_or"
+  external ( asr ) : int64 -> int -> int64 @@ portable = "%int64_asr"
+  external ( lxor ) : int64 -> int64 -> int64 @@ portable = "%int64_xor"
+  external ( + ) : int64 -> int64 -> int64 @@ portable = "%int64_add"
 
   let[@inline] rol64 a n = (a lsl n) lor (a lsr (64 - n))
   let[@inline] ror64 a n = (a lsr n) lor (a lsl (64 - n))
 end
 
-module type S = sig
+module type S = sig @@ portable
   type ctx
   type kind = [ `BLAKE2S ]
 
@@ -63,8 +64,8 @@ module Unsafe : S = struct
     xof_length : int;
     node_depth : int;
     inner_length : int;
-    salt : int array;
-    personal : int array;
+    salt : int iarray;
+    personal : int iarray;
   }
 
   type ctx = {
@@ -105,15 +106,15 @@ module Unsafe : S = struct
         Int32.(to_int ((param.node_offset lsr 24) land 0xFFl))
         (* store to little-endian *); (param.xof_length lsr 0) land 0xFF;
         (param.xof_length lsr 8) land 0xFF; param.node_depth land 0xFF;
-        param.inner_length land 0xFF; param.salt.(0) land 0xFF;
-        param.salt.(1) land 0xFF; param.salt.(2) land 0xFF;
-        param.salt.(3) land 0xFF; param.salt.(4) land 0xFF;
-        param.salt.(5) land 0xFF; param.salt.(6) land 0xFF;
-        param.salt.(7) land 0xFF; param.personal.(0) land 0xFF;
-        param.personal.(1) land 0xFF; param.personal.(2) land 0xFF;
-        param.personal.(3) land 0xFF; param.personal.(4) land 0xFF;
-        param.personal.(5) land 0xFF; param.personal.(6) land 0xFF;
-        param.personal.(7) land 0xFF;
+        param.inner_length land 0xFF; param.salt.:(0) land 0xFF;
+        param.salt.:(1) land 0xFF; param.salt.:(2) land 0xFF;
+        param.salt.:(3) land 0xFF; param.salt.:(4) land 0xFF;
+        param.salt.:(5) land 0xFF; param.salt.:(6) land 0xFF;
+        param.salt.:(7) land 0xFF; param.personal.:(0) land 0xFF;
+        param.personal.:(1) land 0xFF; param.personal.:(2) land 0xFF;
+        param.personal.:(3) land 0xFF; param.personal.:(4) land 0xFF;
+        param.personal.:(5) land 0xFF; param.personal.:(6) land 0xFF;
+        param.personal.:(7) land 0xFF;
       |] in
     By.init 32 (fun i -> Char.unsafe_chr arr.(i))
 
@@ -130,8 +131,8 @@ module Unsafe : S = struct
       xof_length = 0;
       node_depth = 0;
       inner_length = 0;
-      salt = [| 0; 0; 0; 0; 0; 0; 0; 0 |];
-      personal = [| 0; 0; 0; 0; 0; 0; 0; 0 |];
+      salt = [: 0; 0; 0; 0; 0; 0; 0; 0 :];
+      personal = [: 0; 0; 0; 0; 0; 0; 0; 0 :];
     }
 
   let of_array a =
@@ -140,11 +141,12 @@ module Unsafe : S = struct
     b
 
   let iv =
-    of_array
-      [|
-        0x6A09E667l; 0xBB67AE85l; 0x3C6EF372l; 0xA54FF53Al; 0x510E527Fl;
-        0x9B05688Cl; 0x1F83D9ABl; 0x5BE0CD19l;
-      |]
+    By.unsafe_to_string
+    @@ of_array
+         [|
+           0x6A09E667l; 0xBB67AE85l; 0x3C6EF372l; 0xA54FF53Al; 0x510E527Fl;
+           0x9B05688Cl; 0x1F83D9ABl; 0x5BE0CD19l;
+         |]
 
   let increment_counter ctx inc =
     let open Int32 in
@@ -174,28 +176,29 @@ module Unsafe : S = struct
     for i = 0 to 7 do
       By.unsafe_set_32 ctx.h (i * 4)
         Int32.(
-          By.unsafe_get_32 iv (i * 4) lxor By.le32_to_cpu param_bytes (i * 4))
+          By.unsafe_get_32_string iv (i * 4)
+          lxor By.le32_to_cpu param_bytes (i * 4))
     done ;
     ctx
 
   let sigma =
-    [|
-      [| 0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15 |];
-      [| 14; 10; 4; 8; 9; 15; 13; 6; 1; 12; 0; 2; 11; 7; 5; 3 |];
-      [| 11; 8; 12; 0; 5; 2; 15; 13; 10; 14; 3; 6; 7; 1; 9; 4 |];
-      [| 7; 9; 3; 1; 13; 12; 11; 14; 2; 6; 5; 10; 4; 0; 15; 8 |];
-      [| 9; 0; 5; 7; 2; 4; 10; 15; 14; 1; 11; 12; 6; 8; 3; 13 |];
-      [| 2; 12; 6; 10; 0; 11; 8; 3; 4; 13; 7; 5; 15; 14; 1; 9 |];
-      [| 12; 5; 1; 15; 14; 13; 4; 10; 0; 7; 6; 3; 9; 2; 8; 11 |];
-      [| 13; 11; 7; 14; 12; 1; 3; 9; 5; 0; 15; 4; 8; 6; 2; 10 |];
-      [| 6; 15; 14; 9; 11; 3; 0; 8; 12; 2; 13; 7; 1; 4; 10; 5 |];
-      [| 10; 2; 8; 4; 7; 6; 1; 5; 15; 11; 9; 14; 3; 12; 13; 0 |];
-    |]
+    [:
+      [: 0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15 :];
+      [: 14; 10; 4; 8; 9; 15; 13; 6; 1; 12; 0; 2; 11; 7; 5; 3 :];
+      [: 11; 8; 12; 0; 5; 2; 15; 13; 10; 14; 3; 6; 7; 1; 9; 4 :];
+      [: 7; 9; 3; 1; 13; 12; 11; 14; 2; 6; 5; 10; 4; 0; 15; 8 :];
+      [: 9; 0; 5; 7; 2; 4; 10; 15; 14; 1; 11; 12; 6; 8; 3; 13 :];
+      [: 2; 12; 6; 10; 0; 11; 8; 3; 4; 13; 7; 5; 15; 14; 1; 9 :];
+      [: 12; 5; 1; 15; 14; 13; 4; 10; 0; 7; 6; 3; 9; 2; 8; 11 :];
+      [: 13; 11; 7; 14; 12; 1; 3; 9; 5; 0; 15; 4; 8; 6; 2; 10 :];
+      [: 6; 15; 14; 9; 11; 3; 0; 8; 12; 2; 13; 7; 1; 4; 10; 5 :];
+      [: 10; 2; 8; 4; 7; 6; 1; 5; 15; 11; 9; 14; 3; 12; 13; 0 :];
+    :]
 
   let[@inline] g v m r i a b c d =
     let a = a * 4 and b = b * 4 and c = c * 4 and d = d * 4 in
-    let m0 = By.unsafe_get_32 m (sigma.(r).(2 * i) * 4) in
-    let m1 = By.unsafe_get_32 m (sigma.(r).((2 * i) + 1) * 4) in
+    let m0 = By.unsafe_get_32 m (sigma.:(r).:(2 * i) * 4) in
+    let m1 = By.unsafe_get_32 m (sigma.:(r).:((2 * i) + 1) * 4) in
     let open Int32 in
     let va = By.unsafe_get_32 v a + By.unsafe_get_32 v b + m0 in
     let vd = ror32 (By.unsafe_get_32 v d lxor va) 16 in
@@ -221,14 +224,14 @@ module Unsafe : S = struct
     for i = 0 to 7 do
       By.unsafe_set_32 v (i * 4) (By.unsafe_get_32 ctx.h (i * 4))
     done ;
-    By.unsafe_set_32 v 32 (By.unsafe_get_32 iv 0) ;
-    By.unsafe_set_32 v 36 (By.unsafe_get_32 iv 4) ;
-    By.unsafe_set_32 v 40 (By.unsafe_get_32 iv 8) ;
-    By.unsafe_set_32 v 44 (By.unsafe_get_32 iv 12) ;
-    By.unsafe_set_32 v 48 Int32.(By.unsafe_get_32 iv 16 lxor ctx.t.(0)) ;
-    By.unsafe_set_32 v 52 Int32.(By.unsafe_get_32 iv 20 lxor ctx.t.(1)) ;
-    By.unsafe_set_32 v 56 Int32.(By.unsafe_get_32 iv 24 lxor ctx.f.(0)) ;
-    By.unsafe_set_32 v 60 Int32.(By.unsafe_get_32 iv 28 lxor ctx.f.(1)) ;
+    By.unsafe_set_32 v 32 (By.unsafe_get_32_string iv 0) ;
+    By.unsafe_set_32 v 36 (By.unsafe_get_32_string iv 4) ;
+    By.unsafe_set_32 v 40 (By.unsafe_get_32_string iv 8) ;
+    By.unsafe_set_32 v 44 (By.unsafe_get_32_string iv 12) ;
+    By.unsafe_set_32 v 48 Int32.(By.unsafe_get_32_string iv 16 lxor ctx.t.(0)) ;
+    By.unsafe_set_32 v 52 Int32.(By.unsafe_get_32_string iv 20 lxor ctx.t.(1)) ;
+    By.unsafe_set_32 v 56 Int32.(By.unsafe_get_32_string iv 24 lxor ctx.f.(0)) ;
+    By.unsafe_set_32 v 60 Int32.(By.unsafe_get_32_string iv 28 lxor ctx.f.(1)) ;
     for r = 0 to 9 do
       g v m r 0 0 4 8 12 ;
       g v m r 1 1 5 9 13 ;
@@ -280,10 +283,12 @@ module Unsafe : S = struct
       ctx.buflen <- ctx.buflen + !in_len) ;
     ()
 
-  let unsafe_feed_bytes = feed ~blit:By.blit ~le32_to_cpu:By.le32_to_cpu
+  let unsafe_feed_bytes ctx buf off len =
+    feed ~blit:By.blit ~le32_to_cpu:By.le32_to_cpu ctx buf off len
 
-  let unsafe_feed_bigstring =
-    feed ~blit:By.blit_from_bigstring ~le32_to_cpu:Bi.le32_to_cpu
+  let unsafe_feed_bigstring ctx buf off len =
+    feed ~blit:By.blit_from_bigstring ~le32_to_cpu:Bi.le32_to_cpu ctx buf off
+      len
 
   let with_outlen_and_key ~blit outlen key off len =
     if outlen > max_outlen
@@ -307,7 +312,8 @@ module Unsafe : S = struct
     for i = 0 to 7 do
       By.unsafe_set_32 ctx.h (i * 4)
         Int32.(
-          By.unsafe_get_32 iv (i * 4) lxor By.le32_to_cpu param_bytes (i * 4))
+          By.unsafe_get_32_string iv (i * 4)
+          lxor By.le32_to_cpu param_bytes (i * 4))
     done ;
     if len > 0
     then (

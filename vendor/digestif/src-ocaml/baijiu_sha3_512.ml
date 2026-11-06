@@ -1,7 +1,7 @@
 module By = Digestif_by
 module Bi = Digestif_bi
 
-module type S = sig
+module type S = sig @@ portable
   type ctx
   type kind = [ `SHA3_512 ]
 

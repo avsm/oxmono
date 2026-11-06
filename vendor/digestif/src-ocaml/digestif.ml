@@ -91,11 +91,11 @@ end
 module type Hash = sig
   type ctx
 
-  val init : unit -> ctx
-  val unsafe_feed_bytes : ctx -> By.t -> int -> int -> unit
-  val unsafe_feed_bigstring : ctx -> Bi.t -> int -> int -> unit
-  val unsafe_get : ctx -> By.t
-  val dup : ctx -> ctx
+  val init : unit -> ctx @@ portable
+  val unsafe_feed_bytes : ctx -> By.t -> int -> int -> unit @@ portable
+  val unsafe_feed_bigstring : ctx -> Bi.t -> int -> int -> unit @@ portable
+  val unsafe_get : ctx -> By.t @@ portable
+  val dup : ctx -> ctx @@ portable
 end
 
 module Unsafe (Hash : Hash) (D : Desc) = struct
@@ -284,11 +284,11 @@ end
 module type Hash_BLAKE2 = sig
   type ctx
 
-  val with_outlen_and_bytes_key : int -> By.t -> int -> int -> ctx
-  val unsafe_feed_bytes : ctx -> By.t -> int -> int -> unit
-  val unsafe_feed_bigstring : ctx -> Bi.t -> int -> int -> unit
-  val unsafe_get : ctx -> By.t
-  val dup : ctx -> ctx
+  val with_outlen_and_bytes_key : int -> By.t -> int -> int -> ctx @@ portable
+  val unsafe_feed_bytes : ctx -> By.t -> int -> int -> unit @@ portable
+  val unsafe_feed_bigstring : ctx -> Bi.t -> int -> int -> unit @@ portable
+  val unsafe_get : ctx -> By.t @@ portable
+  val dup : ctx -> ctx @@ portable
   val max_outlen : int
 end
 
@@ -304,7 +304,9 @@ module Make_BLAKE2 (H : Hash_BLAKE2) (D : Desc) = struct
       (struct
         type ctx = H.ctx
 
-        let init () = H.with_outlen_and_bytes_key D.digest_size By.empty 0 0
+        let init () =
+          H.with_outlen_and_bytes_key D.digest_size (By.create 0) 0 0
+
         let unsafe_feed_bytes = H.unsafe_feed_bytes
         let unsafe_feed_bigstring = H.unsafe_feed_bigstring
         let unsafe_get = H.unsafe_get

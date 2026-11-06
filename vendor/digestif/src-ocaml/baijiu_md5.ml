@@ -4,13 +4,13 @@ module Bi = Digestif_bi
 module Int32 = struct
   include Int32
 
-  external ( lsl ) : int32 -> int -> int32 = "%int32_lsl"
-  external ( lsr ) : int32 -> int -> int32 = "%int32_lsr"
-  external ( asr ) : int32 -> int -> int32 = "%int32_asr"
-  external ( lor ) : int32 -> int32 -> int32 = "%int32_or"
-  external ( lxor ) : int32 -> int32 -> int32 = "%int32_xor"
-  external ( land ) : int32 -> int32 -> int32 = "%int32_and"
-  external ( + ) : int32 -> int32 -> int32 = "%int32_add"
+  external ( lsl ) : int32 -> int -> int32 @@ portable = "%int32_lsl"
+  external ( lsr ) : int32 -> int -> int32 @@ portable = "%int32_lsr"
+  external ( asr ) : int32 -> int -> int32 @@ portable = "%int32_asr"
+  external ( lor ) : int32 -> int32 -> int32 @@ portable = "%int32_or"
+  external ( lxor ) : int32 -> int32 -> int32 @@ portable = "%int32_xor"
+  external ( land ) : int32 -> int32 -> int32 @@ portable = "%int32_and"
+  external ( + ) : int32 -> int32 -> int32 @@ portable = "%int32_add"
 
   let[@inline] lnot x = x lxor -1l
   let[@inline] rol32 a n = (a lsl n) lor (a lsr (32 - n))
@@ -20,11 +20,11 @@ end
 module Int64 = struct
   include Int64
 
-  external ( land ) : int64 -> int64 -> int64 = "%int64_and"
-  external ( lsl ) : int64 -> int -> int64 = "%int64_lsl"
+  external ( land ) : int64 -> int64 -> int64 @@ portable = "%int64_and"
+  external ( lsl ) : int64 -> int -> int64 @@ portable = "%int64_lsl"
 end
 
-module type S = sig
+module type S = sig @@ portable
   type kind = [ `MD5 ]
   type ctx = { mutable size : int64; b : bytes; h : bytes }
 
@@ -61,22 +61,23 @@ module Unsafe : S = struct
     b
 
   let k =
-    of_array
-      [|
-        0xd76aa478l; 0xe8c7b756l; 0x242070dbl; 0xc1bdceeel; 0xf57c0fafl;
-        0x4787c62al; 0xa8304613l; 0xfd469501l; 0x698098d8l; 0x8b44f7afl;
-        0xffff5bb1l; 0x895cd7bel; 0x6b901122l; 0xfd987193l; 0xa679438el;
-        0x49b40821l; 0xf61e2562l; 0xc040b340l; 0x265e5a51l; 0xe9b6c7aal;
-        0xd62f105dl; 0x02441453l; 0xd8a1e681l; 0xe7d3fbc8l; 0x21e1cde6l;
-        0xc33707d6l; 0xf4d50d87l; 0x455a14edl; 0xa9e3e905l; 0xfcefa3f8l;
-        0x676f02d9l; 0x8d2a4c8al; 0xfffa3942l; 0x8771f681l; 0x6d9d6122l;
-        0xfde5380cl; 0xa4beea44l; 0x4bdecfa9l; 0xf6bb4b60l; 0xbebfbc70l;
-        0x289b7ec6l; 0xeaa127fal; 0xd4ef3085l; 0x04881d05l; 0xd9d4d039l;
-        0xe6db99e5l; 0x1fa27cf8l; 0xc4ac5665l; 0xf4292244l; 0x432aff97l;
-        0xab9423a7l; 0xfc93a039l; 0x655b59c3l; 0x8f0ccc92l; 0xffeff47dl;
-        0x85845dd1l; 0x6fa87e4fl; 0xfe2ce6e0l; 0xa3014314l; 0x4e0811a1l;
-        0xf7537e82l; 0xbd3af235l; 0x2ad7d2bbl; 0xeb86d391l;
-      |]
+    By.unsafe_to_string
+    @@ of_array
+         [|
+           0xd76aa478l; 0xe8c7b756l; 0x242070dbl; 0xc1bdceeel; 0xf57c0fafl;
+           0x4787c62al; 0xa8304613l; 0xfd469501l; 0x698098d8l; 0x8b44f7afl;
+           0xffff5bb1l; 0x895cd7bel; 0x6b901122l; 0xfd987193l; 0xa679438el;
+           0x49b40821l; 0xf61e2562l; 0xc040b340l; 0x265e5a51l; 0xe9b6c7aal;
+           0xd62f105dl; 0x02441453l; 0xd8a1e681l; 0xe7d3fbc8l; 0x21e1cde6l;
+           0xc33707d6l; 0xf4d50d87l; 0x455a14edl; 0xa9e3e905l; 0xfcefa3f8l;
+           0x676f02d9l; 0x8d2a4c8al; 0xfffa3942l; 0x8771f681l; 0x6d9d6122l;
+           0xfde5380cl; 0xa4beea44l; 0x4bdecfa9l; 0xf6bb4b60l; 0xbebfbc70l;
+           0x289b7ec6l; 0xeaa127fal; 0xd4ef3085l; 0x04881d05l; 0xd9d4d039l;
+           0xe6db99e5l; 0x1fa27cf8l; 0xc4ac5665l; 0xf4292244l; 0x432aff97l;
+           0xab9423a7l; 0xfc93a039l; 0x655b59c3l; 0x8f0ccc92l; 0xffeff47dl;
+           0x85845dd1l; 0x6fa87e4fl; 0xfe2ce6e0l; 0xa3014314l; 0x4e0811a1l;
+           0xf7537e82l; 0xbd3af235l; 0x2ad7d2bbl; 0xeb86d391l;
+         |]
 
   let md5_do_chunk : type a.
       le32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
@@ -91,13 +92,13 @@ module Unsafe : S = struct
     done ;
     for i = 0 to 3 do
       let w0 = By.unsafe_get_32 w (i * 4 * 4) in
-      let k0 = By.unsafe_get_32 k (i * 4 * 4) in
+      let k0 = By.unsafe_get_32_string k (i * 4 * 4) in
       let w1 = By.unsafe_get_32 w (((i * 4) + 1) * 4) in
-      let k1 = By.unsafe_get_32 k (((i * 4) + 1) * 4) in
+      let k1 = By.unsafe_get_32_string k (((i * 4) + 1) * 4) in
       let w2 = By.unsafe_get_32 w (((i * 4) + 2) * 4) in
-      let k2 = By.unsafe_get_32 k (((i * 4) + 2) * 4) in
+      let k2 = By.unsafe_get_32_string k (((i * 4) + 2) * 4) in
       let w3 = By.unsafe_get_32 w (((i * 4) + 3) * 4) in
-      let k3 = By.unsafe_get_32 k (((i * 4) + 3) * 4) in
+      let k3 = By.unsafe_get_32_string k (((i * 4) + 3) * 4) in
       let open Int32 in
       a := rol32 (!a + f1 !b !c !d + w0 + k0) 7 + !b ;
       d := rol32 (!d + f1 !a !b !c + w1 + k1) 12 + !a ;
@@ -106,13 +107,13 @@ module Unsafe : S = struct
     done ;
     for i = 0 to 3 do
       let w0 = By.unsafe_get_32 w (((i * 4) + 1) land 15 * 4) in
-      let k0 = By.unsafe_get_32 k (((i * 4) + 16) * 4) in
+      let k0 = By.unsafe_get_32_string k (((i * 4) + 16) * 4) in
       let w1 = By.unsafe_get_32 w (((i * 4) + 6) land 15 * 4) in
-      let k1 = By.unsafe_get_32 k (((i * 4) + 17) * 4) in
+      let k1 = By.unsafe_get_32_string k (((i * 4) + 17) * 4) in
       let w2 = By.unsafe_get_32 w (((i * 4) + 11) land 15 * 4) in
-      let k2 = By.unsafe_get_32 k (((i * 4) + 18) * 4) in
+      let k2 = By.unsafe_get_32_string k (((i * 4) + 18) * 4) in
       let w3 = By.unsafe_get_32 w (((i * 4) + 16) land 15 * 4) in
-      let k3 = By.unsafe_get_32 k (((i * 4) + 19) * 4) in
+      let k3 = By.unsafe_get_32_string k (((i * 4) + 19) * 4) in
       let open Int32 in
       a := rol32 (!a + f2 !b !c !d + w0 + k0) 5 + !b ;
       d := rol32 (!d + f2 !a !b !c + w1 + k1) 9 + !a ;
@@ -121,13 +122,13 @@ module Unsafe : S = struct
     done ;
     for i = 0 to 3 do
       let w0 = By.unsafe_get_32 w (((i * 12) + 5) land 15 * 4) in
-      let k0 = By.unsafe_get_32 k (((i * 4) + 32) * 4) in
+      let k0 = By.unsafe_get_32_string k (((i * 4) + 32) * 4) in
       let w1 = By.unsafe_get_32 w (((i * 12) + 8) land 15 * 4) in
-      let k1 = By.unsafe_get_32 k (((i * 4) + 33) * 4) in
+      let k1 = By.unsafe_get_32_string k (((i * 4) + 33) * 4) in
       let w2 = By.unsafe_get_32 w (((i * 12) + 11) land 15 * 4) in
-      let k2 = By.unsafe_get_32 k (((i * 4) + 34) * 4) in
+      let k2 = By.unsafe_get_32_string k (((i * 4) + 34) * 4) in
       let w3 = By.unsafe_get_32 w (((i * 12) + 14) land 15 * 4) in
-      let k3 = By.unsafe_get_32 k (((i * 4) + 35) * 4) in
+      let k3 = By.unsafe_get_32_string k (((i * 4) + 35) * 4) in
       let open Int32 in
       a := rol32 (!a + f3 !b !c !d + w0 + k0) 4 + !b ;
       d := rol32 (!d + f3 !a !b !c + w1 + k1) 11 + !a ;
@@ -136,13 +137,13 @@ module Unsafe : S = struct
     done ;
     for i = 0 to 3 do
       let w0 = By.unsafe_get_32 w (i * 12 land 15 * 4) in
-      let k0 = By.unsafe_get_32 k (((i * 4) + 48) * 4) in
+      let k0 = By.unsafe_get_32_string k (((i * 4) + 48) * 4) in
       let w1 = By.unsafe_get_32 w (((i * 12) + 7) land 15 * 4) in
-      let k1 = By.unsafe_get_32 k (((i * 4) + 49) * 4) in
+      let k1 = By.unsafe_get_32_string k (((i * 4) + 49) * 4) in
       let w2 = By.unsafe_get_32 w (((i * 12) + 14) land 15 * 4) in
-      let k2 = By.unsafe_get_32 k (((i * 4) + 50) * 4) in
+      let k2 = By.unsafe_get_32_string k (((i * 4) + 50) * 4) in
       let w3 = By.unsafe_get_32 w (((i * 12) + 21) land 15 * 4) in
-      let k3 = By.unsafe_get_32 k (((i * 4) + 51) * 4) in
+      let k3 = By.unsafe_get_32_string k (((i * 4) + 51) * 4) in
       let open Int32 in
       a := rol32 (!a + f4 !b !c !d + w0 + k0) 6 + !b ;
       d := rol32 (!d + f4 !a !b !c + w1 + k1) 10 + !a ;
@@ -185,10 +186,12 @@ module Unsafe : S = struct
     if !len <> 0 then blit buf !off ctx.b !idx !len ;
     ()
 
-  let unsafe_feed_bytes = feed ~blit:By.blit ~le32_to_cpu:By.le32_to_cpu
+  let unsafe_feed_bytes ctx buf off len =
+    feed ~blit:By.blit ~le32_to_cpu:By.le32_to_cpu ctx buf off len
 
-  let unsafe_feed_bigstring =
-    feed ~blit:By.blit_from_bigstring ~le32_to_cpu:Bi.le32_to_cpu
+  let unsafe_feed_bigstring ctx buf off len =
+    feed ~blit:By.blit_from_bigstring ~le32_to_cpu:Bi.le32_to_cpu ctx buf off
+      len
 
   let unsafe_get ctx =
     let index = Int64.(to_int (ctx.size land 0x3FL)) in

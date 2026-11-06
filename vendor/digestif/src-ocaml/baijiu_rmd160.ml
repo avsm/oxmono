@@ -1,7 +1,9 @@
 module By = Digestif_by
 module Bi = Digestif_bi
 
-module type S = sig
+let ( .:() ) = Iarray.get
+
+module type S = sig @@ portable
   type ctx
   type kind = [ `RMD160 ]
 
@@ -15,13 +17,13 @@ end
 module Int32 = struct
   include Int32
 
-  external ( lsl ) : int32 -> int -> int32 = "%int32_lsl"
-  external ( lsr ) : int32 -> int -> int32 = "%int32_lsr"
-  external ( asr ) : int32 -> int -> int32 = "%int32_asr"
-  external ( lor ) : int32 -> int32 -> int32 = "%int32_or"
-  external ( lxor ) : int32 -> int32 -> int32 = "%int32_xor"
-  external ( land ) : int32 -> int32 -> int32 = "%int32_and"
-  external ( + ) : int32 -> int32 -> int32 = "%int32_add"
+  external ( lsl ) : int32 -> int -> int32 @@ portable = "%int32_lsl"
+  external ( lsr ) : int32 -> int -> int32 @@ portable = "%int32_lsr"
+  external ( asr ) : int32 -> int -> int32 @@ portable = "%int32_asr"
+  external ( lor ) : int32 -> int32 -> int32 @@ portable = "%int32_or"
+  external ( lxor ) : int32 -> int32 -> int32 @@ portable = "%int32_xor"
+  external ( land ) : int32 -> int32 -> int32 @@ portable = "%int32_and"
+  external ( + ) : int32 -> int32 -> int32 @@ portable = "%int32_add"
 
   let[@inline] lnot x = x lxor -1l
   let[@inline] rol32 a n = (a lsl n) lor (a lsr (32 - n))
@@ -31,8 +33,8 @@ end
 module Int64 = struct
   include Int64
 
-  external ( land ) : int64 -> int64 -> int64 = "%int64_and"
-  external ( lsl ) : int64 -> int -> int64 = "%int64_lsl"
+  external ( land ) : int64 -> int64 -> int64 @@ portable = "%int64_and"
+  external ( lsl ) : int64 -> int -> int64 @@ portable = "%int64_lsl"
 end
 
 module Unsafe : S = struct
@@ -59,36 +61,36 @@ module Unsafe : S = struct
   let[@inline] j x y z = Int32.(x lxor (y lor lnot z))
 
   let rl =
-    [|
+    [:
       0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15; 7; 4; 13; 1; 10; 6;
       15; 3; 12; 0; 9; 5; 2; 14; 11; 8; 3; 10; 14; 4; 9; 15; 8; 1; 2; 7; 0; 6;
       13; 11; 5; 12; 1; 9; 11; 10; 0; 8; 12; 4; 13; 3; 7; 15; 14; 5; 6; 2; 4; 0;
       5; 9; 7; 12; 2; 10; 14; 1; 3; 8; 11; 6; 15; 13;
-    |]
+    :]
 
   let sl =
-    [|
+    [:
       11; 14; 15; 12; 5; 8; 7; 9; 11; 13; 14; 15; 6; 7; 9; 8; 7; 6; 8; 13; 11;
       9; 7; 15; 7; 12; 15; 9; 11; 7; 13; 12; 11; 13; 6; 7; 14; 9; 13; 15; 14; 8;
       13; 6; 5; 12; 7; 5; 11; 12; 14; 15; 14; 15; 9; 8; 9; 14; 5; 6; 8; 6; 5;
       12; 9; 15; 5; 11; 6; 8; 13; 12; 5; 12; 13; 14; 11; 8; 5; 6;
-    |]
+    :]
 
   let rr =
-    [|
+    [:
       5; 14; 7; 0; 9; 2; 11; 4; 13; 6; 15; 8; 1; 10; 3; 12; 6; 11; 3; 7; 0; 13;
       5; 10; 14; 15; 8; 12; 4; 9; 1; 2; 15; 5; 1; 3; 7; 14; 6; 9; 11; 8; 12; 2;
       10; 0; 4; 13; 8; 6; 4; 1; 3; 11; 15; 0; 5; 12; 2; 13; 9; 7; 10; 14; 12;
       15; 10; 4; 1; 5; 8; 7; 6; 2; 13; 14; 0; 3; 9; 11;
-    |]
+    :]
 
   let sr =
-    [|
+    [:
       8; 9; 9; 11; 13; 15; 15; 5; 7; 7; 8; 11; 14; 14; 12; 6; 9; 13; 15; 7; 12;
       8; 9; 11; 7; 7; 12; 7; 6; 15; 13; 11; 9; 7; 15; 11; 8; 6; 6; 14; 12; 13;
       5; 14; 13; 13; 7; 5; 15; 5; 8; 11; 14; 14; 6; 14; 6; 9; 12; 9; 12; 5; 15;
       8; 8; 5; 12; 9; 12; 5; 14; 6; 8; 13; 6; 5; 15; 13; 11; 11;
-    |]
+    :]
 
   let rmd160_do_chunk : type a.
       le32_to_cpu:(a -> int -> int32) -> ctx -> a -> int -> unit =
@@ -108,17 +110,17 @@ module Unsafe : S = struct
       By.unsafe_set_32 w (i * 4) (le32_to_cpu buff (off + (i * 4)))
     done ;
     for n = 0 to 15 do
-      let x = By.unsafe_get_32 w (rl.(n) * 4) in
-      let xxx = By.unsafe_get_32 w (rr.(n) * 4) in
+      let x = By.unsafe_get_32 w (rl.:(n) * 4) in
+      let xxx = By.unsafe_get_32 w (rr.:(n) * 4) in
       let open Int32 in
-      let t = rol32 (!aa + f !bb !cc !dd + x) sl.(n) + !ee in
+      let t = rol32 (!aa + f !bb !cc !dd + x) sl.:(n) + !ee in
       aa := !ee ;
       ee := !dd ;
       dd := rol32 !cc 10 ;
       cc := !bb ;
       bb := t ;
       let ttt =
-        rol32 (!aaa + j !bbb !ccc !ddd + xxx + 0x50a28be6l) sr.(n) + !eee in
+        rol32 (!aaa + j !bbb !ccc !ddd + xxx + 0x50a28be6l) sr.:(n) + !eee in
       aaa := !eee ;
       eee := !ddd ;
       ddd := rol32 !ccc 10 ;
@@ -126,17 +128,17 @@ module Unsafe : S = struct
       bbb := ttt
     done ;
     for n = 16 to 31 do
-      let x = By.unsafe_get_32 w (rl.(n) * 4) in
-      let xxx = By.unsafe_get_32 w (rr.(n) * 4) in
+      let x = By.unsafe_get_32 w (rl.:(n) * 4) in
+      let xxx = By.unsafe_get_32 w (rr.:(n) * 4) in
       let open Int32 in
-      let t = rol32 (!aa + g !bb !cc !dd + x + 0x5a827999l) sl.(n) + !ee in
+      let t = rol32 (!aa + g !bb !cc !dd + x + 0x5a827999l) sl.:(n) + !ee in
       aa := !ee ;
       ee := !dd ;
       dd := rol32 !cc 10 ;
       cc := !bb ;
       bb := t ;
       let ttt =
-        rol32 (!aaa + i !bbb !ccc !ddd + xxx + 0x5c4dd124l) sr.(n) + !eee in
+        rol32 (!aaa + i !bbb !ccc !ddd + xxx + 0x5c4dd124l) sr.:(n) + !eee in
       aaa := !eee ;
       eee := !ddd ;
       ddd := rol32 !ccc 10 ;
@@ -144,17 +146,17 @@ module Unsafe : S = struct
       bbb := ttt
     done ;
     for n = 32 to 47 do
-      let x = By.unsafe_get_32 w (rl.(n) * 4) in
-      let xxx = By.unsafe_get_32 w (rr.(n) * 4) in
+      let x = By.unsafe_get_32 w (rl.:(n) * 4) in
+      let xxx = By.unsafe_get_32 w (rr.:(n) * 4) in
       let open Int32 in
-      let t = rol32 (!aa + h !bb !cc !dd + x + 0x6ed9eba1l) sl.(n) + !ee in
+      let t = rol32 (!aa + h !bb !cc !dd + x + 0x6ed9eba1l) sl.:(n) + !ee in
       aa := !ee ;
       ee := !dd ;
       dd := rol32 !cc 10 ;
       cc := !bb ;
       bb := t ;
       let ttt =
-        rol32 (!aaa + h !bbb !ccc !ddd + xxx + 0x6d703ef3l) sr.(n) + !eee in
+        rol32 (!aaa + h !bbb !ccc !ddd + xxx + 0x6d703ef3l) sr.:(n) + !eee in
       aaa := !eee ;
       eee := !ddd ;
       ddd := rol32 !ccc 10 ;
@@ -162,17 +164,17 @@ module Unsafe : S = struct
       bbb := ttt
     done ;
     for n = 48 to 63 do
-      let x = By.unsafe_get_32 w (rl.(n) * 4) in
-      let xxx = By.unsafe_get_32 w (rr.(n) * 4) in
+      let x = By.unsafe_get_32 w (rl.:(n) * 4) in
+      let xxx = By.unsafe_get_32 w (rr.:(n) * 4) in
       let open Int32 in
-      let t = rol32 (!aa + i !bb !cc !dd + x + 0x8f1bbcdcl) sl.(n) + !ee in
+      let t = rol32 (!aa + i !bb !cc !dd + x + 0x8f1bbcdcl) sl.:(n) + !ee in
       aa := !ee ;
       ee := !dd ;
       dd := rol32 !cc 10 ;
       cc := !bb ;
       bb := t ;
       let ttt =
-        rol32 (!aaa + g !bbb !ccc !ddd + xxx + 0x7a6d76e9l) sr.(n) + !eee in
+        rol32 (!aaa + g !bbb !ccc !ddd + xxx + 0x7a6d76e9l) sr.:(n) + !eee in
       aaa := !eee ;
       eee := !ddd ;
       ddd := rol32 !ccc 10 ;
@@ -180,16 +182,16 @@ module Unsafe : S = struct
       bbb := ttt
     done ;
     for n = 64 to 79 do
-      let x = By.unsafe_get_32 w (rl.(n) * 4) in
-      let xxx = By.unsafe_get_32 w (rr.(n) * 4) in
+      let x = By.unsafe_get_32 w (rl.:(n) * 4) in
+      let xxx = By.unsafe_get_32 w (rr.:(n) * 4) in
       let open Int32 in
-      let t = rol32 (!aa + j !bb !cc !dd + x + 0xa953fd4el) sl.(n) + !ee in
+      let t = rol32 (!aa + j !bb !cc !dd + x + 0xa953fd4el) sl.:(n) + !ee in
       aa := !ee ;
       ee := !dd ;
       dd := rol32 !cc 10 ;
       cc := !bb ;
       bb := t ;
-      let ttt = rol32 (!aaa + f !bbb !ccc !ddd + xxx) sr.(n) + !eee in
+      let ttt = rol32 (!aaa + f !bbb !ccc !ddd + xxx) sr.:(n) + !eee in
       aaa := !eee ;
       eee := !ddd ;
       ddd := rol32 !ccc 10 ;

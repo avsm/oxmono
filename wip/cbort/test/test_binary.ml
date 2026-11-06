@@ -156,6 +156,25 @@ let test_malformed slice_length =
       expect_failure (fun () -> read (input ~slice_length wire))) [2;3;4;5;6])
     [Int64.succ (Int64.of_int max_int); Int64.min_int; -1L]
 
+(* A header may claim far more bytes than the input holds. Decoding must
+   fail at end of input rather than allocate the claimed length, so the
+   heap stays small however large the claim. *)
+let test_length_bombs slice_length =
+  let before = (Gc.quick_stat ()).Gc.top_heap_words in
+  List.iter (fun major ->
+    let wire = String.make 1 (Char.chr ((major lsl 5) lor 27)) ^
+      bytes64 (Int64.shift_left 1L 40) in
+    let truncated f =
+      match f () with
+      | _ -> failwith "truncated CBOR accepted"
+      | exception End_of_file -> () in
+    truncated (fun () -> R.read_cbor (input ~slice_length wire));
+    truncated (fun () -> R.skip (input ~slice_length wire));
+    check "decode reports truncation"
+      (Result.is_error (Cbort.decode_string Cbort.any wire))) [2; 3; 4; 5];
+  let grown = (Gc.quick_stat ()).Gc.top_heap_words - before in
+  check "length bombs stay small" (grown < 1 lsl 20)
+
 let test_invalid_writes () =
   let buf = Buffer.create 16 in
   let enc = R.make_encoder (B.Writer.of_buffer buf) in
@@ -182,6 +201,7 @@ let () =
       test_integers slice_length;
       test_values slice_length;
       test_skip slice_length;
-      test_malformed slice_length)
+      test_malformed slice_length;
+      test_length_bombs slice_length)
     [ 1; 2; 3; 7; 8; 9; 4096 ];
   print_endline "CBOR binary boundary and fragmented-input tests passed"

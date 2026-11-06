@@ -385,26 +385,44 @@ let read_byte dec =
   dec.position <- dec.position + 1;
   b
 
+(* A declared length is untrusted, so only a small string is allocated
+   up front. A longer one grows with the bytes that actually arrive,
+   and a header claiming terabytes fails at end of input instead of
+   exhausting memory. *)
+let prealloc_limit = 65536
+
+(* [read_chunks dec n add] passes the next [n] input bytes to [add] one
+   slice at a time. *)
+let read_chunks dec n add =
+  let rec loop remaining =
+    if remaining > 0 then begin
+      if dec.slice_pos >= Bytes.Slice.length dec.slice then refill dec;
+      let take = min (Bytes.Slice.length dec.slice - dec.slice_pos) remaining in
+      add (Bytes.Slice.bytes dec.slice)
+        (Bytes.Slice.first dec.slice + dec.slice_pos)
+        take;
+      dec.slice_pos <- dec.slice_pos + take;
+      dec.position <- dec.position + take;
+      loop (remaining - take)
+    end
+  in
+  loop n
+
 let read_bytes dec n =
   if n = 0 then ""
-  else
+  else if n <= prealloc_limit then begin
     let buf = Stdlib.Bytes.create n in
-    let rec loop off remaining =
-      if remaining = 0 then ()
-      else begin
-        if dec.slice_pos >= Bytes.Slice.length dec.slice then refill dec;
-        let avail = Bytes.Slice.length dec.slice - dec.slice_pos in
-        let take = min avail remaining in
-        let src = Bytes.Slice.bytes dec.slice in
-        let src_off = Bytes.Slice.first dec.slice + dec.slice_pos in
-        Stdlib.Bytes.blit src src_off buf off take;
-        dec.slice_pos <- dec.slice_pos + take;
-        dec.position <- dec.position + take;
-        loop (off + take) (remaining - take)
-      end
-    in
-    loop 0 n;
+    let off = ref 0 in
+    read_chunks dec n (fun src src_off len ->
+        Stdlib.Bytes.blit src src_off buf !off len;
+        off := !off + len);
     Stdlib.Bytes.unsafe_to_string buf
+  end
+  else begin
+    let buf = Buffer.create prealloc_limit in
+    read_chunks dec n (Buffer.add_subbytes buf);
+    Buffer.contents buf
+  end
 
 let read_u16_be dec =
   let b0 = read_byte dec in

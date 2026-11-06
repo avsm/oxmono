@@ -44,12 +44,12 @@ example-only Dune library `localhost`.
 ## Setup
 
 Use an OxCaml switch with the OxCaml opam repository configured. The commands
-below select the switch named `5.2.0+ox`. The root `oxmono.opam` installs the
+below select the switch named `5.4.0+ox9`. The root `oxmono.opam` installs the
 external development dependencies. Sources under `vendor/` and the other
 workspace projects supply the local libraries.
 
 ```sh
-eval "$(opam env --switch=5.2.0+ox)"
+eval "$(opam env --switch=5.4.0+ox9)"
 opam install . --deps-only
 dune build --profile release-check @example/all
 ```

@@ -29,7 +29,7 @@ with open(output, 'wb') as raw:
 
 let digest path = OpamHash.compute ~kind:`SHA256 path |> OpamHash.to_string
 let json_string s = `String s
-let compiler = "5.2.0minus39"
+let compiler = "5.4.0-ox9"
 
 let valid_tag tag =
   let digits s =

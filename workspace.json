@@ -13,5 +13,5 @@
     "linux/amd64",
     "linux/arm64"
   ],
-  "compiler": "oxcaml-compiler.5.2.0minus39"
+  "compiler": "oxcaml-compiler.5.4.0-ox9"
 }

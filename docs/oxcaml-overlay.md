@@ -8,27 +8,26 @@ in the build lock, alongside the public opam repository and our overlay.
 
 ## Compiler selection
 
-The supported compiler is `oxcaml-compiler.5.2.0minus39`. The inspected
-package builds compiler commit `2515546fea38e21e8143cc41db663bd56efc8d06`
-and reports release `5.2.0minus-39`. The current local switch also has
-`oxcaml-compiler.5.2.0minus39` installed.
+The supported compiler is `oxcaml-compiler.5.4.0-ox9`, from the OxCaml
+repository at commit `b66db7ae4ad21debd1b078635cc92e88d73610f8`, which
+[toolchain.lock.json](../toolchain.lock.json) records. The development switch
+is named `5.4.0+ox9`.
 
-The switch label `5.2.0+ox` is not a compiler pin. Nor is `oxcaml.latest`:
-its current dependency admits versions from `5.2.0minus39~` up to, but not
-including, `5.4.0-ox8~`. Exported OxMono libraries and applications should
-require the exact compiler version until another cohort has been validated:
+The switch label is not a compiler pin, and nor is `oxcaml.latest`. Exported
+OxMono libraries and applications should require the exact compiler version
+until another cohort has been validated:
 
 ```opam
 depends: [
-  "oxcaml-compiler" {= "5.2.0minus39"}
+  "oxcaml-compiler" {= "5.4.0-ox9"}
 ]
 ```
 
 These constraints supplement each package's real dependency formula. They do
 not replace dependency locks or checksums for the compiler and library sources.
 
-Sources: [compiler recipe](https://github.com/oxcaml/opam-repository/blob/afddc8337950dbc02863fe30ae58735a1cf2719f/packages/oxcaml-compiler/oxcaml-compiler.5.2.0minus39/opam),
-[current-release marker](https://github.com/oxcaml/opam-repository/blob/afddc8337950dbc02863fe30ae58735a1cf2719f/packages/oxcaml/oxcaml.latest/opam).
+Sources: [compiler recipe](https://github.com/oxcaml/opam-repository/blob/b66db7ae4ad21debd1b078635cc92e88d73610f8/packages/oxcaml-compiler/oxcaml-compiler.5.4.0-ox9/opam),
+[current-release marker](https://github.com/oxcaml/opam-repository/blob/b66db7ae4ad21debd1b078635cc92e88d73610f8/packages/oxcaml/oxcaml.latest/opam).
 
 ## How the guards work
 

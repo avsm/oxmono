@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "compiler": "oxcaml-compiler.5.2.0minus39",
+  "compiler": "oxcaml-compiler.5.4.0-ox9",
   "repositories": [
     {
       "url": "https://github.com/oxcaml/opam-repository.git",
-      "revision": "afddc8337950dbc02863fe30ae58735a1cf2719f"
+      "revision": "b66db7ae4ad21debd1b078635cc92e88d73610f8"
     },
     {
       "url": "https://github.com/ocaml/opam-repository.git",
-      "revision": "0fae6c680575ac380e80f6322ee36119976b5753"
+      "revision": "09d5d784fabf965d4f373a06b852bb398a3c981e"
     }
   ],
   "container_base": "debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3"

@@ -1,5 +1,6 @@
 # Changes
 
+- Lock the toolchain to OxCaml 5.4.0-ox9.
 - Add `ox run --local` for editable binaries, cache binary ownership lookups,
   and avoid repeated dependency-prefix traversal on warm runs. Owner runs
   select only the binary's root and preserve the caller's directory. Resolve

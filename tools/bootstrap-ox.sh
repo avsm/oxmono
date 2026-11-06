@@ -7,7 +7,7 @@ mkdir -p "$state"
 python3 - "$root/toolchain.lock.json" "$state" <<'PY'
 import json, pathlib, subprocess, sys
 lock=json.load(open(sys.argv[1])); state=pathlib.Path(sys.argv[2])
-assert lock['compiler']=='oxcaml-compiler.5.2.0minus39'
+assert lock['compiler']=='oxcaml-compiler.5.4.0-ox9'
 assert len(lock['repositories']) == 2
 for name,entry in zip(['ox','default'],lock['repositories']):
     path=state/name
@@ -25,7 +25,7 @@ if ! opam repository list --all --short | grep -qx ox; then
   opam repository add ox "$state/ox" --all-switches
 fi
 if ! opam switch list --short | grep -qx oxmono; then
-  opam switch create oxmono oxcaml-compiler.5.2.0minus39 --repositories=ox,default
+  opam switch create oxmono oxcaml-compiler.5.4.0-ox9 --repositories=ox,default
 fi
 cd "$root"
 opam install --switch=oxmono ./oxmono.opam --deps-only

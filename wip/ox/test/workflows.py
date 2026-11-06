@@ -133,11 +133,11 @@ install: [["mkdir" "-p" "%{lib}%/consumer"] ["cp" "%{lib}%/local-lib/value" "%{l
     assert p.stdout.splitlines()[-2:] == ["owner-tool", "two words"], p
     assert "Building unused" not in p.stderr
     # Editable commands respect the checkout's compiler lock as owner runs do.
-    pkg("oxcaml-compiler", "", version="5.2.0minus39")
+    pkg("oxcaml-compiler", "", version="5.4.0-ox9")
     write(project / "toolchain.lock.json", json.dumps({
-        "compiler": "oxcaml-compiler.5.2.0minus39", "repositories": []}))
+        "compiler": "oxcaml-compiler.5.4.0-ox9", "repositories": []}))
     p = call(["build", *config, "--local", "--deps-only", "local-lib"], cwd=project)
-    assert "Building oxcaml-compiler.5.2.0minus39" in p.stderr, p
+    assert "Building oxcaml-compiler.5.4.0-ox9" in p.stderr, p
     (project / "toolchain.lock.json").unlink()
     # Refreshing a pinned repository must not follow its branch tip.
     pkg("pinprobe", "")

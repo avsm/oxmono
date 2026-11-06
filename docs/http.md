@@ -106,10 +106,10 @@ The examples are separate executables and are not installed library modules.
 
 ## Build
 
-Select an OxCaml switch. The commands below use `5.2.0+ox`.
+Select an OxCaml switch. The commands below use `5.4.0+ox9`.
 
 ```sh
-eval "$(opam env --switch=5.2.0+ox)"
+eval "$(opam env --switch=5.4.0+ox9)"
 dune build --profile release-check @wip/httpz/all @wip/fetch/all @wip/proffer/all @example/all
 ```
 

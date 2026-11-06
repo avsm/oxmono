@@ -301,7 +301,7 @@ let locked_config ~repo (config : Runner.config) =
   else
     let fields = object_file path in
     let compiler = string fields "compiler" in
-    if compiler <> "oxcaml-compiler.5.2.0minus39" then
+    if compiler <> "oxcaml-compiler.5.4.0-ox9" then
       fail "Unsupported compiler lock: %s" compiler;
     let repositories =
       match List.assoc_opt "repositories" fields with

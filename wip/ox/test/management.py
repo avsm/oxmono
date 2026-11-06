@@ -137,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     assert 'oxmono-snapshot' not in opam
     assert not (a/'opam-repository/packages/oxmono-snapshot').exists()
     assert 'x-subpath' not in opam
-    assert '5.2.0minus39' in opam and 'shared' in opam and '1.0+ox' in opam
+    assert '5.4.0-ox9' in opam and 'shared' in opam and '1.0+ox' in opam
     marker=(a/'opam-repository/packages/oxcaml-shared-patches/oxcaml-shared-patches.enabled/opam').read_text()
     assert '1.0+ox' in marker and '0.1+ox' in marker and 'build' in marker and 'post' in marker
     # Only actual dependencies constrain installation, not unrelated packages.
@@ -147,9 +147,9 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
         def recipe(name,version,body=''):
             write(solver_repo/'packages'/name/(name+'.'+version)/'opam',
                   'opam-version: "2.0"\n'+body+'\n')
-        recipe('oxcaml-compiler','5.2.0minus39', 'depends: [("oxcaml-shared" {post} | "oxcaml-shared-patches" {post})]')
+        recipe('oxcaml-compiler','5.4.0-ox9', 'depends: [("oxcaml-shared" {post} | "oxcaml-shared-patches" {post})]')
         recipe('oxcaml-shared','guard', 'conflicts: ["shared" "oxcaml-shared-patches"]')
-        recipe('oxcaml-compiler','5.2.0minus40')
+        recipe('oxcaml-compiler','5.4.0-ox10')
         recipe('oxcaml','latest')
         recipe('shared','9.0')
         recipe('unrelated','9.0')
@@ -162,7 +162,7 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
         opam('switch','create','fixture','--empty')
         opam('install','--dry-run','app.1.0+ox-20261101-1')
         opam('install','--dry-run','app.1.0+ox-20261101-1','unrelated.9.0')
-        opam('install','--dry-run','app.1.0+ox-20261101-1','oxcaml-compiler.5.2.0minus40',ok=False)
+        opam('install','--dry-run','app.1.0+ox-20261101-1','oxcaml-compiler.5.4.0-ox10',ok=False)
         opam('install','--dry-run','app.1.0+ox-20261101-1','shared.9.0',ok=False)
     # A new tag or source URL alone must not manufacture new packages.
     noop_plan=tmp/'noop-plan.json'

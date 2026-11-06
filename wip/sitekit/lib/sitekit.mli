@@ -316,6 +316,7 @@ val post_button :
     to [action] with one button labelled [label]. *)
 
 val log : string -> html
+(** [log s] is [s] as preformatted text. *)
 
 val terminal : string -> html
 (** [terminal s] is the output [s] of a program that wrote to a terminal, as
@@ -326,7 +327,6 @@ val terminal : string -> html
     but tabs and line ends, and every character a terminal draws as nothing
     is removed first, by [Console_text.strip]. Styles are classes, never
     inline styles, so pages keep a policy without ['unsafe-inline']. *)
-(** [log s] is [s] as preformatted text. *)
 
 val sr_only : string -> html
 (** [sr_only s] is text for screen readers only. *)

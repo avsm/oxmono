@@ -130,16 +130,17 @@ def certificate(directory):
 
 
 def main():
-    port, mode = int(sys.argv[1]), sys.argv[2]
+    mode = sys.argv[1]
     with tempfile.TemporaryDirectory() as directory:
         cert, key = certificate(directory)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(cert, key)
         context.set_alpn_protocols(["h2"])
         listener = socket.socket()
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind(("127.0.0.1", port))
+        listener.bind(("127.0.0.1", 0))
         listener.listen(16)
+        # The test waits for this line, so the port is bound before use.
+        print(listener.getsockname()[1], flush=True)
         while True:
             raw, _ = listener.accept()
             try:

@@ -384,21 +384,11 @@ let test_chunked_stream () =
   in
   Alcotest.(check (option string)) "chunked body drains" (Some "hello") body
 
-let unused_port () =
-  let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-  let port =
-    match Unix.getsockname socket with
-    | Unix.ADDR_INET (_, port) -> port
-    | Unix.ADDR_UNIX _ -> assert false
-  in
-  Unix.close socket;
-  port
-
+(* The fixture needs python3 with the cryptography package. When it cannot
+   start, the HTTP/2 cases are skipped rather than failed. *)
 let with_h2 ?max_response mode fn =
   Eio_main.run @@ fun env ->
   Switch.run @@ fun sw ->
-  let port = unused_port () in
   let script =
     let source =
       Filename.concat (Sys.getcwd ()) "fetch/curl/tests/h2_fixture.py"
@@ -406,12 +396,19 @@ let with_h2 ?max_response mode fn =
     if Sys.file_exists source then source
     else Filename.concat (Filename.dirname Sys.executable_name) "h2_fixture.py"
   in
-  ignore
-    (Eio.Process.spawn ~sw
-       (Eio.Stdenv.process_mgr env)
-       [ "python3"; script; string_of_int port; mode ]
-      : _ Eio.Process.t);
-  Eio.Time.sleep (Eio.Stdenv.clock env) 0.3;
+  let mgr = Eio.Stdenv.process_mgr env in
+  let port =
+    try
+      let r, w = Eio.Process.pipe ~sw mgr in
+      ignore
+        (Eio.Process.spawn ~sw mgr ~stdout:w [ "python3"; script; mode ]
+          : _ Eio.Process.t);
+      Eio.Flow.close w;
+      int_of_string (Eio.Buf_read.line (Eio.Buf_read.of_flow ~max_size:64 r))
+    with (End_of_file | Failure _ | Eio.Io _) as exn ->
+      Fmt.epr "HTTP/2 fixture unavailable (%a); skipping@." Fmt.exn exn;
+      Alcotest.skip ()
+  in
   let client =
     Fetch_curl.v ~sw ~tls_verify:false ~http_version:`Auto ?max_response
       ~resolve:[ ("localhost", port, "127.0.0.1") ]

@@ -42,7 +42,8 @@ val knot : t -> string -> string
 
 val resolve : t -> string -> string
 (** [resolve t did] is the DID document of the [did:plc] or [did:web] [did], at
-    most 64 KiB, whose [id] must be [did]. *)
+    most 64 KiB, whose [id] must be [did]. A document is reused for 60
+    seconds, and at most 4096 are kept. *)
 
 val service : Jsont.json -> string -> string -> string option
 (** [service document name kind] is the endpoint of the service [#name] of type

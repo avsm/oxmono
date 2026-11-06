@@ -748,7 +748,7 @@ let not_found () =
 
 let query t ~repo ~limit ~cursor ~triggers ~commits =
   let total, more, count, page =
-    Store.fold t.store "pipeline-view" ~descending:true ~init:(0, false, 0, [])
+    Store.fold_views t.store ~repo ~init:(0, false, 0, [])
       ~f:(fun ((total, more, count, page) as acc) (id, raw) ->
         let p = decode raw in
         let trigger = get "$type" (required "trigger" p) in
@@ -765,7 +765,6 @@ let query t ~repo ~limit ~cursor ~triggers ~commits =
         then (total + 1, more, count, page)
         else if count = limit then (total + 1, true, count, page)
         else (total + 1, more, count + 1, p :: page))
-      ()
   in
   let next =
     if more then [ ("cursor", str (get "id" (List.hd page))) ] else []
@@ -1185,10 +1184,7 @@ let retry t ~principal ~actor ~repo ~id ~names =
 
 let wipe t repo =
   let ids =
-    Store.fold t.store "pipeline-view" ~init:[]
-      ~f:(fun acc (id, raw) ->
-        if get "repo" (decode raw) = repo then id :: acc else acc)
-      ()
+    Store.fold_views t.store ~repo ~init:[] ~f:(fun acc (id, _) -> id :: acc)
   in
   List.iter
     (fun id ->

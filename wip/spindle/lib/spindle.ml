@@ -46,11 +46,41 @@ type state = {
   hooks : Hooks.t;
   web : Web.t option;
   streams : int Atomic.t;  (** Log streams open now. *)
+  lookups : bucket;
+  definitions : (string * string, float * Jsont.json list) Hashtbl.t;
 }
+
+(* Anyone may ask about any repository, and one this spindle does not know
+   is looked up on the network, as are a repository's workflow files. Those
+   requests share a budget of [rate] a second, with bursts of [burst]. *)
+and bucket = { mutable tokens : float; mutable filled : float }
 
 exception Not_ready of Jsont.json
 
 let reject = Xrpc_error.fail
+let rate = 10.
+let burst = 50.
+
+let seconds state =
+  Int64.to_float
+    (Mtime.to_uint64_ns (Eio.Time.Mono.now state.system#mono_clock))
+  /. 1e9
+
+let spend state =
+  let b = state.lookups and now = seconds state in
+  b.tokens <- Float.min burst (b.tokens +. ((now -. b.filled) *. rate));
+  b.filled <- now;
+  if b.tokens < 1. then
+    reject Status.Too_many_requests "RateLimitExceeded"
+      "too many lookups, try again shortly";
+  b.tokens <- b.tokens -. 1.
+
+(* [served_repo state repo] is [repo]'s catalog entry, spending from the
+   lookup budget when the network must be asked. *)
+let served_repo state repo =
+  let catalog = Engine.catalog state.engine in
+  if not (Catalog.known catalog repo) then spend state;
+  Engine.managed state.engine repo
 
 (* [fields req name] is every value of the request field [name], which must
    be lowercase. *)
@@ -125,8 +155,7 @@ let query_pipelines state req =
     cursor;
   let triggers = query_list req "triggers" in
   let commits = query_list req "commits" in
-  if not (Catalog.known (Engine.catalog state.engine) repo) then
-    ignore (Engine.managed state.engine repo);
+  ignore (served_repo state repo);
   Engine.query state.engine ~repo ~limit ~cursor ~triggers ~commits
 
 let frame event =
@@ -513,18 +542,32 @@ let resolve_commit state repo ref_ =
         | _ -> None)
 
 (* A spindle that runs only its own workflows lists none of a repository's. *)
+(* Definitions are kept for a minute, so that anonymous requests for them
+   cannot make the spindle read a repository's files again and again. *)
 let repository_definitions state repo ref_ =
   if String.length ref_ > 256 then invalid "ref must be at most 256 bytes";
   if not state.config.repository_workflows then []
   else
-    match resolve_commit state repo ref_ with
-    | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
-    | Some commit ->
-        Workflows.definitions ~repo ~commit
-          (read_files ~process:state.system#process_mgr
-             ~clock:state.system#mono_clock state.config
-             (Engine.catalog state.engine)
-             state.network ~did:repo ~commit)
+    let now = seconds state in
+    match Hashtbl.find_opt state.definitions (repo, ref_) with
+    | Some (expires, definitions) when expires > now -> definitions
+    | _ -> (
+        spend state;
+        match resolve_commit state repo ref_ with
+        | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
+        | Some commit ->
+            let definitions =
+              Workflows.definitions ~repo ~commit
+                (read_files ~process:state.system#process_mgr
+                   ~clock:state.system#mono_clock state.config
+                   (Engine.catalog state.engine)
+                   state.network ~did:repo ~commit)
+            in
+            if Hashtbl.length state.definitions >= 256 then
+              Hashtbl.reset state.definitions;
+            Hashtbl.replace state.definitions (repo, ref_)
+              (now +. 60., definitions);
+            definitions)
 
 let ci_output ids =
   obj [ ("ci", obj [ ("pipelines", arr (List.map str ids)) ]) ]
@@ -641,7 +684,7 @@ let notify state req ~issuer body =
   ci_output (Option.to_list created)
 
 let served state req =
-  ignore (Engine.managed state.engine (did (query_required req "repo")))
+  ignore (served_repo state (did (query_required req "repo")))
 
 let require_admin state actor =
   if not (Catalog.admin (Engine.catalog state.engine) actor) then
@@ -1255,6 +1298,8 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       hooks;
       web;
       streams = Atomic.make 0;
+      lookups = { tokens = burst; filled = 0. };
+      definitions = Hashtbl.create 16;
     }
   in
   Eio.Fiber.fork ~sw (fun () ->

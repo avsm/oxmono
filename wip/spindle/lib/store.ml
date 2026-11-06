@@ -98,6 +98,9 @@ let open_ ~sw directory =
       repo TEXT NOT NULL, ref TEXT NOT NULL, sha TEXT NOT NULL,
       position INTEGER NOT NULL, updated REAL NOT NULL,
       PRIMARY KEY(repo,ref));
+    CREATE INDEX IF NOT EXISTS view_repo
+      ON kv(json_extract(value,'$.repo'),key)
+      WHERE namespace='pipeline-view';
     CREATE TABLE IF NOT EXISTS workflow_log (
       seq INTEGER PRIMARY KEY AUTOINCREMENT, pipeline TEXT NOT NULL,
       workflow TEXT NOT NULL, value TEXT NOT NULL);
@@ -132,27 +135,38 @@ let list t namespace =
         [ text namespace ]
       |> List.map (fun row -> (string row.(0), string row.(1))))
 
-let fold t namespace ?(descending = false) ~init ~f () =
-  let rec pages after acc =
+(* [pages t ~where ~args] folds the kv rows matching [where] in pages of
+   128 keys. *)
+let pages t ~where ~args ~descending ~init ~f =
+  let rec go after acc =
     let page =
       locked t (fun () ->
           let comparison, order =
             if descending then ("<", "DESC") else (">", "ASC")
           in
           rows t
-            ("SELECT key,value FROM kv WHERE namespace=?"
+            ("SELECT key,value FROM kv WHERE " ^ where
             ^ (if after = None then "" else " AND key" ^ comparison ^ "?")
             ^ " ORDER BY key " ^ order ^ " LIMIT 128")
-            (text namespace :: Option.to_list (Option.map text after))
+            (args @ Option.to_list (Option.map text after))
           |> List.map (fun row -> (string row.(0), string row.(1))))
     in
     match page with
     | [] -> acc
     | _ ->
         let acc = List.fold_left f acc page in
-        pages (Some (fst (List.hd (List.rev page)))) acc
+        go (Some (fst (List.hd (List.rev page)))) acc
   in
-  pages None init
+  go None init
+
+let fold t namespace ?(descending = false) ~init ~f () =
+  pages t ~where:"namespace=?" ~args:[ text namespace ] ~descending ~init ~f
+
+(* The literal namespace lets SQLite use the partial index [view_repo]. *)
+let fold_views t ~repo ~init ~f =
+  pages t
+    ~where:"namespace='pipeline-view' AND json_extract(value,'$.repo')=?"
+    ~args:[ text repo ] ~descending:true ~init ~f
 
 let ready t namespace ~now ~limit =
   if limit < 1 || limit > 128 then invalid_arg "Store.ready limit";

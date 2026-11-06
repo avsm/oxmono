@@ -146,6 +146,16 @@ let () =
       assert (Store.get store "tasks" "000" = Some "new");
       assert (
         Store.consume store ~now:1060. ~issuer:"issuer-a" ~jti:"nonce"
-          ~expires:1120.));
+          ~expires:1120.);
+      (* A repository's views are read newest first, and no others. *)
+      List.iter
+        (fun (id, repo) ->
+          Store.put store "pipeline-view" id
+            (Printf.sprintf {|{"id":"%s","repo":"%s"}|} id repo))
+        [ ("v1", "did:web:a"); ("v2", "did:web:b"); ("v3", "did:web:a") ];
+      assert (
+        Store.fold_views store ~repo:"did:web:a" ~init:[] ~f:(fun acc (id, _) ->
+            id :: acc)
+        = [ "v1"; "v3" ]));
   print_endline
     "replay store: concurrent use, issuer scope, expiry and reopen passed"

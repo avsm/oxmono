@@ -7,13 +7,17 @@ type t = {
   plc : string;
   allow_http : bool;
   timeout : Eio.Time.Timeout.t;
+  now : unit -> float;
+  documents : (string, float * string) Hashtbl.t;
 }
 
+(* URLs are named by records and documents, so a malformed one is the
+   record's fault, reported as invalid input. *)
+let parse value =
+  try U.of_string_exn value with Invalid_argument _ -> invalid "invalid URL"
+
 let origin ~allow_http value =
-  let uri =
-    try U.of_string_exn value
-    with Invalid_argument _ -> invalid "invalid service URL"
-  in
+  let uri = parse value in
   let scheme =
     match U.scheme uri with
     | This "https" -> "https"
@@ -56,6 +60,12 @@ let v ~allow_http ~plc system =
     plc;
     allow_http;
     timeout = Eio.Time.Timeout.seconds system#mono_clock 15.;
+    now =
+      (fun () ->
+        Int64.to_float
+          (Mtime.to_uint64_ns (Eio.Time.Mono.now system#mono_clock))
+        /. 1e9);
+    documents = Hashtbl.create 64;
   }
 
 exception Unavailable of string
@@ -75,7 +85,7 @@ let read_limited flow limit =
 (* A server error, rate limit or timeout is the host's trouble, not the
    caller's, so it is reported apart from a malformed answer. *)
 let fetch_status ?(limit = 1048576) t url =
-  let uri = U.of_string_exn url in
+  let uri = parse url in
   let base = U.with_encoded_query uri Null |> fun uri -> U.to_string uri in
   let host = origin ~allow_http:t.allow_http base in
   let fetch = Fetch.restrict t.fetch ~under:[ host ] in
@@ -94,7 +104,7 @@ let read ?limit t url = snd (fetch_status ?limit t url)
 let json t url = decode (read t url)
 
 let query url fields =
-  U.of_string_exn url |> fun uri -> U.set_query_params uri fields |> U.to_string
+  parse url |> fun uri -> U.set_query_params uri fields |> U.to_string
 
 let knot t name =
   let value =
@@ -103,7 +113,26 @@ let knot t name =
   in
   origin ~allow_http:t.allow_http value
 
-let resolve t value =
+(* Every signed request and every lookup of a repository resolves a DID, so
+   documents are kept briefly. A key rotation takes effect within [ttl]. *)
+let document_ttl = 60.
+let max_documents = 4096
+
+let rec resolve t value =
+  let now = t.now () in
+  match Hashtbl.find_opt t.documents value with
+  | Some (expires, raw) when expires > now -> raw
+  | _ ->
+      let raw = fetch_document t value in
+      if Hashtbl.length t.documents >= max_documents then
+        Hashtbl.filter_map_inplace
+          (fun _ ((expires, _) as v) -> if expires > now then Some v else None)
+          t.documents;
+      if Hashtbl.length t.documents < max_documents then
+        Hashtbl.replace t.documents value (now +. document_ttl, raw);
+      raw
+
+and fetch_document t value =
   ignore (did value);
   let url =
     if String.starts_with ~prefix:"did:plc:" value then t.plc ^ "/" ^ value
@@ -145,7 +174,7 @@ let pds t owner =
   let document = decode (resolve t owner) in
   match service document "atproto_pds" "AtprotoPersonalDataServer" with
   | Some url ->
-      let path = U.encoded_path (U.of_string_exn url) in
+      let path = U.encoded_path (parse url) in
       if path <> "" && path <> "/" then invalid "PDS endpoint has a path prefix";
       origin ~allow_http:t.allow_http url
   | None -> invalid "identity has no PDS"

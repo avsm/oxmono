@@ -60,6 +60,12 @@ val fold :
 (** [fold store namespace ~init ~f ()] visits keys in batches of 128 without
     retaining the namespace in memory. Concurrent writes may be observed. *)
 
+val fold_views :
+  t -> repo:string -> init:'a -> f:('a -> string * string -> 'a) -> 'a
+(** [fold_views store ~repo ~init ~f] is {!fold} over the [pipeline-view]
+    namespace, newest key first, restricted to views whose [repo] is [repo].
+    An index keeps it proportional to that repository's pipelines. *)
+
 val ready : t -> string -> now:float -> limit:int -> (string * string) list
 (** [ready store namespace ~now ~limit] reads up to 128 due tasks. *)
 

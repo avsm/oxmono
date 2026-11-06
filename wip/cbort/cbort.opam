@@ -16,6 +16,7 @@ depends: [
   "bytesrw" {>= "0.2"}
   "zarith" {>= "1.12"}
   "odoc" {with-doc}
+  "alcotest" {with-test}
   "crowbar" {>= "0.2" & with-test}
 ]
 build: [

@@ -708,7 +708,7 @@ let test_decode_truncated () =
 (* ============= Test Runner ============= *)
 
 let () =
-  Alcotest.run "Cbort"
+  Alcotest.run "cbort codecs"
     [
       (* Low-level encoding tests *)
       ( "Unsigned Integers (RFC 8949)",

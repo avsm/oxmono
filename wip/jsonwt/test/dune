@@ -44,11 +44,6 @@
  (libraries jsonwt.cwt alcotest ptime mirage-crypto-rng.unix))
 
 (test
- (name test_cbor)
- (modules test_cbor)
- (libraries cbort alcotest bytesrw))
-
-(test
  (name test_security)
  (modules test_security)
  (libraries jsonwt alcotest jsont jsont.bytesrw digestif)

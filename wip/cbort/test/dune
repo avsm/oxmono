@@ -9,3 +9,8 @@
  (name test_binary)
  (modules test_binary)
  (libraries cbort bytesrw zarith))
+
+(test
+ (name test_codecs)
+ (modules test_codecs)
+ (libraries cbort alcotest bytesrw))

@@ -861,8 +861,15 @@ let test_timeout_per_exchange () =
       Alcotest.failf "expected Timeout, got %s" (Client.error_to_string e)
   | Ok _ -> Alcotest.fail "expected the request to time out"
 
+(* Secret-file tests name files relative to the working directory. A fresh
+   directory keeps files left by an interrupted run from failing the next. *)
 let () =
-  Alcotest.run "jmap-eio-auth"
+  let log_dir = Filename.concat (Sys.getcwd ()) "_build/_tests" in
+  let scratch = Filename.temp_dir "jmap-auth-" "" in
+  at_exit (fun () ->
+      ignore (Sys.command (Filename.quote_command "rm" [ "-rf"; scratch ])));
+  Sys.chdir scratch;
+  Alcotest.run ~log_dir "jmap-eio-auth"
     [
       ( "auth",
         [

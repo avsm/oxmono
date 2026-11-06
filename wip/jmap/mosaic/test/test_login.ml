@@ -11,11 +11,13 @@ let permissions path = (Unix.stat path).st_perm land 0o777
 
 let test_profiles () =
   let config = Filename.temp_dir "jmap-mosaic-" "-profiles" in
+  let previous = Sys.getenv_opt "XDG_CONFIG_HOME" in
   Unix.putenv "XDG_CONFIG_HOME" config;
   Eio_main.run @@ fun env ->
   let profiles_dir = Login.profiles_path env in
   let profile_file = Filename.concat profiles_dir "work" in
   let cleanup () =
+    Unix.putenv "XDG_CONFIG_HOME" (Option.value previous ~default:"");
     Eio.Path.rmtree ~missing_ok:true Eio.Path.(Eio.Stdenv.fs env / config)
   in
   Fun.protect ~finally:cleanup @@ fun () ->

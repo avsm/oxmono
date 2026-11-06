@@ -226,6 +226,34 @@ let test_last_event_id_origin_scope () =
   check "Last-Event-ID stripped cross-origin"
     (List.rev !seen = [ Some "private-cursor"; None ])
 
+(* Caller-supplied credential fields must not follow a cross-origin hop.
+   Refusing them up front is equally safe. *)
+let test_caller_credentials_origin_scope () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  List.iter
+    (fun field ->
+      let seen = ref [] in
+      let server (req : Middleware.request) =
+        let host = Middleware.Url.host req.url in
+        seen := (host, Http.Header.get req.headers field) :: !seen;
+        if host = "start.example" then
+          Fetch_mock.respond ~status:307
+            ~headers:(Http.Header.of_list [ "Location", "https://end.example/" ])
+            "" req
+        else Fetch_mock.respond "ok" req
+      in
+      let headers = Header.[ raw field "secret-value" ] in
+      match
+        Fetch.fetch ~sw ~headers (Fetch_mock.client server) `GET
+          "https://start.example/"
+      with
+      | (_ : response) ->
+          check (field ^ " not sent cross-origin")
+            (List.assoc_opt "end.example" !seen = Some None)
+      | exception Invalid_argument _ -> ())
+    [ "Authorization"; "Cookie"; "Proxy-Authorization" ]
+
 let credential_server seen (req : Middleware.request) =
   let host = Middleware.Url.host req.url in
   let auth = Http.Header.get req.headers "authorization" in
@@ -458,6 +486,7 @@ let () =
   test_stop ();
   test_redirect_survives_drain_reset ();
   test_last_event_id_origin_scope ();
+  test_caller_credentials_origin_scope ();
   test_scope_extension ();
   test_extension_is_opt_in ();
   test_explicit_trust ();

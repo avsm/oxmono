@@ -40,12 +40,17 @@ let expect_decode_failure name jsont json =
   | Ok _ -> Alcotest.failf "%s: expected a decode failure" name
   | Error _ -> ()
 
-(* Decode, encode and decode again: catches members that decode but cannot be
-   re-encoded, and members dropped on the way through. *)
+(* Decode, encode, decode and encode again: catches members that decode but
+   cannot be re-encoded, and encodings that change on a second pass. Callers
+   check members dropped on the first pass against the returned encoding. *)
 let roundtrip name jsont json =
   let v = decode_exn name jsont json in
   let s = encode_exn name jsont v in
-  ignore (decode_exn (name ^ " (re-decode)") jsont s);
+  let again =
+    encode_exn (name ^ " (re-encode)") jsont
+      (decode_exn (name ^ " (re-decode)") jsont s)
+  in
+  Alcotest.(check string) (name ^ " (stable encoding)") s again;
   s
 
 let contains ~needle s =
@@ -949,7 +954,19 @@ module Error_tests = struct
     check "tooManyChanges" `Too_many_changes;
     check "fromAccountNotFound" `From_account_not_found;
     check "fromAccountNotSupportedByMethod"
-      `From_account_not_supported_by_method
+      `From_account_not_supported_by_method;
+    check "x-vendorFail" (`Other "x-vendorFail");
+    let e =
+      decode_exn "vendor method error" Error.Method_error.jsont
+        {|{"type":"x-vendorFail","description":"vendor"}|}
+    in
+    Alcotest.(check bool)
+      "unknown wire type kept" true
+      (e.Error.Method_error.type_ = `Other "x-vendorFail");
+    Alcotest.(check bool)
+      "unknown wire type re-encoded" true
+      (contains ~needle:{|"x-vendorFail"|}
+         (encode_exn "vendor method error" Error.Method_error.jsont e))
 
   let test_method_error_decode () =
     let e =

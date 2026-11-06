@@ -48,11 +48,13 @@ let test_roundtrip name jsont path () =
       | Error e ->
           Alcotest.failf "%s: encode failed: %s" name (Jsont.Error.to_string e)
       | Ok encoded -> (
-          match decode jsont encoded with
+          match Result.bind (decode jsont encoded) (encode jsont) with
           | Error e ->
               Alcotest.failf "%s: re-decode failed: %s" name
                 (Jsont.Error.to_string e)
-          | Ok _ -> ()))
+          | Ok again ->
+              Alcotest.(check string) (name ^ ": stable encoding") encoded again
+          ))
 
 (* Helpers for extracting values from optional fields in tests *)
 let get_id opt =

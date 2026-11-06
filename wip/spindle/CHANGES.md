@@ -6,6 +6,14 @@
 
 ## Unreleased
 
+- Share webhook delivery slots by repository rather than by host, time
+  deliveries with the monotonic clock, and read only a webhook's own
+  deliveries.
+- Prune old pipelines and receipts without rescanning those kept, and drop
+  a user's cached repository list after 30 days unchecked.
+- Index secret masking by first byte, and hide secrets inside longer base64
+  text at any alignment.
+
 - Limit anonymous lookups of repositories the spindle does not know, and
   reads of repository workflow files, to 10 a second with bursts of 50,
   answering 429 beyond that. Keep workflow definitions for a minute and DID

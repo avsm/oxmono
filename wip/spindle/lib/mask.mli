@@ -3,7 +3,9 @@
 val patterns : string list -> string list
 (** [patterns values] is what is hidden for [values]: each value, each of its
     non-empty lines, and its base64 encoding with and without padding, as the
-    reference spindle hides them. *)
+    reference spindle hides them. It also holds the characters that encode
+    each value alone at each of the three alignments within a longer base64
+    text, where there are at least 8 of them. *)
 
 type t
 

@@ -136,5 +136,13 @@ steps:
   let out = first ^ second ^ Mask.finish mask in
   assert (out = "xx *** yy");
   assert (Mask.hide [ "hunter2" ] "a hunter2 b" = "a *** b");
+  (* A secret is hidden within a longer base64 text at any alignment. *)
+  let secret = "correct horse battery staple" in
+  List.iter
+    (fun prefix ->
+      let encoded = Base64.encode_string (prefix ^ secret ^ "!tail") in
+      let hidden = Mask.hide [ secret ] encoded in
+      assert (hidden <> encoded && String.length hidden < String.length encoded))
+    [ ""; "a"; "ab"; "abc" ];
   print_endline
     "workflows: globs, when, YAML steps, definitions and masking passed"

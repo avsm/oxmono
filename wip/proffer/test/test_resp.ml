@@ -3,13 +3,7 @@ module H = Httpz.Header_name
 module St = Httpz.Res
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 let describe f = Proffer_mock.describe f
 let header r n = Proffer_mock.header r n
@@ -801,4 +795,4 @@ let () =
     (Proffer_mock.content_length (Proffer_mock.describe ~meth:M.Head plain)
     = Some 4L)
 
-let () = Printf.printf "test_resp: %d checks ok\n" !checks
+let () = Test_check.report "test_resp"

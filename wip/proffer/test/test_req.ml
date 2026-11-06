@@ -2,13 +2,7 @@ open Proffer
 module H = Httpz.Header_name
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 (* A request is local, so a helper that makes one returns it into the
    caller's region. *)
@@ -337,4 +331,4 @@ let () =
     (Req.header_single r "accept" = Error `Repeated);
   check "existing first-field API preserved" (Req.header r H.Accept = Some "a")
 
-let () = Printf.printf "test_req: %d checks ok\n" !checks
+let () = Test_check.report "test_req"

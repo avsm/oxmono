@@ -4,13 +4,7 @@ module H = Httpz.Header_name
 module St = Httpz.Res
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 let site =
   Site.of_routes
@@ -62,6 +56,17 @@ let () =
   check "security header reaches the fallback"
     (Proffer_mock.status r = St.Not_found
     && Proffer_mock.header_other r "X-Frame-Options" = Some "DENY")
+
+(* No spelling of a gated path reaches its handler without credentials. *)
+let () =
+  List.iter
+    (fun target ->
+      let r = Proffer_mock.request compiled_authed () M.Get target in
+      check
+        ("gate is not bypassed by " ^ target)
+        (Proffer_mock.body r <> "secret"))
+    [ "/action"; "/action/"; "//action"; "/./action"; "/x/../action";
+      "/%61ction"; "/action?x=1"; "/action#f"; "/ACTION"; "/action;x" ]
 
 let mounted =
   Site.mount ~at:[ "api" ]
@@ -345,4 +350,4 @@ let () =
     | _ -> true
     | exception Invalid_argument _ -> false)
 
-let () = Printf.printf "test_wrappers: %d checks ok\n" !checks
+let () = Test_check.report "test_wrappers"

@@ -3,13 +3,7 @@ open Proffer
 module S = Proffer_session
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 let has s sub =
   let n = String.length sub in
@@ -182,4 +176,4 @@ let () =
   check "plain http" (refused (mk "http://x.example"));
   check "credentials" (refused (mk "https://u@x.example"));
   check "loopback http" (not (refused (mk "http://localhost:8080")));
-  Printf.printf "session: %d checks passed\n" !checks
+  Test_check.report "session"

@@ -1,3 +1,7 @@
+(library
+ (name test_check)
+ (modules test_check))
+
 (tests
  (names
   test_route
@@ -24,7 +28,7 @@
   test_media
   test_sse)
  (package proffer)
- (libraries duration proffer proffer_mock httpz httpz.media))
+ (libraries duration proffer proffer_mock httpz httpz.media test_check))
 
 ; Exercise every mapping and its sort invariant without exposing the registry
 ; through Proffer's public API.
@@ -34,13 +38,14 @@
  (name test_mime)
  (modules test_mime mime_data)
  (package proffer)
- (libraries proffer stdlib_stable))
+ (libraries proffer stdlib_stable test_check))
 
 (test
  (name test_httpz)
  (modules test_httpz)
  (package proffer-httpz)
  (libraries
+  test_check
   duration
   proffer
   proffer_httpz
@@ -89,4 +94,4 @@
  (name test_session)
  (modules test_session)
  (package proffer)
- (libraries proffer proffer.session httpz eio eio.mock eio_main))
+ (libraries proffer proffer.session httpz eio eio.mock eio_main test_check))

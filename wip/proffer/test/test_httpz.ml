@@ -3,13 +3,7 @@ open Proffer.Route
 module St = Httpz.Res
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 type env = { greet : string -> string }
 
@@ -1147,4 +1141,4 @@ let () =
   stop_tests ~clock ~mono_clock ~net;
   relay_tests ~clock ~mono_clock ~net;
   stop_releases_port_tests ~clock ~mono_clock ~net;
-  Printf.printf "test_httpz: %d checks ok\n" !checks
+  Test_check.report "test_httpz"

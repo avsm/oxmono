@@ -1,13 +1,7 @@
 open Proffer
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 let boundary = "abc123"
 
@@ -176,4 +170,4 @@ let () =
   check "upload route refuses another media type"
     (Status.code (Proffer_mock.status r) = 415)
 
-let () = Printf.printf "test_multipart: %d checks ok\n" !checks
+let () = Test_check.report "test_multipart"

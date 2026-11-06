@@ -3,13 +3,7 @@ open Proffer.Route
 module H = Httpz.Header_name
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 let () =
   check "absent accept is empty" (Negotiate.of_accept None = []);
@@ -254,4 +248,4 @@ let () =
   in
   check "encode still encodes" (Proffer_mock.body r = "<p>x</p>")
 
-let () = Printf.printf "test_negotiate: %d checks ok\n" !checks
+let () = Test_check.report "test_negotiate"

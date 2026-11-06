@@ -1,12 +1,6 @@
 open Proffer
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 let invalid f =
   match f () with _ -> false | exception Invalid_argument _ -> true
@@ -124,4 +118,4 @@ let () =
   let _, second = Cache.memoize cache ~now:0. ~key:"a" (fun () -> "b\000c") in
   check "key/body boundaries are unambiguous" (first <> second)
 
-let () = Printf.printf "test_cache: %d checks ok\n" !checks
+let () = Test_check.report "test_cache"

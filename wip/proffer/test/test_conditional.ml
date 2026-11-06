@@ -3,13 +3,7 @@ open Proffer.Route
 module H = Httpz.Header_name
 module M = Httpz.Method
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 (* 784111777 is Sun, 06 Nov 1994 08:49:37 GMT, the example date of RFC 9110. *)
 let mtime = 784111777.
@@ -420,4 +414,4 @@ let () =
   check "commas inside opaque tags are not separators"
     (code (run ~headers:["If-None-Match", quoted] M.Get "/page") = 304)
 
-let () = Printf.printf "test_conditional: %d checks ok\n" !checks
+let () = Test_check.report "test_conditional"

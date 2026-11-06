@@ -1,13 +1,6 @@
 open Proffer
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b
-  then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 ;;
 
 let () =
@@ -88,5 +81,5 @@ let () =
             (Mime.of_path ("dir/." ^ spelling) = "application/octet-stream"))
         [ extension; String.uppercase_ascii extension; String.capitalize_ascii extension ])
     Mime_data.extensions;
-  Printf.printf "test_mime: %d checks ok\n" !checks
+  Test_check.report "test_mime"
 ;;

@@ -1,13 +1,7 @@
 open Proffer
 open Proffer.Route
 
-let checks = ref 0
-
-let check name b =
-  incr checks;
-  if not b then (
-    prerr_endline ("FAIL: " ^ name);
-    exit 1)
+let check = Test_check.check
 
 (* A codec with a string form, standing in for JSON without a JSON library. *)
 let pair =
@@ -124,4 +118,4 @@ let () =
      | exception Invalid_argument _ -> true
      | _ -> false)
 
-let () = Printf.printf "test_media: %d checks passed\n" !checks
+let () = Test_check.report "test_media"

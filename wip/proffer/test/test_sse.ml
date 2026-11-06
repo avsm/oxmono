@@ -1,11 +1,6 @@
 open Proffer
 
-let checks = ref 0
-
-let check name condition =
-  incr checks;
-  if not condition then failwith ("test_sse: " ^ name)
-;;
+let check = Test_check.check
 
 let test_response () =
   let response =
@@ -71,5 +66,5 @@ let () =
   test_response ();
   test_head ();
   test_validation ();
-  Printf.printf "test_sse: %d checks ok\n" !checks
+  Test_check.report "test_sse"
 ;;

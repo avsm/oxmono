@@ -10,21 +10,7 @@
     are spliced into a minimal Card here, and noted where that happens. *)
 
 open Jscontact
-
-let decode t s = Jsont_bytesrw.decode_string' t s
-let encode t v = Jsont_bytesrw.encode_string' t v
-
-let enc_ok name t v =
-  match encode t v with
-  | Ok s -> s
-  | Error e ->
-      Alcotest.failf "%s: encode failed: %s" name (Jsont.Error.to_string e)
-
-let dec_ok name t s =
-  match decode t s with
-  | Ok v -> v
-  | Error e ->
-      Alcotest.failf "%s: decode failed: %s" name (Jsont.Error.to_string e)
+open Jscontact_test
 
 let roundtrip name s expected =
   let t = Card.jsont in

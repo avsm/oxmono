@@ -313,8 +313,10 @@ let publisher_retry () = with_temp (fun env sw root ->
     end) in
   let glutton = S.Glutton.client ~server:"https://metadata.test" http in
   let wiley = S.Wiley.client ~tokens:["secret"] http in
-  let result = D.fetch (D.create ~glutton ~wiley ~busy_wait:0.02
-    ~timeout:0.01 ~clock:env#clock http) (Store.open_root ~sw root) uid in
+  (* The wait exceeds the transfer deadline, so a wait inside the deadline
+     would time out. The deadline must still cover a real store write. *)
+  let result = D.fetch (D.create ~glutton ~wiley ~busy_wait:0.6
+    ~timeout:0.5 ~clock:env#clock http) (Store.open_root ~sw root) uid in
   count "busy retries outside transfer deadline" 1 (List.length result.artifacts);
   count "bounded attempts" 3 !requests;
   count "busy responses closed" 2 !closed)

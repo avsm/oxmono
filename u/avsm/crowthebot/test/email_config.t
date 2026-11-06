@@ -11,6 +11,8 @@
   >         f.write(mode + '-fixture-secret\n')
   >     os.chmod(mode + '-token', 0o600)
   > PY
+  $ sekrit init
+  Encrypted secret store initialized.
   $ ../bin/main.exe config email-ro set fastmail --profile one --token-file ro-token
   Configuration saved. Restart Crow to apply it.
   $ ../bin/main.exe config email-rw set fastmail --profile one --account-id a --token-file rw-token
@@ -21,12 +23,14 @@
   fastmail (selected)
   $ ../bin/main.exe config email-ro list --profile two
   $ python3 - <<'PY'
-  > import json, os, stat
+  > import json, os, stat, subprocess
   > for mode in ['ro', 'rw']:
   >     path = 'config/crowthebot/secrets/one/email-' + mode + '.json'
   >     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
-  >     with open(path) as f:
-  >         value = json.load(f)['entries'][0]['value']
+  >     with open(path, 'rb') as f:
+  >         assert b'fixture-secret' not in f.read()
+  >     out = subprocess.run(['support/secret_fixture.exe', 'get', 'one', 'email-' + mode, 'fastmail'], capture_output=True, check=True).stdout
+  >     value = json.loads(out)
   >     assert value == dict(url='https://api.fastmail.com/jmap/session', token=mode+'-fixture-secret', account='a' if mode=='rw' else None, max_bytes=33554432)
   > PY
   $ ../bin/main.exe config email-rw remove fastmail --profile one

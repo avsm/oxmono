@@ -13,6 +13,9 @@ A named CalDAV check is independent of OpenRouter and a Matrix session.
 
 Exercise selection and failure aggregation without external network requests.
 
+  $ sekrit init
+  Encrypted secret store initialized.
+
   $ python3 - <<'PY'
   > import json, os, subprocess
   > def probe(*args):
@@ -20,13 +23,9 @@ Exercise selection and failure aggregation without external network requests.
   > r = probe()
   > assert r.returncode == 1 and 'Model: FAILED' in r.stdout
   > assert 'CalDAV: skipped (no configured connections).' in r.stdout
-  > root = 'config/crowthebot/secrets/one'
-  > os.makedirs(root, mode=0o700, exist_ok=True)
   > def config(tool, names):
-  >     path = root + '/' + tool + '.json'
-  >     with open(path, 'w') as f:
-  >         json.dump(dict(version=1, selected=names[0], entries=[dict(name=n, value={'private-secret':'should-not-print'}) for n in names]), f)
-  >     os.chmod(path, 0o600)
+  >     for n in names:
+  >         subprocess.run(['support/secret_fixture.exe', 'put', 'one', tool, n, json.dumps({'private-secret': 'should-not-print'})], check=True)
   > config('caldav', ['first', 'second'])
   > config('openrouter', ['invalid-model'])
   > r = probe()
@@ -42,6 +41,12 @@ Exercise selection and failure aggregation without external network requests.
   > r = probe('--model-only')
   > assert r.returncode == 1 and 'Model: FAILED' in r.stdout
   > assert 'CalDAV' not in r.stdout + r.stderr
+  > path = 'config/crowthebot/secrets/one/caldav.json'
+  > with open(path, 'w') as f:
+  >     json.dump(dict(version=1, selected='first', entries=[dict(name='first', value={'private-secret': 'should-not-print'})]), f)
+  > r = probe('--caldav', 'first')
+  > assert r.returncode == 1 and 'CalDAV: FAILED (invalid input or configuration)' in r.stdout
+  > assert 'should-not-print' not in r.stdout + r.stderr
   > r = probe('--help=plain')
   > assert r.returncode == 0 and '--caldav' in r.stdout and '--model-only' in r.stdout
   > print('Probe selectors and aggregate failures work without Matrix or network access.')

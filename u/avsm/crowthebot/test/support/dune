@@ -1,3 +1,9 @@
 (library
  (name fake_model)
+ (modules fake_model)
  (libraries agentkit))
+
+(executable
+ (name secret_fixture)
+ (modules secret_fixture)
+ (libraries crowthebot sekrit xdge eio_main jsont jsont.bytesrw))

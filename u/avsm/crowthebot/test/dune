@@ -61,7 +61,7 @@
  (libraries crowthebot eio_main))
 
 (cram
- (deps ../bin/main.exe %{bin:sekrit}))
+ (deps ../bin/main.exe support/secret_fixture.exe %{bin:sekrit}))
 
 (test
  (name test_feeds)

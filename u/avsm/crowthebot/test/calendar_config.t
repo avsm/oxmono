@@ -8,19 +8,23 @@
   >     f.write('calendar-read-only-fixture\n')
   > os.chmod('calendar-token', 0o600)
   > PY
+  $ sekrit init
+  Encrypted secret store initialized.
   $ ../bin/main.exe config calendar set personal --profile one --url https://jmap.example/session --account-id calendar-a --token-file calendar-token
   Configuration saved. Restart Crow to apply it.
   $ ../bin/main.exe config calendar list --profile one
   personal (selected)
   $ ../bin/main.exe config calendar list --profile two
   $ python3 - <<'PY'
-  > import json, os, stat
+  > import os, stat
   > path = 'config/crowthebot/secrets/one/calendar.json'
   > assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
-  > with open(path) as f:
-  >     settings = json.load(f)['entries'][0]['value']
-  > assert settings == dict(url='https://jmap.example/session', token='calendar-read-only-fixture', account='calendar-a', max_bytes=33554432)
+  > with open(path, 'rb') as f:
+  >     assert b'calendar-read-only-fixture' not in f.read()
   > PY
+  $ support/secret_fixture.exe get one calendar personal | python3 -c '
+  > import json, sys
+  > assert json.load(sys.stdin) == dict(url="https://jmap.example/session", token="calendar-read-only-fixture", account="calendar-a", max_bytes=33554432)'
   $ ../bin/main.exe config calendar remove personal --profile one
   Configuration updated. Restart Crow to apply it.
 
@@ -30,6 +34,9 @@ without displaying it, and restores terminal echo.
   $ python3 - <<'PY'
   > import json, os, pty, select, subprocess, termios, time
   > token = 'fmu1-synthetic-calendar-token'
+  > def stored_token():
+  >     out = subprocess.run(['support/secret_fixture.exe', 'get', 'one', 'calendar', 'pasted'], capture_output=True, check=True).stdout
+  >     return json.loads(out)['token']
   > def configure(value):
   >     master, slave = pty.openpty()
   >     before = termios.tcgetattr(slave)
@@ -63,9 +70,7 @@ without displaying it, and restores terminal echo.
   >         os.close(slave)
   > code, output = configure(b' \t' + token.encode() + b' \t')
   > assert code == 0, 'whitespace-wrapped token was rejected'
-  > path = 'config/crowthebot/secrets/one/calendar.json'
-  > with open(path) as f:
-  >     assert json.load(f)['entries'][0]['value']['token'] == token
+  > assert stored_token() == token
   > cases = [
   >     (b'Bearer ' + token.encode(), b'without the Bearer prefix'),
   >     (b'"' + token.encode() + b'"', b'without surrounding quotes'),
@@ -75,8 +80,7 @@ without displaying it, and restores terminal echo.
   > for value, expected in cases:
   >     code, output = configure(value)
   >     assert code == 1 and expected in output, 'wrong validation diagnostic'
-  > with open(path) as f:
-  >     assert json.load(f)['entries'][0]['value']['token'] == token
+  > assert stored_token() == token
   > print('Hidden prompt, token normalization, redaction and terminal restoration passed.')
   > PY
   Hidden prompt, token normalization, redaction and terminal restoration passed.

@@ -133,6 +133,11 @@ let load ?(allow_plaintext = false) t tool =
       file
 
 let save t tool file =
+  (* Sekrit reports a missing key directory as a generic I/O error. *)
+  if stat t.key_file = None then
+    invalid_arg
+      "Master key is missing. Run sekrit init for a new store, or restore the \
+       original key for existing encrypted data.";
   let encoded =
     match Jsont_bytesrw.encode_string ~format:Jsont.Indent jsont file with
     | Ok value when String.length value < 1024 * 1024 -> value ^ "\n"

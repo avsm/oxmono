@@ -1,5 +1,8 @@
 # Changes
 
+- Report a missing Sekrit master key when saving tool configuration, instead
+  of a generic operation failure.
+
 - Accept borrowed Fetch requests and copy data only where retained or required
   by an owned-input parser.
 

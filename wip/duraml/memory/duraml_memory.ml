@@ -11,16 +11,20 @@ module Attempts = Map.Make (struct
     let c=D.Id.compare a b in if c=0 then Int.compare n m else c
 end)
 module Events = Map.Make (Int64)
+module Ids = Set.Make (D.Id)
 module Lanes = Keys
 (* [pending] holds each queue's queued and running jobs, and [lanes] counts
    them per lane. A lane is ranked in [served] while it holds such a job,
    and [latest] is each queue's highest rank. [counts] is the number of jobs
-   in each queue and state. *)
+   in each queue and state. [by_queue] and [by_state] hold the job IDs of
+   each queue, and of each queue and state, so that a listing confined to a
+   queue reads only its jobs. *)
 type state = {
   next_id : int64; revision : int64; jobs : D.job Jobs.t;
   keys : D.Id.t Keys.t; attempts : D.Pi.attempt Attempts.t;
   events : D.event Events.t; served : int Lanes.t; latest : int Names.t;
   pending : D.job Jobs.t Names.t; lanes : int Lanes.t; counts : int Keys.t;
+  by_queue : Ids.t Names.t; by_state : Ids.t Keys.t;
 }
 type t = {
   identity : string; mutable state : state; mutable closed : bool;
@@ -51,10 +55,22 @@ let storage t state =
     let c=Ptime.compare (D.Job.created_at a) (D.Job.created_at b) in
     if c=0 then D.Id.compare (D.Job.id a) (D.Job.id b) else c in
   let matching q =
-    let jobs = match D.Query.after q with
-      | None -> Jobs.to_seq !state.jobs
-      | Some after -> Jobs.to_seq_from after !state.jobs
-        |> Seq.drop_while (fun (id,_) -> D.Id.equal id after) in
+    let from ids = match D.Query.after q with
+      | None -> Ids.to_seq ids
+      | Some after -> Ids.to_seq_from after ids
+        |> Seq.drop_while (D.Id.equal after) in
+    let ids set = Seq.filter_map (fun id ->
+      Option.map (fun j -> (id,j)) (Jobs.find_opt id !state.jobs))
+      (from set) in
+    let jobs = match D.Query.queue q,D.Query.state q with
+      | Some queue,Some st -> ids (Option.value ~default:Ids.empty
+          (Keys.find_opt (queue,D.state_name st) !state.by_state))
+      | Some queue,None -> ids (Option.value ~default:Ids.empty
+          (Names.find_opt queue !state.by_queue))
+      | None,_ -> (match D.Query.after q with
+        | None -> Jobs.to_seq !state.jobs
+        | Some after -> Jobs.to_seq_from after !state.jobs
+          |> Seq.drop_while (fun (id,_) -> D.Id.equal id after)) in
     Seq.filter_map (fun (_,(j:D.job)) ->
       if Option.fold ~none:true ~some:((=) (queue_of j)) (D.Query.queue q) &&
         Option.fold ~none:true ~some:((=) (D.Job.state j)) (D.Query.state q) &&
@@ -92,8 +108,18 @@ let storage t state =
             else Lanes.add (queue,lane) (count-1) s.lanes,s.served in
           Jobs.remove id jobs_in,lanes,served
       | false,false -> jobs_in,s.lanes,s.served in
+    let by_state =
+      let k st = (queue,D.state_name st) in
+      let set st m = Option.value ~default:Ids.empty (Keys.find_opt (k st) m) in
+      let m = match old with
+        | Some o -> Keys.add (k (D.Job.state o))
+            (Ids.remove id (set (D.Job.state o) s.by_state)) s.by_state
+        | None -> s.by_state in
+      Keys.add (k (D.Job.state j)) (Ids.add id (set (D.Job.state j) m)) m in
+    let by_queue = Names.add queue (Ids.add id (Option.value ~default:Ids.empty
+      (Names.find_opt queue s.by_queue))) s.by_queue in
     state:={s with jobs=Jobs.add id j s.jobs;keys;lanes;served;counts;
-      pending=Names.add queue pending_q s.pending} in
+      pending=Names.add queue pending_q s.pending;by_queue;by_state} in
   {D.Pi.identity=t.identity;
    allocate=(fun () ->
      let n= !state.next_id in
@@ -208,7 +234,8 @@ let create ~sw ~clock ~random () =
   let t={identity;state={next_id=1L;revision=0L;jobs=Jobs.empty;
     keys=Keys.empty;attempts=Attempts.empty;events=Events.empty;
     served=Lanes.empty;latest=Names.empty;pending=Names.empty;
-    lanes=Lanes.empty;counts=Keys.empty};closed=false;
+    lanes=Lanes.empty;counts=Keys.empty;by_queue=Names.empty;
+    by_state=Keys.empty};closed=false;
     wake_revision=0L;
     clock=(clock :> float Eio.Time.clock_ty Eio.Resource.t);
     random=(random :> Eio.Flow.source_ty Eio.Resource.t);

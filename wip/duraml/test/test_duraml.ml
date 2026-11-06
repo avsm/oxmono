@@ -370,6 +370,32 @@ let pages backend () = with_queue backend (fun _ _ q ->
     (D.count q (D.query ~queue:"work" ~state:D.Done ()));
   count "other queue empty" 0 (D.count q (D.query ~queue:"other" ()));
   count "all jobs" 21 (D.count q (D.query ())))
+(* Listings confined to a queue, or to a queue and state, agree with the
+   whole store filtered, across pages and as jobs change state. *)
+let filtered backend () = with_queue backend (fun _ _ q ->
+  for i=1 to 9 do
+    ignore (D.enqueue q (spec ~queue:(if i mod 3=0 then "other" else "work")
+      ~payload:(string_of_int i) ()))
+  done;
+  let c=claim q in
+  ignore (D.settle q c (D.complete (D.Succeeded "")));
+  ignore (claim q);
+  let ids js = List.map (fun j -> D.Id.to_string (D.Job.id j)) js in
+  let rec all ?after acc query =
+    match D.list q (query ?after ()) with
+    | [] -> List.rev acc
+    | js -> all ~after:(D.Job.id (List.hd (List.rev js)))
+              (List.rev_append js acc) query in
+  let everything = all [] (fun ?after () -> D.query ?after ()) in
+  List.iter (fun (queue,state) ->
+    let expected = List.filter (fun j ->
+      D.Spec.queue (D.Job.spec j)=queue &&
+      Option.fold ~none:true ~some:((=) (D.Job.state j)) state) everything in
+    let paged = all [] (fun ?after () ->
+      D.query ?after ~queue ?state ~limit:2 ()) in
+    check ("listing " ^ queue) true (ids paged=ids expected))
+    ["work",None;"work",Some D.Queued;"work",Some D.Done;
+     "work",Some D.Running;"other",Some D.Queued;"none",None])
 let () = Alcotest.run "Duraml backends" (List.map (fun backend -> backend,
   List.map (fun (name,test) -> Alcotest.test_case name `Quick (test backend))
     ["deduplication and queries",dedup;"lease fencing",fencing;
@@ -381,5 +407,5 @@ let () = Alcotest.run "Duraml backends" (List.map (fun backend -> backend,
      "typed time precision and bounds",precise_times;
      "lane fairness and age order",fairness;
      "lane rotation",rotation;"identifiers and bounds",core_validation;
-     "pages and counts",pages])
+     "pages and counts",pages;"filtered listings",filtered])
     ["memory";"sqlite"])

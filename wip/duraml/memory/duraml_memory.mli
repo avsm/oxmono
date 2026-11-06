@@ -20,7 +20,9 @@
     {1 LIFETIME AND COST}
     Share a handle between fibers in one Eio domain. Closing [sw] invalidates
     the handle and wakes waiters. There is no persistence or retention.
-    Eligibility selection scans the queue's queued and running jobs. This
+    Eligibility selection scans the queue's queued and running jobs.
+    Listings filtered by queue, or by queue and state, read only those jobs
+    from their cursor. Other listings read every job from it. This
     backend is intended for tests and small ephemeral queues, not a large
     persistent catalogue.
 

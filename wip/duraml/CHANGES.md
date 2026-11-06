@@ -1,5 +1,7 @@
 # Changes
 
+- Read only a queue's jobs, or a queue and state's, when the memory backend
+  lists them.
 - Add Eio resource queues with memory and SQLite backends, fenced claims,
   atomic successors, lifecycle events, worker pools and scripted mocks.
 - Use abstract snapshots and validated completions, Ptime timestamps and spans,

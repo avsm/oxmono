@@ -257,9 +257,10 @@ variable, so an enqueue between an empty poll and waiting is not lost. This
 revision also changes when a renewal shortens a lease, which wakes
 consumers. It is independent of the lifecycle event cursor. An idle poll
 reads no randomness. This backend is intended for tests and small ephemeral
-queues. Selection scans the queued and running jobs of the queue, and
-listings scan from their cursor. Counts without a cursor or parent filter
-read per-queue, per-state totals.
+queues. Selection scans the queued and running jobs of the queue. Listings
+filtered by queue, or by queue and state, read only those jobs from their
+cursor. Counts without a cursor or parent filter read per-queue, per-state
+totals.
 
 SQLite stores indexed jobs, payloads, attempts, events and store metadata.
 Prepared statements are kept per handle and finalized when it closes. Writes

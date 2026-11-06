@@ -1,0 +1,16 @@
+; Mock-transport helpers shared by the offline Zulip test suites.
+
+(library
+ (name zulip_mock)
+ (libraries
+  zulip
+  zulip.eio
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  httpz.media
+  jsont
+  jsont.bytesrw))

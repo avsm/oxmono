@@ -1,19 +1,5 @@
 open Zulip_eio
-
-let ok = function
-  | Ok value -> value
-  | Error error -> Alcotest.fail (Error.error_to_string error)
-
-let headers = Http.Header.of_list [ ("content-type", "application/json") ]
-
-let read_body (request : Fetch.Middleware.request) =
-  match request.body with
-  | Fetch.Empty -> ""
-  | Fetch.String body -> body
-  | Fetch.Stream { flow; _ } ->
-      Eio.Buf_read.(take_all (of_flow ~max_size:65536 flow))
-
-let form request = Httpz_media.Urlencoded.decode (read_body request)
+open Zulip_mock
 
 let query (request : Fetch.Middleware.request) =
   let target = Fetch.Middleware.Url.path_and_query request.url in
@@ -22,24 +8,6 @@ let query (request : Fetch.Middleware.request) =
   | Some index ->
       Httpz_media.Urlencoded.decode
         (String.sub target (index + 1) (String.length target - index - 1))
-
-let with_client handler run =
-  Eio_mock.Backend.run_full @@ fun env ->
-  let auth =
-    Auth.create ~site:"https://zulip.test" ~email:"bot@zulip.test"
-      ~api_key:"key"
-    |> ok
-  in
-  let transport =
-    Transport.of_fetch ~clock:env#clock (Fetch_mock.client handler)
-  in
-  let client = Client.create ~transport ~auth () |> ok in
-  run client
-
-let json_has name = function
-  | Jsont.Object (members, _) ->
-      Option.is_some (Jsont.Json.find_mem name members)
-  | _ -> false
 
 let test_full_message_query_and_response () =
   with_client
@@ -74,7 +42,7 @@ let test_full_message_query_and_response () =
         (Option.map Zulip.Id.Message.to_int page.anchor);
       Alcotest.(check bool)
         "page extension" true
-        (json_has "future_page" page.raw);
+        (has_member "future_page" page.raw);
       match page.messages with
       | [ message ] ->
           Alcotest.(check (option string))
@@ -91,13 +59,13 @@ let test_full_message_query_and_response () =
             (List.length (Option.get (Zulip.Message.reactions message)));
           Alcotest.(check bool)
             "message extension" true
-            (json_has "future_message" message.raw);
+            (has_member "future_message" message.raw);
           let participants =
             Option.get (Zulip.Message.direct_participants message)
           in
           Alcotest.(check bool)
             "participant extension" true
-            (json_has "future_user" (List.hd participants).raw)
+            (has_member "future_user" (List.hd participants).raw)
       | _ -> Alcotest.fail "expected one message")
 
 let test_edit_and_flag_metadata () =
@@ -136,7 +104,7 @@ let test_edit_and_flag_metadata () =
         (Attachments.Id.to_int (List.hd edited.detached_uploads).id);
       Alcotest.(check bool)
         "edit result extension" true
-        (json_has "future_edit_response" edited.raw);
+        (has_member "future_edit_response" edited.raw);
       let flags =
         Messages.update_flags_for_narrow client ~anchor:Messages.First_unread
           ~num_before:10 ~num_after:20
@@ -198,7 +166,7 @@ let test_scheduled_drafts_and_reminders () =
         (Scheduled_messages.Id.to_int scheduled.id);
       Alcotest.(check bool)
         "scheduled extension" true
-        (json_has "future_create" scheduled.raw);
+        (has_member "future_create" scheduled.raw);
       let drafts =
         Drafts.create client
           [
@@ -224,7 +192,7 @@ let test_scheduled_drafts_and_reminders () =
       Alcotest.(check int) "reminder ID" 51 (Reminders.Id.to_int reminder.id);
       Alcotest.(check bool)
         "reminder extension" true
-        (json_has "future_reminder" reminder.raw))
+        (has_member "future_reminder" reminder.raw))
 
 let test_bad_scheduled_destination () =
   let fixture =

@@ -185,6 +185,53 @@ let storage_failure () = setup (fun env q ->
   count "both failed once" 2 (Hashtbl.length failed);
   count "failed take and settlement retried" 1 (List.length (D.list q
     (D.query ~state:D.Done ()))))
+(* Work refused by [check] is never discarded by the attempt budget. *)
+let checked_budget () = setup (fun env q ->
+  ignore (D.enqueue q (spec ()));
+  for _=1 to 2 do
+    ignore (D.take q ~queue:"work" ~lease:(span 1.));
+    Eio.Time.sleep env#clock 2.
+  done;
+  let exception Refused in
+  check "refusal stops the pool" true (try
+    Duraml_worker.run ~mono_clock:env#mono_clock ~queue:"work"
+      ~concurrency:1 ~max_attempts:1 ~check:(fun _ -> raise Refused) q
+      (fun ~sw:_ _ -> Alcotest.fail "Refused handler invoked"); false
+    with Refused -> true);
+  check "refused work kept" true
+    ((D.Job.state (List.hd (D.list q (D.query ()))))=D.Running))
+(* A renewal still pending at the local deadline cancels the handler. *)
+let slow_renewal () = setup (fun env q ->
+  ignore (D.enqueue q (spec ()));
+  let before={Duraml_mock.observe=(fun request ->
+    if D.Pi.operation request="renew" then Eio.Time.sleep env#clock 30.)} in
+  let slow=Duraml_mock.wrap ~before q in
+  let cancelled=ref None in
+  Eio.Fiber.first
+    (fun () -> Duraml_worker.run ~mono_clock:env#mono_clock ~queue:"work"
+      ~concurrency:1 ~lease:(span 3.) slow (fun ~sw:_ _ ->
+        Fun.protect ~finally:(fun () -> if !cancelled=None then
+          cancelled:=Some (Eio.Time.now env#clock))
+          (fun () -> Eio.Time.sleep env#clock 100.;
+            D.complete (D.Succeeded ""))))
+    (fun () -> Eio.Time.sleep env#clock 50.);
+  check "handler cancelled at the local deadline" true
+    (match !cancelled with Some t -> t<=4. | None -> false))
+(* A claim taken as the pool stops is released at once. *)
+let stop_release () = setup (fun env q ->
+  ignore (D.enqueue q (spec ()));
+  let stop,request_stop=Eio.Promise.create () in
+  let before={Duraml_mock.observe=(fun request ->
+    if D.Pi.operation request="take" then
+      ignore (Eio.Promise.try_resolve request_stop ()))} in
+  let racing=Duraml_mock.wrap ~before q in
+  Duraml_worker.run ~mono_clock:env#mono_clock ~queue:"work"
+    ~concurrency:1 ~stop racing (fun ~sw:_ _ ->
+      Alcotest.fail "Handler invoked after stop");
+  let j=List.hd (D.list q (D.query ())) in
+  check "released for another worker" true (D.Job.state j=D.Queued);
+  check "eligible at once" true
+    (Ptime.compare (D.Job.available_at j) (time (Eio.Time.now env#clock))<=0))
 let () = Alcotest.run "Duraml workers" ["worker", List.map (fun (n,f) ->
   Alcotest.test_case n `Quick f) ["renewal",renewing;"bounded retries",retries;
     "revocation cleanup",revoked;"concurrency",concurrency;
@@ -193,4 +240,7 @@ let () = Alcotest.run "Duraml workers" ["worker", List.map (fun (n,f) ->
     "shortened lease wakes consumer",shortened_lease;
     "invalid final retry",invalid_final_retry;
     "handler exception recovered",recovered;
-    "storage failure recovered",storage_failure]]
+    "storage failure recovered",storage_failure;
+    "check precedes attempt budget",checked_budget;
+    "slow renewal cancels handler",slow_renewal;
+    "claim at stop released",stop_release]]

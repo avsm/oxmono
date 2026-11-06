@@ -23,5 +23,8 @@
   wake memory waiters on renewal only when a lease shortens.
 - Report damaged SQLite records and SQLite errors, with their text, as
   storage failures, and close a handle whose transaction cannot roll back.
+- Raise settlement conflicts as `Conflict` errors, cancel a handler whose
+  renewal outlasts the lease, release claims taken as a pool stops, and
+  check schemas before the attempt budget so mismatched work is kept.
 - Reject conflicting successors that share a key, oversized leases on idle
   queues and non-canonical job IDs. Add `Id.equal` and `Id.pp`.

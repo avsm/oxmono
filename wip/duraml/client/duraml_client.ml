@@ -97,15 +97,15 @@ module Queue = struct
       outcome
   let run ~mono_clock ?concurrency ?lease ?max_attempts ?stop ?drain
       ?(on_settled=fun _ _ -> ()) ?on_exn t handler =
-    let on_exn = Option.map (fun f _ -> function
-      | Schema_mismatch _ as e -> raise e
-      | e -> finish t (f e)) on_exn in
+    let on_exn = Option.map (fun f _ e -> finish t (f e)) on_exn in
+    let check c =
+      if not (matches t (D.Claim.spec c)) then
+        raise (Schema_mismatch (D.Claim.id c)) in
     Duraml_worker.run ~mono_clock ~queue:t.name ?concurrency ?lease
-      ?max_attempts ?stop ?drain ?on_exn
+      ?max_attempts ?stop ?drain ?on_exn ~check
       ~on_settled:(fun c result -> on_settled (handle t (D.Claim.id c)) result)
       t.store (fun ~sw c ->
         let spec=D.Claim.spec c in
-        if not (matches t spec) then raise (Schema_mismatch (D.Claim.id c));
         match t.request.decode (D.Spec.payload spec) with
         | Error _ -> D.complete (D.Failed {code="invalid_payload";
             detail="Request decoding failed"})

@@ -14,10 +14,12 @@
 
     {1 DESCRIPTION}
     Each worker claims one job, runs its handler in a child switch, waits for
-    that switch's fibers to finish, and settles the completion. A sibling fiber
-    renews the lease every third of its duration using a monotonic clock.
-    Lost ownership cancels the handler and joins cleanup before taking more
-      work.
+    that switch's fibers to finish, and settles the completion. A sibling
+    fiber renews the lease a third of its duration after the previous
+    renewal began, using a monotonic clock. The worker keeps a local
+    deadline, a lease after the claim or the start of the last successful
+    renewal. Lost ownership, or a renewal still pending at that deadline,
+    cancels the handler and joins cleanup before taking more work.
     Handlers must yield cooperatively. Blocking a domain prevents heartbeats.
     Bound network operations and subprocesses with application timeouts.
 
@@ -26,21 +28,25 @@
     settlement conflicts stop the pool and cancel sibling workers. An
     unacknowledged external effect may have completed, so unsettled claims
     are left to expire. With [on_exn], only settlement conflicts and
-    exceptions other than storage failures stop the pool.
+    exceptions other than storage failures stop the pool. Conflicts are
+    raised as the [Conflict] errors of {!Duraml.err}.
 
     {1 SHUTDOWN}
     Resolving [stop] prevents new handlers and starts a drain interval. Active
     handlers may finish and settle. On expiry they are cancelled and cleanup is
-    joined. Cleanup itself may exceed the drain interval. A claim racing with
-    stop may be left to expire without invoking its handler. Caller cancellation
-    requests cancellation immediately and also joins cleanup.
+    joined. Cleanup itself may exceed the drain interval. A claim taken as
+    [stop] resolves is settled as a retry eligible at once, without invoking
+    its handler, though its attempt still counts. A claim whose take is
+    cancelled by [stop] after the store committed it is left to expire.
+    Caller cancellation requests cancellation immediately and also joins
+    cleanup.
 
     {1 LIMITS}
     Concurrency and retry budgets belong to this invocation, not to the store.
     Multiple pools may serve the same queue. There is no global concurrency
     quota or publisher rate limiter. Attempt counts include expired attempts
-    left by crashed workers. Primitive consumers can implement other policies.
-      *)
+    left by crashed workers. Primitive consumers can implement other
+    policies. *)
 
 val run :
   mono_clock:_ Eio.Time.Mono.t -> queue:string ->
@@ -48,12 +54,14 @@ val run :
   ?stop:unit Eio.Promise.t -> ?drain:Ptime.Span.t ->
   ?on_settled:(Duraml.Claim.t -> Duraml.settlement -> unit) ->
   ?on_exn:(Duraml.Claim.t -> exn -> Duraml.completion) ->
+  ?check:(Duraml.Claim.t -> unit) ->
   _ Duraml.t ->
   (sw:Eio.Switch.t -> Duraml.Claim.t -> Duraml.completion) -> unit
 (** [run ... store handler] blocks until stopped, cancelled or failed.
     [concurrency] defaults to 4 and must be in 1..1024. [lease] defaults to
     60 seconds and must be positive. [max_attempts] defaults to 5 and must be
-    positive. A claim beyond this budget fails without invoking [handler].
+    positive. A claim beyond this budget fails without invoking [handler],
+    after [check] accepts it.
     A retry on the final allowed attempt becomes an [attempt_limit] failure.
     Invalid completions are rejected by {!Duraml.complete} before this policy.
 
@@ -71,4 +79,10 @@ val run :
     failed take is retried after a pause that doubles from 1 to 30 seconds.
     A failed settlement is retried twice in the same way and then left to
     expire. A failed renewal cancels the handler and leaves the claim to
-    expire. Exceptions from [on_exn] itself stop the pool. *)
+    expire. Exceptions from [on_exn] itself stop the pool.
+
+    [check claim] runs on each claim before the attempt budget and the
+    handler. Its default accepts every claim. An exception from it stops the
+    pool, even with [on_exn], and leaves the claim to expire. Use it to
+    refuse work meant for another worker, which the budget must not
+    discard. *)

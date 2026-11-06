@@ -1,4 +1,4 @@
 (library
  (name duraml_worker)
  (public_name duraml.worker)
- (libraries duraml eio))
+ (libraries duraml eio mtime ptime))

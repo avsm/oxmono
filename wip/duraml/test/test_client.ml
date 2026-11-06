@@ -112,7 +112,7 @@ let conflicts backend () = with_store backend (fun env sw store _ ->
   check "successor conflict stops runner" true (try
     run_one env queue (fun ~sw:_ n ->
       C.Completion.succeed ~followups:[fresh;conflict] n); false
-    with Eio.Io (D.E (D.Storage _),_) -> true);
+    with Eio.Io (D.E (D.Conflict _),_) -> true);
   check "source not settled" true (C.Job.inspect job=C.Job.Running);
   count "earlier successor rolled back" 2
     (List.length (D.list store (D.query ())));

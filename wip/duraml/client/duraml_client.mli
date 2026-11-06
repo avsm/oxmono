@@ -74,8 +74,8 @@ module Completion : sig
   (** A typed handler outcome with optional staged successors. *)
   val succeed : ?followups:Submission.t list -> 'a -> 'a t
   (** [succeed ~followups value] completes with [value]. Successors are
-    validated
-      now. Result encoding and its byte budget are checked before settlement. *)
+      validated now. Result encoding and its byte budget are checked before
+      settlement. *)
   val retry : at:Ptime.t -> reason:string -> 'a t
   (** [retry ~at ~reason] schedules another attempt without occupying a worker.
       The timestamp and reason are validated immediately. No successors are
@@ -101,8 +101,8 @@ module Job : sig
   (** [inspect job] reads current state and decodes successful results. A retry
       is [Queued] until reclaimed. Previous retry outcomes are not terminal. *)
   val snapshot : 'a t -> Duraml.job option
-  (** [snapshot job] exposes detailed core metadata for diagnostics and audit.
-    *)
+  (** [snapshot job] exposes detailed core metadata for diagnostics and
+      audit. *)
   val cancel : 'a t -> bool
   (** [cancel job] revokes nonterminal work. External effects are not undone. *)
 end
@@ -122,8 +122,9 @@ module Queue : sig
       [Existing] includes terminal jobs. [Conflict] names a different existing
       specification with the same key. No new work is created in either case. *)
   exception Schema_mismatch of Duraml.Id.t
-  (** A claimed job has a different kind or version than this runner. It remains
-      running until expiry. No handler or settlement is attempted. *)
+  (** A claimed job has a different kind or version than this runner. It
+      remains running until expiry, whatever its attempt count. No handler
+      or settlement is attempted. *)
   val v : _ Duraml.t -> name:string -> kind:string -> version:int ->
     request:'request Codec.t -> result:'result Codec.t ->
     ('request, 'result) t
@@ -138,7 +139,7 @@ module Queue : sig
       schedules are part of the immutable specification. Repeating the exact
       keyed submission reconciles a response lost through cancellation or I/O
       failure. Unkeyed retries of submission may create duplicate jobs.
-      [lane] is the fair-share dispatch lane of {!Duraml.Spec.v}; it does
+      [lane] is the fair-share dispatch lane of {!Duraml.Spec.v}. It does
       not take part in reconciliation. *)
   val stage : ?key:string -> ?not_before:Ptime.t -> ?lane:string ->
     ('request, _) t -> 'request -> Submission.t
@@ -149,8 +150,8 @@ module Queue : sig
       publishes it. *)
   val find : (_, 'result) t -> Duraml.Id.t -> 'result Job.t option
   (** [find queue id] restores a typed handle, including after reopening a
-    store.
-      Returns [None] for absent jobs or a different queue, kind or version. *)
+      store. It is [None] for absent jobs or a different queue, kind or
+      version. *)
   val run : mono_clock:_ Eio.Time.Mono.t -> ?concurrency:int ->
     ?lease:Ptime.Span.t -> ?max_attempts:int -> ?stop:unit Eio.Promise.t ->
     ?drain:Ptime.Span.t ->
@@ -159,18 +160,18 @@ module Queue : sig
     ('request, 'result) t ->
     (sw:Eio.Switch.t -> 'request -> 'result Completion.t) -> unit
   (** [run queue handler] blocks until stopped, cancelled or failed. Each
-    handler
-      owns a child switch and must yield cooperatively. Defaults are concurrency
-      4, lease 60 seconds, 5 attempts and drain 30 seconds. Resolving [stop]
-      prevents new handlers, drains active ones, then cancels and joins cleanup.
-      Cleanup may exceed the drain duration. Caller cancellation requests
+      handler owns a child switch and must yield cooperatively. Defaults are
+      concurrency 4, lease 60 seconds, 5 attempts and drain 30 seconds.
+      Resolving [stop] prevents new handlers, drains active ones, then
+      cancels and joins cleanup. Cleanup may exceed the drain duration. Caller cancellation requests
       immediate cancellation and joins cleanup. Unexpected exceptions and
       settlement conflicts stop the pool. Unsettled claims expire normally.
       [on_settled] is a transient notification, not durable audit delivery.
       Its exceptions stop the pool. It also receives conflict/lost responses.
       [on_exn exn] is the completion of a handler that raised [exn], and
       supplying it keeps the pool running through storage failures, as
-      {!Duraml_worker.run} describes. *)
+      {!Duraml_worker.run} describes. {!Schema_mismatch} still stops the
+      pool. *)
   val start : sw:Eio.Switch.t -> mono_clock:_ Eio.Time.Mono.t ->
     ?concurrency:int -> ?lease:Ptime.Span.t -> ?max_attempts:int ->
     ?stop:unit Eio.Promise.t -> ?drain:Ptime.Span.t ->

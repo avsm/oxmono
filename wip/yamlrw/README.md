@@ -97,16 +97,12 @@ To run the complete YAML test suite with HTML report generation:
 
 2. **Run the tests**:
    ```bash
-   # Standard tests with HTML report
    opam exec -- dune build @yaml-test-suite
-
-   # Eio-based tests with HTML report
-   opam exec -- dune build @yaml-test-suite-eio
    ```
 
 **View the results**:
-- The HTML reports are generated in `_build/default/tests/yaml-test-results.html` and `_build/default/tests/yaml-test-results-eio.html`
-- Open them in a browser to see detailed test results with filtering and search capabilities
+- The HTML report is generated in `_build/default/tests/yaml-test-results.html`
+- Open it in a browser to see detailed test results with filtering and search capabilities
 
 ### Running Unit Tests
 

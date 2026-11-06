@@ -8,7 +8,3 @@
   json_compare)
  (libraries yamlrw jsonm))
 
-(library
- (name test_suite_lib_eio)
- (modules test_suite_loader_eio)
- (libraries test_suite_lib eio))

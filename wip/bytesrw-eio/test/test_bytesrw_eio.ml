@@ -3,6 +3,17 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
+let slice_string slice =
+  Bytes.sub_string
+    (Bytesrw.Bytes.Slice.bytes slice)
+    (Bytesrw.Bytes.Slice.first slice)
+    (Bytesrw.Bytes.Slice.length slice)
+
+let rec read_all ?(acc = []) reader =
+  let slice = Bytesrw.Bytes.Reader.read reader in
+  if Bytesrw.Bytes.Slice.is_eod slice then List.rev acc
+  else read_all ~acc:(slice_string slice :: acc) reader
+
 (* Test reading from a mock flow *)
 let test_reader_basic () =
   Eio_main.run @@ fun _env ->
@@ -16,12 +27,7 @@ let test_reader_basic () =
     "slice is not eod" false
     (Bytesrw.Bytes.Slice.is_eod slice1);
 
-  let read_data =
-    Bytes.sub_string
-      (Bytesrw.Bytes.Slice.bytes slice1)
-      (Bytesrw.Bytes.Slice.first slice1)
-      (Bytesrw.Bytes.Slice.length slice1)
-  in
+  let read_data = slice_string slice1 in
   Alcotest.(check string) "data matches" test_data read_data;
 
   (* Next read should be eod *)
@@ -38,11 +44,12 @@ let test_reader_custom_slice_length () =
   let slice_length = 5 in
   let reader = Bytesrw_eio.bytes_reader_of_flow ~slice_length flow in
 
-  (* Read should respect slice_length as maximum *)
-  let slice = Bytesrw.Bytes.Reader.read reader in
+  let slices = read_all reader in
   Alcotest.(check bool)
     "slice length <= custom size" true
-    (Bytesrw.Bytes.Slice.length slice <= slice_length)
+    (List.for_all (fun s -> String.length s <= slice_length) slices);
+  Alcotest.(check string)
+    "slices reassemble the input" test_data (String.concat "" slices)
 
 (* Test reading empty flow *)
 let test_reader_empty () =
@@ -142,12 +149,7 @@ let test_reader_multiple_reads () =
 
   (* Read next 5 bytes *)
   let slice2 = Bytesrw.Bytes.Reader.read reader in
-  let data2 =
-    Bytes.sub_string
-      (Bytesrw.Bytes.Slice.bytes slice2)
-      (Bytesrw.Bytes.Slice.first slice2)
-      (Bytesrw.Bytes.Slice.length slice2)
-  in
+  let data2 = slice_string slice2 in
 
   (* Critical test: verify first read's data is STILL intact after second read
      This would fail if we were reusing buffers or if Cstruct.to_bytes created a view *)
@@ -183,12 +185,7 @@ let test_roundtrip () =
   let reader = Bytesrw_eio.bytes_reader_of_flow read_flow in
 
   let read_slice = Bytesrw.Bytes.Reader.read reader in
-  let read_data =
-    Bytes.sub_string
-      (Bytesrw.Bytes.Slice.bytes read_slice)
-      (Bytesrw.Bytes.Slice.first read_slice)
-      (Bytesrw.Bytes.Slice.length read_slice)
-  in
+  let read_data = slice_string read_slice in
 
   Alcotest.(check string) "round-trip data matches" test_data read_data
 

@@ -57,7 +57,9 @@ OCaml backend.
 are bounded by their OCaml callers.
 
 `wip/d10/test/compat/digestif_probe.ml` checks the added portable BLAKE3
-helpers against the upstream module API.
+helpers against the upstream module API. `digestif_length_guard.ml` beside
+it rejects the upstream 32-bit length spellings in the C sources on every
+D10 test run, because a behavioural check needs a 4 GiB feed.
 
 On refresh, merge against the recorded upstream commit, retain these patches,
 run `@@vendor/digestif/test/c/runtest` and

@@ -22,3 +22,15 @@
  (name digestif_probe)
  (modules digestif_probe)
  (libraries digestif))
+
+(executable
+ (name digestif_length_guard)
+ (modules digestif_length_guard))
+
+(rule
+ (alias runtest)
+ (deps
+  (:sources
+   (glob_files %{workspace_root}/vendor/digestif/src-c/native/*.{c,h})))
+ (action
+  (run ./digestif_length_guard.exe %{sources})))

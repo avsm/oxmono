@@ -28,8 +28,23 @@ let sorted_dir dir =
       List.sort String.compare l
   | exception Sys_error _ -> []
 
+(* Bounds on a solve, whose repositories may be a project's own remotes: the
+   time it may take, the package names and versions it may read, and the size
+   of each opam file. The search itself is over what was read, so these bound
+   its memory too. *)
+let max_seconds = 120.
+let max_names = 10_000
+let max_versions = 100_000
+let max_opam = 256 * 1024
+
+exception Too_big of string
+
 let read_opam path =
-  OpamFile.OPAM.read (OpamFile.make (OpamFilename.of_string path))
+  match (Unix.stat path).st_size with
+  | n when n > max_opam ->
+      raise
+        (Too_big (Printf.sprintf "%s is over %d KiB" path (max_opam lsr 10)))
+  | _ -> OpamFile.OPAM.read (OpamFile.make (OpamFilename.of_string path))
 
 let platform_value p = function
   | "os" -> Some (OpamTypes.S p.os)
@@ -58,7 +73,22 @@ module Context = struct
     repositories : string list;
     pins : OpamFile.OPAM.t OpamPackage.Name.Map.t;
     constraints : OpamFormula.version_constraint OpamPackage.Name.Map.t;
+    deadline : Mtime.t;
+    mutable names : int;
+    mutable versions : int;
   }
+
+  let spend t versions =
+    t.names <- t.names + 1;
+    t.versions <- t.versions + versions;
+    if t.names > max_names || t.versions > max_versions then
+      raise
+        (Too_big
+           (Printf.sprintf "the solve reads over %d packages or %d versions"
+              max_names max_versions));
+    if Mtime.is_later (Mtime_clock.now ()) ~than:t.deadline then
+      raise
+        (Too_big (Printf.sprintf "the solve took over %.0f s" max_seconds))
 
   let dev = OpamPackage.Version.of_string "dev"
 
@@ -108,6 +138,7 @@ module Context = struct
               OpamPackage.Version.compare (OpamPackage.version b)
                 (OpamPackage.version a))
         in
+        spend t (List.length versions);
         (* Versions flagged [avoid-version], such as previews, come after the
            rest, as opam orders them. *)
         List.filter_map
@@ -165,6 +196,15 @@ let solve r =
         repositories = r.repositories;
         pins;
         constraints;
+        deadline =
+          (match
+             Mtime.add_span (Mtime_clock.now ())
+               (Mtime.Span.of_float_ns (max_seconds *. 1e9) |> Option.get)
+           with
+          | Some t -> t
+          | None -> Mtime.max_stamp);
+        names = 0;
+        versions = 0;
       }
     in
     let roots =
@@ -180,7 +220,7 @@ let solve r =
     | Error d -> Error (Solver.diagnostics d)
   with
   | result -> result
-  | exception (Failure m | Invalid_argument m) -> Error m
+  | exception (Failure m | Invalid_argument m | Too_big m) -> Error m
   | exception OpamPp.Bad_format (_, m) -> Error ("bad opam file: " ^ m)
   | exception ((Out_of_memory | Stack_overflow) as e) -> raise e
   | exception e -> Error ("bad opam file: " ^ Printexc.to_string e)

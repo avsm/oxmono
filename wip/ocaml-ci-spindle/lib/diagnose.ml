@@ -11,10 +11,44 @@ type t = {
 
 type failure = { workflow : string; error : string option; log : string }
 
-let default_url = "http://sequoia:8000/v1"
 let default_model = "Qwen/Qwen3.8-27B-FP8"
 
+(* Plain http is for a model on the spindle's own machine or network, and a
+   key, which would cross it in the clear, is sent only over https or to a
+   loopback address. *)
+let check_url ~key url =
+  let after prefix =
+    if String.starts_with ~prefix url then
+      Some (String.sub url (String.length prefix)
+              (String.length url - String.length prefix))
+    else None
+  in
+  match (after "https://", after "http://") with
+  | Some _, _ -> ()
+  | None, Some rest ->
+      let authority =
+        match String.index_opt rest '/' with
+        | Some i -> String.sub rest 0 i
+        | None -> rest
+      in
+      let host =
+        match String.rindex_opt authority ':' with
+        | Some i when not (String.ends_with ~suffix:"]" authority) ->
+            String.sub authority 0 i
+        | _ -> authority
+      in
+      let loopback =
+        List.mem (String.lowercase_ascii host)
+          [ "localhost"; "127.0.0.1"; "[::1]" ]
+      in
+      if key <> None && not loopback then
+        invalid_arg
+          "Diagnose.v: an API key is sent only over https or to a loopback \
+           address"
+  | None, None -> invalid_arg "Diagnose.v: the URL must be http or https"
+
 let v ?key ?(model = default_model) ?(timeout = 600.) ~clock fetch url =
+  check_url ~key url;
   { fetch; clock :> Eio.Time.Mono.ty Eio.Resource.t; url; model; key; timeout }
 
 let model t = t.model

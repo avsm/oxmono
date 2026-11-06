@@ -16,7 +16,9 @@ val v :
     [dune build @install @check @runtest] on the source. An OxCaml [variant]
     first adds [oxcaml_repository], a URL and commit, and creates its switch.
     [remotes], URLs and commits, none by default, are then added above every
-    other repository, the first highest. *)
+    other repository, the first highest. Git follows no redirects when it
+    fetches them, and the steps from their addition on mount a download cache
+    named for their URLs rather than the shared one. *)
 
 val day10 :
   variant:Variant.t ->

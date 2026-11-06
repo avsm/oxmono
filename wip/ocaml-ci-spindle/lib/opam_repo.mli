@@ -32,10 +32,32 @@ val with_snapshot :
 type remotes
 (** The opam repositories that projects name, each cloned once. *)
 
+val default_hosts : string list
+(** [default_hosts] is [github.com], [gitlab.com], [codeberg.org],
+    [bitbucket.org] and [git.sr.ht]. *)
+
 val remotes :
-  _ Eio_unix.Process.mgr -> _ Eio.Time.Mono.t -> dir:string -> remotes
-(** [remotes process clock ~dir] is an empty set of remotes, cloned under
-    [dir]. *)
+  ?hosts:string list ->
+  _ Eio_unix.Process.mgr ->
+  _ Eio.Time.Mono.t ->
+  dir:string ->
+  remotes
+(** [remotes ~hosts process clock ~dir] is an empty set of remotes, cloned
+    under [dir], on the [hosts] that {!allowed} accepts, {!default_hosts} by
+    default.
+
+    The build workers fetch a remote again themselves, outside the checks
+    that {!remote} makes, so a host that a project could point at a private
+    address, for example by its DNS answering differently there, would let
+    the project reach the cluster's network. [hosts] should therefore name
+    only public forges that serve no one's private addresses. *)
+
+val hosts : remotes -> string list
+(** [hosts r] is the hosts that [r] accepts, in lower case. *)
+
+val allowed : remotes -> string -> bool
+(** [allowed r host] holds when [host] is one of [hosts r], ignoring case.
+    Subdomains are not accepted. *)
 
 val remote :
   remotes -> url:string -> host:string -> ?branch:string -> unit -> t option

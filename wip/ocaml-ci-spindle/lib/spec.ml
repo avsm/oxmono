@@ -28,8 +28,21 @@ let atom s =
     Buffer.add_char b '"';
     Buffer.contents b
 
-let download_cache (variant : Variant.t) =
-  Printf.sprintf "(cache (opam-archives (target %s)))"
+(* Packages from a project's remotes run their build instructions with the
+   download cache mounted, so builds with remotes use a cache of their own,
+   named for the remotes' addresses, and cannot alter the archives other
+   builds read. *)
+let download_cache ?(remotes = []) (variant : Variant.t) =
+  let name =
+    match remotes with
+    | [] -> "opam-archives"
+    | remotes ->
+        let urls = List.sort_uniq String.compare (List.map fst remotes) in
+        "opam-archives-"
+        ^ String.sub (Digest.to_hex (Digest.string (String.concat "\n" urls)))
+            0 16
+  in
+  Printf.sprintf "(cache (%s (target %s)))" name
     (atom
        (match variant.os with
        | Linux -> "/home/opam/.opam/download-cache"
@@ -48,7 +61,17 @@ let package_of_file f = Filename.chop_suffix (Filename.basename f) ".opam"
 
 let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
     ?(remotes = []) ~opam_files ~packages () =
-  let cache = download_cache variant in
+  let shared = download_cache variant in
+  (* Once the remotes are added, opam may run their packages' instructions. *)
+  let cache = download_cache ~remotes variant in
+  (* Git follows no redirects when opam fetches a remote, as when the
+     spindle did, so that an allowed host cannot send the worker elsewhere. *)
+  let no_redirects =
+    if remotes = [] then ""
+    else
+      "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.followRedirects \
+       GIT_CONFIG_VALUE_0=false "
+  in
   let roots = List.map package_of_file opam_files in
   let root_versions = List.map (fun p -> p ^ ".dev") roots in
   let deps = List.filter (fun p -> not (List.mem p root_versions)) packages in
@@ -75,7 +98,7 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
     | true, Some (url, commit) ->
         let compiler, version = variant.compiler in
         [
-          run ~network:true ~cache
+          run ~network:true ~cache:shared
             (Printf.sprintf
                "opam repository add ox %s --dont-select && opam switch create \
                 ox %s.%s --repositories=ox,default"
@@ -93,7 +116,8 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
       (List.mapi
          (fun i (url, commit) ->
            run ~network:true ~cache
-             (Printf.sprintf "opam repository add x%d %s --rank=1" (i + 1)
+             (Printf.sprintf "%sopam repository add x%d %s --rank=1"
+                no_redirects (i + 1)
                 (Filename.quote ("git+" ^ url ^ "#" ^ commit))))
          remotes)
   in
@@ -107,7 +131,7 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
     @ home
     @ [
         run link;
-        run ~network:true ~cache
+        run ~network:true ~cache:shared
           (Printf.sprintf
              "cd ~/opam-repository && (git cat-file -e %s || git fetch origin \
               master) && git reset -q --hard %s && git log --no-decorate -n1 \
@@ -122,7 +146,7 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
       | Linux -> [ run "sudo chown opam /src" ]
       | Windows -> [])
     @ [
-        run ~network:true ~cache "opam update -u";
+        run ~network:true ~cache (no_redirects ^ "opam update -u");
         Printf.sprintf "(copy (src %s) (dst %s))"
           (String.concat " " (List.map atom opam_files))
           (atom pin_dir);

@@ -12,9 +12,6 @@ type failure = {
   log : string;  (** Its log, as {!Spindle.Executor.outcome} gives it. *)
 }
 
-val default_url : string
-(** [default_url] is [http://sequoia:8000/v1], a test endpoint. *)
-
 val default_model : string
 (** [default_model] is [Qwen/Qwen3.8-27B-FP8], the model it serves. *)
 
@@ -30,7 +27,11 @@ val v :
     default, at the API whose base URL is [url], such as
     [https://openrouter.ai/api/v1]. [key] is sent as a bearer token, and is sent
     nowhere else, since redirects are not followed. A request may take [timeout]
-    seconds, 600 by default. *)
+    seconds, 600 by default.
+
+    @raise Invalid_argument if [url] is neither http nor https, or if [key] is
+    given and [url] is plain http to a host other than [localhost],
+    [127.0.0.1] or [[::1]]. *)
 
 val model : t -> string
 val url : t -> string

@@ -298,6 +298,23 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
           in
           (* The project's own remotes, from [x-opam-repositories]. *)
           let wanted, ignored = Analysis.remotes a in
+          (* The build workers fetch the remotes too, so only those on hosts
+             that cannot point them at a private address are used. *)
+          let wanted, elsewhere =
+            List.partition
+              (fun (r : Analysis.remote) ->
+                Opam_repo.allowed config.remotes r.host)
+              wanted
+          in
+          let ignored =
+            ignored
+            @ List.map
+                (fun (r : Analysis.remote) ->
+                  ( r.url,
+                    Printf.sprintf "builds fetch remotes only from %s"
+                      (String.concat ", " (Opam_repo.hosts config.remotes)) ))
+                elsewhere
+          in
           List.iter
             (fun (entry, why) ->
               logf ctx "Ignoring x-opam-repositories entry %S: %s.\n" entry why)

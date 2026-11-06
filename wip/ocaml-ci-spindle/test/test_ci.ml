@@ -221,6 +221,20 @@ let () =
       "opam repository add x1 'git+https://github.com/x/one.git#c1' --rank=1"
   in
   assert (two < one && one < index "opam update -u");
+  (* Git follows no redirects for them, and the steps from their addition
+     use a download cache of their own, while the earlier ones share it. *)
+  assert (within rspec "GIT_CONFIG_VALUE_0=false opam update -u");
+  assert (within rspec "GIT_CONFIG_VALUE_0=false opam repository add x1");
+  assert (within rspec "(cache (opam-archives (target");
+  assert (index "(cache (opam-archives (target" < index "repository add x2");
+  let line_of s =
+    List.find
+      (fun l -> within l s)
+      (String.split_on_char '\n' rspec)
+  in
+  assert (within (line_of "opam install $DEPS") "(cache (opam-archives-");
+  assert (within (line_of "opam update -u") "(cache (opam-archives-");
+  assert (within (line_of "cd ~/opam-repository") "(cache (opam-archives (");
   (* On Windows, files are copied to native paths and built from Cygwin's. *)
   let wspec =
     Spec.v ~variant:win ~opam_repository:"abc123" ~opam_files:[ "demo.opam" ]

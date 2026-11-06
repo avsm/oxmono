@@ -10,6 +10,14 @@
   fetched before the shared repositories are locked, so a slow one delays
   only the plans that name it.
 - Bound the diagnosis prompt to eight root files and 256 KiB.
+- Use `x-opam-repositories` remotes only on `--remote-hosts`, public forges
+  by default, since build workers fetch them too. Builds fetch them with no
+  git redirects and use a download cache of their own.
+- Give up a solve after two minutes, 10,000 packages or 100,000 versions, or
+  on an opam file over 256 KiB.
+- Require `--diagnose-url` with `--diagnose`, and send a key only over https
+  or to a loopback address.
+- Kill git's whole process group when a fetch times out or is cancelled.
 
 - Layer the opam repositories named in a project's `x-opam-repositories`
   fields over opam-repository, the union across its opam files. Each branch

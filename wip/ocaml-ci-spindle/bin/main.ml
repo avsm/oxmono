@@ -7,7 +7,7 @@ open Ocaml_ci_spindle
 let diagnose =
   let open Arg in
   let make enabled url model key_file =
-    if not enabled then None
+    if not enabled then `Ok None
     else
       let key =
         match key_file with
@@ -18,9 +18,11 @@ let diagnose =
             | Some "" | None -> None
             | key -> key)
       in
-      Some (url, model, key)
+      match url with
+      | None -> `Error (true, "--diagnose requires --diagnose-url")
+      | Some url -> `Ok (Some (url, model, key))
   in
-  Term.(
+  Term.ret @@ Term.(
     const make
     $ value
         (flag
@@ -32,11 +34,13 @@ let diagnose =
                the failures from their logs and suggest fixes. Logs and \
                project files are sent to $(b,--diagnose-url). Off by default.")
     $ value
-        (opt string Diagnose.default_url
+        (opt (some string) None
         & info [ "diagnose-url" ] ~docv:"URL"
             ~doc:
               "The OpenAI-compatible API to ask, such as \
-               $(b,https://openrouter.ai/api/v1).")
+               $(b,https://openrouter.ai/api/v1). Required with \
+               $(b,--diagnose). A key is sent only over https or to a \
+               loopback address.")
     $ value
         (opt string Diagnose.default_model
         & info [ "diagnose-model" ] ~docv:"MODEL" ~doc:"The model to ask.")
@@ -62,10 +66,21 @@ let options =
         (opt (some file) None
         & info [ "ocluster-cap" ] ~docv:"FILE"
             ~doc:"The OCluster scheduler's submission capability file.")
-    $ value
-        (opt string "opam-cache"
-        & info [ "opam-cache" ] ~docv:"DIR"
-            ~doc:"Where the opam repositories are cloned to solve.")
+    $ (const (fun dir hosts -> (dir, hosts))
+      $ value
+          (opt string "opam-cache"
+          & info [ "opam-cache" ] ~docv:"DIR"
+              ~doc:"Where the opam repositories are cloned to solve.")
+      $ value
+          (opt (list string) Opam_repo.default_hosts
+          & info [ "remote-hosts" ] ~docv:"HOSTS"
+              ~doc:
+                "The only hosts whose opam repositories a project may name in \
+                 $(b,x-opam-repositories). The build workers fetch them \
+                 themselves, so name only public forges that cannot point a \
+                 worker at a private address. $(b,github.com), \
+                 $(b,gitlab.com), $(b,codeberg.org), $(b,bitbucket.org) and \
+                 $(b,git.sr.ht) by default."))
     $ value
         (opt (list string) [ "auto" ]
         & info [ "compilers" ] ~docv:"MINORS"
@@ -119,7 +134,8 @@ let () =
   Spindle_cli.main ~name:"ocaml-ci-spindle" ~workflow_timeout:21600.
     ~repository_workflows:false
     ~doc:"Run a Tangled spindle that tests OCaml projects on OCluster" options
-    (fun env ~sw (cap, cache, compilers, platforms, oxcaml, diagnose) ->
+    (fun env ~sw (cap, (cache, hosts), compilers, platforms, oxcaml, diagnose)
+       ->
       let repo name url =
         Opam_repo.v env#process_mgr env#mono_clock ~dir:cache ~name url
       in
@@ -136,7 +152,8 @@ let () =
                  (repo "oxcaml-repository"
                     "https://github.com/oxcaml/opam-repository.git")
              else None);
-          remotes = Opam_repo.remotes env#process_mgr env#mono_clock ~dir:cache;
+          remotes =
+            Opam_repo.remotes ~hosts env#process_mgr env#mono_clock ~dir:cache;
           compilers;
           platforms =
             (let p, _, _ = platforms in

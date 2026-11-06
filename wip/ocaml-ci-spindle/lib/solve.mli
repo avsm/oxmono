@@ -29,7 +29,12 @@ type request = {
 
 val solve : request -> (string list, string) result
 (** [solve request] is the packages of a solution, as [name.version], or an
-    explanation of why there is none. The pinned packages are included. *)
+    explanation of why there is none. The pinned packages are included.
+
+    A solve gives up with an explanation once it has run for 120 seconds or
+    read 10,000 package names or 100,000 versions, checked as it reads each
+    package's versions, or on finding an opam file over 256 KiB. The search
+    between reads is not interrupted, but works only on what was read. *)
 
 val direct : (string * string) list -> string list
 (** [direct pins] is the names of the packages that the project's [pins], given

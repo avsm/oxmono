@@ -10,7 +10,9 @@ ocaml-ci-spindle --ocluster-cap submission.cap --hostname ci.example.org \
   --owner did:plc:OWNER --plc https://plc.directory \
   --jetstream wss://index.tangled.network/subscribe \
   --cors-origin https://tangled.org \
-  --concurrency 32 --oxcaml --diagnose
+  --concurrency 32 --oxcaml \
+  --diagnose --diagnose-url https://openrouter.ai/api/v1 \
+  --diagnose-key-file openrouter.key
 ```
 
 It takes every option of the `spindle` command, and these of its own:
@@ -24,8 +26,9 @@ It takes every option of the `spindle` command, and these of its own:
 | `--day10 ARCHES` | Debian architectures built with day10 on the `day10-linux-ARCH` pools instead of OBuilder, from `x86_64`, `arm64`, `ppc64le` and `riscv64`, or `none`. `x86_64,riscv64` by default. |
 | `--oxcaml` | Also build with OxCaml 5.2.0minus39, as oxmono does. |
 | `--opam-cache DIR` | Where opam-repository is cloned to solve. |
+| `--remote-hosts HOSTS` | The only hosts a project's `x-opam-repositories` may name, since the build workers fetch them too. `github.com,gitlab.com,codeberg.org,bitbucket.org,git.sr.ht` by default. |
 | `--diagnose` | Ask a language model about the failed builds of pull requests labelled `ci:diagnose`. Off by default. |
-| `--diagnose-url URL` | Its OpenAI-compatible API, `http://sequoia:8000/v1` by default, for testing. `https://openrouter.ai/api/v1` is OpenRouter's. |
+| `--diagnose-url URL` | Its OpenAI-compatible API, required with `--diagnose`. `https://openrouter.ai/api/v1` is OpenRouter's. A key is sent only over https or to a loopback address. |
 | `--diagnose-model MODEL` | The model, `Qwen/Qwen3.8-27B-FP8` by default. |
 | `--diagnose-key-file FILE` | The API key. `OPENROUTER_API_KEY` is used otherwise, and none is sent when neither is set. |
 
@@ -43,12 +46,15 @@ Every push, pull request or manual run starts an `ocaml-ci` workflow:
    Opam repositories that the project's opam files name in
    `x-opam-repositories` are layered over both. The build uses the union of
    all its opam files' entries, in order of first appearance and at most
-   four. Each is `[git+]https://HOST/PATH[#BRANCH]` on a public host name.
-   Its branch, or default branch, is resolved to a commit when the solve
-   fetches it, and the build adds it with `opam repository add` at that
-   commit. Other entries are logged and ignored. A project with such
-   repositories builds with OBuilder rather than day10, which takes one
-   repository.
+   four. Each is `[git+]https://HOST/PATH[#BRANCH]` with `HOST` one of
+   `--remote-hosts`. Its branch, or default branch, is resolved to a commit
+   when the solve fetches it, and the build adds it with `opam repository
+   add` at that commit, with git following no redirects. Other entries are
+   logged and ignored. A project with such repositories builds with
+   OBuilder rather than day10, which takes one repository, and with a
+   download cache of its own, since their packages' instructions run with
+   it mounted. A solve gives up after two minutes, 10,000 packages or
+   100,000 versions, or on an opam file over 256 KiB.
 3. A workflow is spawned for every compiler with a solution, such as
    `5.4.1:x86_64:Debian-13`. Its first step carries the OBuilder
    spec as its command.

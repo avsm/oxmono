@@ -112,13 +112,46 @@ let git_args t ~pin args =
           | None -> [])
   @ args
 
-let git ?pin t args =
-  Eio.Process.run t.process ~env:(git_env t) (git_args t ~pin args)
+(* Git runs in a process group of its own, killed whole when the call is
+   cancelled or times out, so that the helpers it starts, such as
+   git-remote-https, do not outlive it. Its output is the result when [out]
+   is set, and otherwise goes to the spindle's standard error. *)
+let run_git ?pin ?(out = false) t args =
+  let argv = git_args t ~pin args in
+  Eio.Switch.run @@ fun sw ->
+  let r, w = Eio_unix.pipe sw in
+  let stdout = if out then Eio_unix.Resource.fd w else Eio_unix.Fd.stderr in
+  let child =
+    Eio_unix.Process.spawn_unix ~sw t.process ~pgid:0 ~env:(git_env t)
+      ~fds:
+        [
+          (0, Eio_unix.Fd.stdin, `Blocking);
+          (1, stdout, `Blocking);
+          (2, Eio_unix.Fd.stderr, `Blocking);
+        ]
+      argv
+  in
+  Eio.Flow.close w;
+  match
+    let output =
+      if out then Eio.Buf_read.(parse_exn take_all) r ~max_size:(1 lsl 20)
+      else ""
+    in
+    (output, Eio.Process.await child)
+  with
+  | output, `Exited 0 -> output
+  | _, status ->
+      raise
+        (Eio.Exn.add_context
+           (Eio.Process.err (Child_error status))
+           "running command: %s" (String.concat " " argv))
+  | exception e ->
+      (try Unix.kill (-Eio.Process.pid child) Sys.sigkill
+       with Unix.Unix_error _ -> ());
+      raise e
 
-let git_out t args =
-  String.trim
-    (Eio.Process.parse_out t.process ~env:(git_env t) Eio.Buf_read.take_all
-       (git_args t ~pin:None args))
+let git ?pin t args = ignore (run_git ?pin t args : string)
+let git_out t args = String.trim (run_git ~out:true t args)
 
 (* Only the newest commit is needed to solve, so the clone is shallow. It is
    made beside [dir] and moved into place, so an interrupted clone is never
@@ -215,16 +248,24 @@ type remotes = {
   r_process : Eio_unix.Process.mgr_ty Eio.Resource.t;
   r_clock : Eio.Time.Mono.ty Eio.Resource.t;
   r_dir : string;
+  hosts : string list;
   known : (string * string option, t) Hashtbl.t;
 }
 
-let remotes process clock ~dir =
+let default_hosts =
+  [ "github.com"; "gitlab.com"; "codeberg.org"; "bitbucket.org"; "git.sr.ht" ]
+
+let remotes ?(hosts = default_hosts) process clock ~dir =
   {
     r_process = (process :> Eio_unix.Process.mgr_ty Eio.Resource.t);
     r_clock = (clock :> Eio.Time.Mono.ty Eio.Resource.t);
     r_dir = dir;
+    hosts = List.map String.lowercase_ascii hosts;
     known = Hashtbl.create 16;
   }
+
+let hosts r = r.hosts
+let allowed r host = List.mem (String.lowercase_ascii host) r.hosts
 
 (* Each remote has its own clone, kept for later builds, so their number is
    bounded. *)

@@ -24,3 +24,8 @@
  (name diagnose)
  (modules diagnose)
  (libraries ocaml-ci-spindle spindle eio_main fetch-httpz httpz.tls))
+
+(test
+ (name test_bounds)
+ (modules test_bounds)
+ (libraries ocaml-ci-spindle eio eio_main fetch-httpz unix))

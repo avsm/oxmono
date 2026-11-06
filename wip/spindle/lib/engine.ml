@@ -386,16 +386,33 @@ and run t p (workflow : Runner.t) =
           ~queued_for:(fun s -> waited := !waited +. s)
           ~interruptible:(t.durable <> None) workflow
   with
-  | Eio.Cancel.Cancelled _ as e when t.durable <> None -> raise e
+  | Eio.Cancel.Cancelled _ as e -> raise e
   | exn ->
-      Eio.Cancel.protect (fun () ->
-          workflow.status <- `Failed;
-          workflow.finished <- Some (Runner.now ());
-          workflow.error <- Some (Runner.message exn);
-          persist t p)
+      (* An error after the workflow ended, such as one charging its
+         minutes, leaves its outcome as it is. Its text may quote a secret,
+         as the runner's errors may. *)
+      if not (Runner.terminal workflow) then
+        Eio.Cancel.protect (fun () ->
+            let secrets =
+              if p.trusted then
+                List.map snd (Settings.secrets t.settings p.repo)
+              else []
+            in
+            workflow.status <- `Failed;
+            workflow.finished <- Some (Runner.now ());
+            workflow.error <- Some (Mask.hide secrets (Runner.message exn));
+            persist t p)
 
 and spawn t p ~parent ~env name steps =
   if not (Workflows.valid_name name) then invalid "invalid workflow name";
+  (* A workflow that has ended or been cancelled starts nothing more, even
+     from its executor's cleanup. *)
+  (match
+     List.find_opt (fun (r : Runner.t) -> r.job.name = parent) p.workflows
+   with
+  | Some r when Runner.terminal r || r.cancelled ->
+      invalid "the workflow has ended"
+  | _ -> ());
   let workflow = Runner.v ~parent (Job.spawned ~env name steps) in
   (* A workflow that runs again after a restart spawns what it spawned
      before, which is already there and may already be running. The earlier

@@ -332,6 +332,16 @@ let flush record p ~step s =
 (* [context record persist p ~secrets] numbers the executor's steps from 0 and
    masks [secrets] in each stream of a step. Text held back by a mask or an
    unterminated line at the end of a step is flushed into that step. *)
+(* A step's name is one line of plain text and its command plain text, so
+   that neither can forge the structure of a log or move a terminal's
+   cursor. Other control characters become spaces. *)
+let plain ~lines s =
+  String.map
+    (fun c ->
+      let control = Char.code c < 0x20 || c = '\127' in
+      if (lines && (c = '\n' || c = '\t')) || not control then c else ' ')
+    s
+
 let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
     ~queued_for : Executor.context =
   let values = List.map snd secrets in
@@ -343,7 +353,8 @@ let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
     incr next;
     let streams = [ stream "stdout" values; stream "stderr" values ] in
     let kind = match kind with `User -> "user" | `System -> "system" in
-    let name = hide name and command = Option.map hide command in
+    let name = plain ~lines:false (hide name)
+    and command = Option.map (fun c -> plain ~lines:true (hide c)) command in
     (* What a step's streams still hold is part of it, so a log that cannot
        take it fails the step. After a failure it is kept if it fits. *)
     run_step record persist p ~step ~kind ?command name (fun () ->
@@ -414,7 +425,15 @@ let text p =
       | Some "control", Some name when field "status" = Some "start" ->
           Buffer.add_string b ("## " ^ name ^ "\n")
       | Some "data", Some content ->
-          Buffer.add_string b content;
+          (* Output that looks like a step's heading is set off by a
+             space, so that only steps start sections. *)
+          let lines = String.split_on_char '\n' content in
+          Buffer.add_string b
+            (String.concat "\n"
+               (List.map
+                  (fun l ->
+                    if String.starts_with ~prefix:"## " l then " " ^ l else l)
+                  lines));
           if not (String.ends_with ~suffix:"\n" content) then
             Buffer.add_char b '\n'
       | _ -> ())

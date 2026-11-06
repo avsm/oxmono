@@ -6,6 +6,16 @@
 
 ## Unreleased
 
+- Give back a worker slot or quota place only while it is held, so that a
+  cancelled or overlapping wait for spawned workflows cannot release it
+  twice. Re-raise cancellation from a workflow's run, keep an ended
+  workflow's outcome when a later step such as charging minutes fails, and
+  mask secrets in that error. Refuse spawns from a workflow that has ended
+  or been cancelled.
+- Make step names one line of plain text and commands plain text, and set
+  off output lines that look like step headings in the text given to
+  executors, so that a log cannot forge its structure.
+
 - Store only Jetstream patches and tickets of known repositories, and
   manifests of known repositories or naming this spindle, so that records
   anyone can publish cannot flood the inbox. Check a manifest's claimed owner

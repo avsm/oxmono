@@ -8,6 +8,27 @@ module Mask = Spindle__Mask
 
 let () =
   Eio_main.run @@ fun env ->
+  (* A gate gives up only what it holds: a wait whose taking back is
+     cancelled leaves the resource given up, and the next wait does not give
+     it up again. *)
+  (let released = ref 0 and acquired = ref 0 and refuse = ref true in
+   let gate =
+     Spindle__Gate.v
+       ~release:(fun () -> incr released)
+       ~acquire:(fun () ->
+         if !refuse then (
+           refuse := false;
+           raise (Eio.Cancel.Cancelled Exit))
+         else incr acquired)
+   in
+   (match Spindle__Gate.run gate (fun () -> failwith "wait failed") with
+   | () -> assert false
+   | exception Failure _ -> ());
+   assert (!released = 1 && !acquired = 0);
+   Spindle__Gate.run gate (fun () -> ());
+   assert (!released = 1 && !acquired = 1);
+   Spindle__Gate.run gate (fun () -> ());
+   assert (!released = 2 && !acquired = 2));
   Eio.Time.with_timeout_exn env#clock 30. @@ fun () ->
   let name = Filename.temp_file "spindle-runner-" "" in
   Sys.remove name;

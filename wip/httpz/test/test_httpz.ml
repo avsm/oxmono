@@ -584,6 +584,17 @@ let test_host_and_field_validation () =
       let request = Printf.sprintf "GET / HTTP/1.1\r\nHost: %s\r\n\r\n" host in
       assert
         (Poly.( = ) (parse_status buf request) Httpz.Buf_read.Invalid_header));
+  (* RFC 9112 Section 5.1 forbids whitespace between a field name and its
+     colon, which could otherwise smuggle framing past an intermediary. *)
+  List.iter
+    [ "GET / HTTP/1.1\r\nHost : x\r\n\r\n"
+    ; "POST / HTTP/1.1\r\nHost: x\r\nContent-Length : 5\r\n\r\nhello"
+    ; "POST / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding\t: chunked\r\n\r\n"
+    ; "GET / HTTP/1.1\r\nHost: x\r\n: empty-name\r\n\r\n"
+    ]
+    ~f:(fun request ->
+      assert (
+        not (Poly.( = ) (parse_status buf request) Httpz.Buf_read.Complete)));
   Stdio.printf "test_host_and_field_validation: PASSED\n"
 ;;
 

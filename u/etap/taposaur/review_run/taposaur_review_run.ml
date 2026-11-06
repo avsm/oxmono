@@ -104,7 +104,7 @@ let execute ?(max_members=100000) store catalog
       occurrences=List.length parsed.R.records;diagnostics=parsed.diagnostics})
     results in
   S.publish_run store revision ~actor inputs
-let snapshot ?(publishers=[]) ?(abstracts=[]) ?(max_members=100000) ?(max_bytes=256 * 1024 * 1024)
+let snapshot ?(publishers=[]) ?(abstracts=[]) ?(works=[]) ?(max_members=100000) ?(max_bytes=256 * 1024 * 1024)
     ?(capture_seconds=60.) store catalog ~run_id ~parent ~label ~actor =
   budget max_members;
   if max_bytes < 1 || max_bytes > 4 * 1024 * 1024 * 1024 then
@@ -119,6 +119,9 @@ let snapshot ?(publishers=[]) ?(abstracts=[]) ?(max_members=100000) ?(max_bytes=
   let abstract_evidence = Hashtbl.create (List.length abstracts) in
   List.iter (fun (e : Abstract_evidence.t) ->
     Hashtbl.replace abstract_evidence e.doi e) abstracts;
+  let work_evidence = Hashtbl.create (List.length works) in
+  List.iter (fun (w : Work_evidence.t) ->
+    Hashtbl.replace work_evidence w.doi w) works;
   let observations = C.Snapshot.with_read catalog (fun snapshot ->
     let started = Unix.gettimeofday () and bytes = ref 0 in
     List.map (fun (member : R.member) ->
@@ -146,6 +149,9 @@ let snapshot ?(publishers=[]) ?(abstracts=[]) ?(max_members=100000) ?(max_bytes=
             evidence={R.field="abstract";source=Abstract_evidence.label e} ::
               List.filter (fun (e:R.evidence) -> e.field<>"abstract") observation.evidence}
         | _ -> observation in
+      let observation = match Hashtbl.find_opt work_evidence member.doi with
+        | Some w -> R.fill w observation
+        | None -> observation in
       bytes := !bytes +
         String.length (R.encode R.observation_jsont observation);
       if !bytes > max_bytes then

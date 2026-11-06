@@ -72,6 +72,12 @@ val freeze : member -> summary:Taposaur.Summary.t option ->
     supplied records in input order. It freezes values and field provenance.
     It does not rerun the paper resolver. *)
 
+val fill : Taposaur.Work_evidence.t -> observation -> observation
+(** [fill evidence observation] supplies blank bibliographic fields from
+    external work evidence of the same DOI and records the evidence label
+    as each filled field's source. Nonblank frozen values and their
+    provenance are kept; the abstract is never touched. *)
+
 type export_format = Dois | Csv | Jsonl
 val export_name : export_format -> string
 val export_type : export_format -> string

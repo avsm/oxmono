@@ -306,6 +306,34 @@ let freeze (member : member) ~summary ~catalogue_stamp ~stale ~error
     in_catalogue=Option.is_some summary; origins=member.origins;
     evidence=List.rev !evidence; catalogue_stamp; stale; error; diagnostics}
 
+let fill (w : Work_evidence.t) (o : observation) =
+  if w.doi <> o.doi then o else
+  let evidence = ref (List.rev o.evidence) in
+  let note field = evidence := {field; source = Work_evidence.label w} ::
+    List.filter (fun e -> e.field <> field) !evidence in
+  let blank = function Some s -> String.trim s = "" | None -> true in
+  let text field (supplied : string option) frozen =
+    if blank frozen && not (blank supplied) then (note field; supplied) else frozen in
+  let b = o.bibliography and s = w.bibliography in
+  let bibliography = {
+    Bibliography.title = text "title" s.title b.title;
+    abstract = b.abstract;
+    authors = if b.authors = [] && s.authors <> [] then (note "authors"; s.authors)
+      else b.authors;
+    journal = text "journal" s.journal b.journal;
+    publisher = text "publisher" s.publisher b.publisher;
+    published = text "published" s.published b.published;
+    year = (match b.year, s.year with
+      | None, Some y -> note "year"; Some y | y, _ -> y);
+    volume = text "volume" s.volume b.volume;
+    issue = text "issue" s.issue b.issue;
+    pages = text "pages" s.pages b.pages;
+    issn = text "issn" s.issn b.issn;
+    doi = b.doi;
+    pmcid = text "pmcid" s.pmcid b.pmcid;
+    pmid = text "pmid" s.pmid b.pmid } in
+  {o with bibliography; evidence = List.rev !evidence}
+
 type export_format = Dois | Csv | Jsonl
 let export_name = function Dois -> "doi" | Csv -> "csv" | Jsonl -> "jsonl"
 let export_type = function

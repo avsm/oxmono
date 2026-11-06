@@ -17,7 +17,7 @@ type row = {
   pages : string option; issn : string option; pmid : string option;
   pmcid : string option;
   title_source : string option; abstract_source : string option;
-  publisher_source : string option;
+  publisher_source : string option; sources : (string * string) list;
   in_catalogue : bool; pdf : bool; xml : bool; tei : bool; s2orc : bool;
   tei_file : string option; tei_converter : string option;
   tei_sha256 : string option; tei_bytes : int option;
@@ -32,12 +32,13 @@ let row_jsont =
   Jsont.Object.map ~kind:"Corpus row"
     (fun snapshot doi uid title abstract authors journal publisher year
       published volume issue pages issn pmid pmcid title_source
-      abstract_source publisher_source in_catalogue pdf xml tei s2orc
+      abstract_source publisher_source sources in_catalogue pdf xml tei s2orc
       tei_file tei_converter tei_sha256 tei_bytes text text_error ->
       {snapshot; doi; uid; title; abstract; authors; journal; publisher; year;
        published; volume; issue; pages; issn; pmid; pmcid; title_source;
-       abstract_source; publisher_source; in_catalogue; pdf; xml; tei; s2orc;
-       tei_file; tei_converter; tei_sha256; tei_bytes; text; text_error})
+       abstract_source; publisher_source; sources; in_catalogue; pdf; xml;
+       tei; s2orc; tei_file; tei_converter; tei_sha256; tei_bytes; text;
+       text_error})
   |> mem "snapshot" Jsont.int (fun r -> r.snapshot)
   |> mem "doi" Jsont.string (fun r -> r.doi)
   |> mem "uid" Jsont.string (fun r -> r.uid)
@@ -57,6 +58,14 @@ let row_jsont =
   |> omem "title_source" Jsont.string (fun r -> r.title_source)
   |> omem "abstract_source" Jsont.string (fun r -> r.abstract_source)
   |> omem "publisher_source" Jsont.string (fun r -> r.publisher_source)
+  |> Jsont.Object.mem "sources"
+       (Jsont.Object.as_string_map Jsont.string
+        |> Jsont.map
+             ~dec:(fun m -> List.rev (Jsont.String_map.fold
+               (fun k v acc -> (k, v) :: acc) m []))
+             ~enc:(fun l -> List.fold_left (fun m (k, v) ->
+               Jsont.String_map.add k v m) (Jsont.String_map.create ()) l))
+       ~dec_absent:(fun () -> []) ~enc:(fun r -> r.sources)
   |> mem "in_catalogue" Jsont.bool (fun r -> r.in_catalogue)
   |> mem "pdf" Jsont.bool (fun r -> r.pdf)
   |> mem "xml" Jsont.bool (fun r -> r.xml)
@@ -96,6 +105,8 @@ let of_observation ~snapshot ?text (o : R.observation) =
     pmid = nonblank b.pmid; pmcid = nonblank b.pmcid;
     title_source = source "title"; abstract_source = source "abstract";
     publisher_source = source "publisher";
+    sources = List.sort_uniq compare
+      (List.map (fun (e : R.evidence) -> e.field, e.source) o.evidence);
     in_catalogue = o.in_catalogue;
     pdf = h.pdf; xml = h.xml; tei = h.tei; s2orc = h.s2orc;
     tei_file = Option.map (fun t -> t.file) text;
@@ -154,7 +165,7 @@ module C = Taposaur_catalog
 (* The snapshot's catalogue-then-input policy, replayed against the live
    catalogue: a nonblank live value supersedes the frozen one and its
    evidence entry; blank live fields leave the frozen value in place. *)
-let refresh ?catalogue ?abstracts (o : R.observation) =
+let refresh ?catalogue ?abstracts ?works (o : R.observation) =
   let uid = match Uid.of_input o.doi with
     | Ok u -> u | Error e -> invalid_arg e in
   let o = match Option.bind catalogue (fun c -> C.find c uid) with
@@ -187,14 +198,18 @@ let refresh ?catalogue ?abstracts (o : R.observation) =
         pmid = text "pmid" b.pmid f.pmid } in
       {o with bibliography; holdings = s.holdings; in_catalogue = true;
        evidence = List.rev !evidence} in
-  match abstracts, nonblank o.bibliography.abstract, Uid.doi uid with
-  | Some find, None, Some doi ->
-    (match find doi with
-     | Some (e : Abstract_evidence.t) when String.trim e.abstract <> "" ->
-       {o with bibliography = {o.bibliography with abstract = Some e.abstract};
-        evidence = o.evidence @
-          [{R.field = "abstract"; source = Abstract_evidence.label e}]}
-     | _ -> o)
+  let o = match abstracts, nonblank o.bibliography.abstract, Uid.doi uid with
+    | Some find, None, Some doi ->
+      (match find doi with
+       | Some (e : Abstract_evidence.t) when String.trim e.abstract <> "" ->
+         {o with bibliography = {o.bibliography with abstract = Some e.abstract};
+          evidence = o.evidence @
+            [{R.field = "abstract"; source = Abstract_evidence.label e}]}
+       | _ -> o)
+    | _ -> o in
+  match works, Uid.doi uid with
+  | Some find, Some doi ->
+    (match find doi with Some w -> R.fill w o | None -> o)
   | _ -> o
 
 type summary = {
@@ -214,7 +229,7 @@ let summary_jsont =
 let page_size = 100
 
 let export ?pool ?(fibers = 8) ?max_bytes ?max_output ?catalogue ?abstracts
-    ~archive ~store ~snapshot emit =
+    ?works ~archive ~store ~snapshot emit =
   if fibers < 1 || fibers > 256 then invalid_arg "fibers must be 1..256";
   let totals = ref {rows = 0; held = 0; texts = 0; errors = 0; characters = 0} in
   let lookup (o : R.observation) =
@@ -233,8 +248,8 @@ let export ?pool ?(fibers = 8) ?max_bytes ?max_output ?catalogue ?abstracts
      lets archive latency overlap; members the snapshot did not find in
      the catalogue are not looked up. *)
   let build (o : R.observation) =
-    let o = if catalogue = None && abstracts = None then o
-      else refresh ?catalogue ?abstracts o in
+    let o = if catalogue = None && abstracts = None && works = None then o
+      else refresh ?catalogue ?abstracts ?works o in
     let held, text =
       if not o.in_catalogue then false, None
       else match pool with

@@ -165,12 +165,15 @@ let command = Cmd.group (Cmd.info "review"
         List.filter_map (fun (m : R.member) ->
           Taposaur_mirrors.find mirrors (Result.get_ok (Taposaur.Doi.of_string m.doi)))
           (S.members store run_id) in
-      let abstracts = match Taposaur_abstracts.open_configured ~sw ~fs:env#fs with
+      let evidence = Taposaur_abstracts.open_configured ~sw ~fs:env#fs in
+      let collect find = match evidence with
         | None -> [] | Some evidence ->
         List.filter_map (fun (m : R.member) ->
-          Taposaur_abstracts.find evidence (Result.get_ok (Taposaur.Doi.of_string m.doi)))
+          find evidence (Result.get_ok (Taposaur.Doi.of_string m.doi)))
           (S.members store run_id) in
-      let id = X.snapshot ~publishers ~abstracts ~max_members ~max_bytes ~capture_seconds
+      let abstracts = collect Taposaur_abstracts.find in
+      let works = collect Taposaur_abstracts.find_work in
+      let id = X.snapshot ~publishers ~abstracts ~works ~max_members ~max_bytes ~capture_seconds
         store (catalogue env sw db)
         ~run_id ~parent ~label ~actor in
       Printf.printf "Snapshot %d\n" id)) $
@@ -203,10 +206,12 @@ let command = Cmd.group (Cmd.info "review"
       if domains < 1 || domains > 100 then invalid_arg "domains must be 1..100";
       let store = read_store env sw path in
       let catalogue = Option.map (catalogue env sw) live in
-      let abstracts = if not abstracts then None else
+      let evidence = if not abstracts then None else
         match Taposaur_abstracts.open_configured ~sw ~fs:env#fs with
-        | None -> invalid_arg "--abstracts needs TAPOSAUR_ABSTRACTS_DB or taposaur-abstracts.db"
-        | Some evidence -> Some (Taposaur_abstracts.find evidence) in
+        | None -> invalid_arg "--evidence needs TAPOSAUR_ABSTRACTS_DB or taposaur-abstracts.db"
+        | Some evidence -> Some evidence in
+      let abstracts = Option.map Taposaur_abstracts.find evidence in
+      let works = Option.map Taposaur_abstracts.find_work evidence in
       let archive = Taposaur_archive.open_root ~sw (env#fs / root) in
       let pool = if domains = 1 then None else Some (Eio.Executor_pool.create
         ~sw ~domain_count:domains (Eio.Stdenv.domain_mgr env)) in
@@ -214,7 +219,7 @@ let command = Cmd.group (Cmd.info "review"
       let written = ref 0 in
       let summary = Eio.Path.with_open_out ~create:(`Exclusive 0o600)
         (env#fs / output) (fun flow -> Eio.Buf_write.with_flow flow (fun w ->
-          K.export ?pool ~fibers ?catalogue ?abstracts ~archive ~store
+          K.export ?pool ~fibers ?catalogue ?abstracts ?works ~archive ~store
             ~snapshot:id (fun row ->
             Eio.Buf_write.string w (K.encode_row row);
             Eio.Buf_write.char w '\n';
@@ -231,8 +236,8 @@ let command = Cmd.group (Cmd.info "review"
         ~doc:"Domains reading the archive concurrently (1..100). The io_uring backend needs locked memory per domain; set EIO_BACKEND=posix for large counts.") $
       Arg.(value & opt (some string) None & info ["live"] ~docv:"CATALOG"
         ~doc:"Catalogue whose nonblank values, holdings and presence supersede the frozen ones (source \"catalogue\").") $
-      Arg.(value & flag & info ["abstracts"]
-        ~doc:"Fill still-blank abstracts from the configured abstract evidence store (TAPOSAUR_ABSTRACTS_DB)."));
+      Arg.(value & flag & info ["evidence"; "abstracts"]
+        ~doc:"Fill still-blank abstracts and bibliographic fields from the configured evidence store (TAPOSAUR_ABSTRACTS_DB)."));
   cmd "cache-statistics" "Cache coverage from frozen snapshot observations."
     Term.(const (fun path id -> execute ~action:"cli.review.cache-statistics" (fun env sw audit ->
       S.cache_statistics (write_store ?audit env sw path) id;

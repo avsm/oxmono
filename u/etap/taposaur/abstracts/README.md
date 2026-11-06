@@ -1,7 +1,8 @@
-# Abstract evidence
+# Abstract and work evidence
 
-`taposaur.abstracts` looks up abstracts for exact DOIs in OpenAlex and retains
-the responses in a separate SQLite database. It does not fetch papers or
+`taposaur.abstracts` looks up exact DOIs in OpenAlex and retains the
+responses in a separate SQLite database: an abstract when the work has one,
+and the work's bibliography in every case. It does not fetch papers or
 change archives. The public interface is
 [taposaur_abstracts.mli](taposaur_abstracts.mli).
 
@@ -10,13 +11,27 @@ change archives. The public interface is
 An OpenAlex work carries its abstract as an inverted index (word to
 positions); `reconstruct` rebuilds the text in position order and refuses an
 empty or absurdly long result. `decode` accepts one work only when its DOI
-matches the requested DOI exactly and the abstract reconstructs. Accepted
-evidence records the provider, endpoint, retrieval time and the SHA-256 of
-the retained response body, which `record` rereads.
+matches the requested DOI exactly and the abstract reconstructs. `decode_work`
+reads the same work's bibliography whenever the DOI matches: `title` (else
+`display_name`), authors from each authorship's display name (split as
+"Family, Given" or at the last space), the primary location's source as
+journal, its `host_organization_name` as publisher and `issn_l` as ISSN,
+`publication_date` and `publication_year`, volume, issue and first–last
+pages, and PubMed identifiers taken from the last segment of their URLs
+with a bare PMC number given its `PMC` prefix. Both kinds of evidence record
+the provider, endpoint, retrieval time and the SHA-256 of the retained
+response body, which `record` rereads. The request `select` names exactly
+the fields read.
 
 `lookup_many client store dois` sends up to 100 DOIs as one filtered list
 query. The body is retained once and every DOI gets an attempt row: `accepted`,
-`not_found` (absent from the results), `missing_abstract`, or a failure name.
+`not_found` (absent from the results), `missing_abstract`, or a failure name;
+work evidence is stored for every DOI the results matched, with or without
+an abstract, and a DOI is `known` (skipped by later lookups) once it has
+work evidence. The store is at schema version 2: version 1 held abstracts
+only, a writable open adds the `works` table, a read-only version 1 store
+answers `find_work` with `None`, and abstracts accepted at version 1 are
+queried again so that their bibliography is retained too.
 `batches` splits a longer list by count and by encoded length, because
 OpenAlex refuses request URLs over 8 KB and a percent-encoded SICI DOI runs
 to 120 bytes. `lookup client store doi` is a single-work read, which 404s for
@@ -48,7 +63,10 @@ rows that lack an abstract without re-reading the archive, through
 index and the cached resolution in one transaction. Review snapshots take
 `~abstracts` evidence for members whose frozen observation has none, catalogued
 or not, and record the evidence label as the field's source, so a snapshot
-can carry abstracts for members the archive does not hold.
+can carry abstracts for members the archive does not hold, and `~works`
+evidence, which `Taposaur_review.fill` applies to every blank bibliographic
+field of a member's observation with the evidence label as that field's
+source. `taposaur review corpus --evidence` applies both when exporting.
 
 ## CLI
 
@@ -58,6 +76,7 @@ taposaur abstracts fill --store taposaur-abstracts.db --db catalog.db [--dois FI
 ```
 
 `DOIS` lists one DOI per line (a `doi:` prefix, blank lines and `#` comments
-are ignored). `fetch` skips DOIs with accepted evidence and, without
-`--retry`, DOIs already attempted. Progress goes to standard error every
+are ignored). `fetch` skips DOIs with work evidence and, without `--retry`,
+DOIs already attempted; a DOI with an abstract but no work evidence is
+queried again. Progress goes to standard error every
 thousand DOIs; the summary names how many were examined, accepted and held.

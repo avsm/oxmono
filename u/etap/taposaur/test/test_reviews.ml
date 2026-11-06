@@ -437,8 +437,14 @@ let corpus () = with_temp (fun env sw root _ ->
   let evidence = {Abstract_evidence.doi="10.1000/b";abstract="Evidence abstract";
     provider="openalex";endpoint="works";sha256=String.make 64 'b';retrieved=0.} in
   let abstracts d = if Doi.to_string d = "10.1000/b" then Some evidence else None in
+  let work d = {Work_evidence.doi=Doi.to_string d; provider="openalex";
+    endpoint="works"; sha256=String.make 64 'c'; retrieved=0.;
+    bibliography={Bibliography.empty with title=Some "Work title";
+      journal=Some "Work journal"; year=Some 2020;
+      authors=[{Author.given=Some "Ada"; family="Lovelace"}]}} in
+  let works d = Some (work d) in
   let live = ref [] in
-  ignore (Taposaur_corpus.export ~catalogue:catalog ~abstracts ~archive ~store
+  ignore (Taposaur_corpus.export ~catalogue:catalog ~abstracts ~works ~archive ~store
     ~snapshot:snap (fun row -> live := row :: !live));
   let la = List.nth (List.rev !live) 0 and lb = List.nth (List.rev !live) 1 in
   equal "live title supersedes" "Updated title" (Option.get la.title);
@@ -449,6 +455,20 @@ let corpus () = with_temp (fun env sw root _ ->
   equal "evidence source" (Abstract_evidence.label evidence)
     (Option.get lb.abstract_source);
   check "unheld stays unheld" true (not lb.in_catalogue && lb.text = None);
+  equal "work title fills the unheld member" "Work title" (Option.get lb.title);
+  equal "work title source" (Work_evidence.label (work (Result.get_ok (Doi.of_string "10.1000/b"))))
+    (Option.get lb.title_source);
+  check "work authors" true (lb.authors = ["Ada Lovelace"] && lb.year = Some 2020);
+  check "every source listed" true
+    (List.assoc_opt "journal" lb.sources = Some (Work_evidence.label (work (Result.get_ok (Doi.of_string "10.1000/b"))))
+     && List.assoc_opt "abstract" lb.sources = Some (Abstract_evidence.label evidence)
+     && List.assoc_opt "title" lb.sources = lb.title_source);
+  equal "catalogue journal outranks the work" "Live journal" (Option.get la.journal);
+  equal "held title kept" "Updated title" (Option.get la.title);
+  check "work fills the held row's blank year" true (la.year = Some 2020
+    && List.assoc_opt "year" la.sources = Some (Work_evidence.label (work (Result.get_ok (Doi.of_string "10.1000/a")))));
+  check "frozen rows carry no sources for blank fields" true
+    (b.sources = [] && includes line "\"sources\":{}");
   check "frozen rows unchanged" true
     (List.length (S.rows store snap) = 2 &&
      (List.hd (S.rows store snap)).bibliography.title = Some "Held paper");

@@ -44,16 +44,18 @@ let fetch store_path doi_file retry limit interval api_key_env =
     ~min_interval:(Duration.of_f interval) (Clients.http ~sw env) in
   let client = B.client ~audit ~clock:env#clock ?api_key http in
   let dois = dois_of_file env doi_file in
-  let pending = List.filter (fun d -> B.find store d = None &&
-    (retry || not (B.attempted store d))) dois in
+  (* A DOI is pending until its work evidence is stored: an abstract
+     accepted before schema 2 is queried again for its bibliography. *)
+  let pending = List.filter (fun d -> not (B.known store d) &&
+    (retry || B.find store d <> None || not (B.attempted store d))) dois in
   let pending = match limit with None -> pending
     | Some n -> List.filteri (fun i _ -> i < n) pending in
-  Printf.eprintf "Listed %d; pending %d; accepted so far %d\n%!"
-    (List.length dois) (List.length pending) (B.count store);
+  Printf.eprintf "Listed %d; pending %d; accepted so far %d; works %d\n%!"
+    (List.length dois) (List.length pending) (B.count store) (B.count_works store);
   let accepted = ref 0 and examined = ref 0 and singles = ref false in
   let refusals = ref 0 in
-  let report () = Printf.eprintf "Examined %d; accepted %d; store holds %d\n%!"
-    !examined !accepted (B.count store) in
+  let report () = Printf.eprintf "Examined %d; accepted %d; store holds %d abstracts, %d works\n%!"
+    !examined !accepted (B.count store) (B.count_works store) in
   let rec batches = function
     | [] -> ()
     | dois ->
@@ -99,9 +101,9 @@ let fetch store_path doi_file retry limit interval api_key_env =
   report ();
   Taposaur_audit.record audit ~action:"abstracts.fetch.result" ~subject:store_path
     ~details:["examined",string_of_int !examined;"accepted",string_of_int !accepted;
-      "total",string_of_int (B.count store)] ();
-  Printf.printf "Examined %d; accepted %d; store holds %d abstracts\n"
-    !examined !accepted (B.count store))
+      "total",string_of_int (B.count store);"works",string_of_int (B.count_works store)] ();
+  Printf.printf "Examined %d; accepted %d; store holds %d abstracts and %d works\n"
+    !examined !accepted (B.count store) (B.count_works store))
 
 let fill store_path db doi_file =
   execute ~action:"abstracts.fill" ~subject:db ~details:["store",store_path]
@@ -139,12 +141,12 @@ let store = Arg.(value & opt string "taposaur-abstracts.db" & info ["store"]
 let db = Arg.(value & opt string "taposaur.db" & info ["db"] ~doc:"Local catalogue.")
 let command = Cmd.group (Cmd.info "abstracts"
   ~doc:"Fetch and apply exact-DOI abstract evidence from OpenAlex.") [
-  Cmd.v (Cmd.info "fetch" ~doc:"Look up abstracts for the DOIs listed in a file.")
+  Cmd.v (Cmd.info "fetch" ~doc:"Look up abstracts and bibliographies for the DOIs listed in a file.")
     Term.(const fetch $ store $
       Arg.(required & pos 0 (some string) None & info [] ~docv:"DOIS"
         ~doc:"File of DOIs, one per line; blank lines and # comments are ignored.") $
       Arg.(value & flag & info ["retry"]
-        ~doc:"Query DOIs again whose earlier lookups found no abstract.") $
+        ~doc:"Query DOIs again whose earlier lookups found no work or no abstract.") $
       Arg.(value & opt (some int) None & info ["limit"] ~doc:"Maximum DOIs to query.") $
       Arg.(value & opt float 0.1 & info ["interval"]
         ~doc:"Seconds between requests; OpenAlex allows 10 a second without a key, 30 with one.") $

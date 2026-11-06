@@ -1,5 +1,14 @@
 # Changes
 
+- Abstract evidence schema 2 keeps the bibliography of every OpenAlex work
+  it matches (title, authors, journal, publisher, dates, volume, issue,
+  pages, ISSN, PubMed identifiers) as `Taposaur.Work_evidence`, whether or
+  not the work has an abstract; `taposaur abstracts fetch` requests those
+  fields and queries abstracts accepted at version 1 again, review
+  snapshots and `taposaur review corpus --evidence` fill every blank
+  bibliographic field from it through `Taposaur_review.fill` with the
+  evidence label as the field's source, and corpus rows gain a `sources`
+  map naming the source of every field that has one.
 - Review schema 3 stores a cached snapshot export longer than 64 MiB as
   ordered parts behind a descriptor, since one SQLite blob holds at most a
   billion bytes; reads reassemble and verify the whole export against the

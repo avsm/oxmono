@@ -688,6 +688,50 @@ Parquet and summary, copied to `/data/papers/taposaur/reviews/ce-butterflies/`).
 Snapshot 6 is the canonical source for the corpus; the refreshed snapshot 3
 export carries the same metadata policy applied at export time.
 
+### Titles for members outside the catalogue (2026-11-06, from 09:00 UTC)
+
+The user asked why snapshot 6's corpus had more abstracts (508,630) than
+titles (331,012). Titles came only from the catalogue, and the 264,910
+members the catalogue does not hold had none, while OpenAlex abstracts
+reached 185,958 of them. The retained OpenAlex responses could not supply
+titles: the fetch had requested `select=id,doi,abstract_inverted_index`
+only. Snapshot 6 gaps by field: outside the catalogue every row lacked
+title, authors, journal and year; inside it 14,258 lacked a title, 20,826
+authors, 115,416 a journal and 106,388 a year.
+
+The fix keeps the bibliography of every matched work. `Taposaur.Work_evidence`
+is `{doi; bibliography; provider; endpoint; sha256; retrieved}` with the
+abstract left to `Abstract_evidence`. The evidence store is at schema 2
+(`works(doi, evidence)`, migrated on a writable open; a read-only version 1
+store answers `find_work` with `None`, so running workers and the website
+kept working). The fetch now sends `select=id,doi,title,display_name,
+authorships,primary_location,publication_year,publication_date,biblio,ids,
+abstract_inverted_index`; authors split "Family, Given" or at the last
+space, pages join with an en dash as the catalogue does, and PubMed
+identifiers are the last URL segment with bare PMC numbers prefixed (a
+live probe showed OpenAlex gives `pmc/articles/5193348`). A DOI is `known`
+once its work is stored, so abstracts accepted at version 1 are queried
+again. `Taposaur_review.fill` applies work evidence to every blank field
+of an observation with the label as source; `review snapshot` collects
+works for all members, `review corpus --evidence` (alias `--abstracts`)
+applies abstracts then works, and rows gain a `sources` map (Parquet
+`MAP(VARCHAR, VARCHAR)`) naming every field's source. Tests: abstracts 8
+(work decoding, schema migration), reviews 7 (works overlay, sources).
+
+Running: `taposaur/.local/butterflies-works.sh` (PID in
+`butterflies-works.pid`, log `butterflies-works.log`, fetch progress in
+`works-fetch.log`) over `butterflies-work-dois.txt`, the 400,725 snapshot 6
+members lacking a title, abstract, authors, journal or year, titles first.
+Keyless: about 100 batches a minute until the shared $0.10 list budget
+(1,000 batches, about 100,000 DOIs) is spent, then single-work reads at
+10 a second, so roughly 8 to 9 hours in all; a free OpenAlex key would
+finish the list queries in minutes. The script then runs `abstracts fill`,
+publishes snapshot 7 (parent 6, 4 GiB budget) with the work evidence, and
+exports `ce-butterflies-snapshot-7.{jsonl,parquet,summary.json}` to
+`taposaur/.local/exports/` and `/data/papers/taposaur/reviews/ce-butterflies/`.
+A copy of the store before the migration is `abstracts.db.pre-schema2.bak`.
+The early batches, SICI DOIs from 10.1002, matched about half the DOIs.
+
 ### Remaining before a bulk run
 
 Run the pilot. Confirm live publisher entitlements and converter health.

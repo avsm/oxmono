@@ -1,13 +1,16 @@
 open Taposaur
 module Q = Sqlite3
 module E = Abstract_evidence
+module W = Work_evidence
 type read = Read
 type write = Write
 type 'a store = {db:Sqlite3_eio.t; lock:Eio.Mutex.t;
-  audit:Taposaur_audit.session option}
+  audit:Taposaur_audit.session option;
+  mutable works:bool (* false for a read-only version 1 database *)}
 let get = function Ok v -> v | Error e -> failwith e
 let hash body = Digestif.SHA256.(to_hex (digest_string body))
 let encode e = get (Jsont_bytesrw.encode_string E.jsont e)
+let encode_work w = get (Jsont_bytesrw.encode_string W.jsont w)
 let run t f =
   let result = Eio.Mutex.use_rw ~protect:false t.lock (fun () ->
     try Ok (Sqlite3_eio.run t.db f) with ex -> Error (ex,Printexc.get_raw_backtrace ())) in
@@ -31,15 +34,23 @@ CREATE TABLE attempts(id INTEGER PRIMARY KEY,doi TEXT NOT NULL,provider TEXT NOT
  decision TEXT NOT NULL,sha256 TEXT REFERENCES records(sha256));
 CREATE INDEX attempts_doi ON attempts(doi,id);
 CREATE TABLE abstracts(doi TEXT PRIMARY KEY,evidence TEXT NOT NULL);
+CREATE TABLE works(doi TEXT PRIMARY KEY,evidence TEXT NOT NULL);
 PRAGMA application_id=1414351187;
-PRAGMA user_version=1;
+PRAGMA user_version=2;
+|}
+(* Version 1 stores held abstracts only; version 2 adds the bibliographic
+   work evidence decoded from the same responses. *)
+let schema_version = 2
+let works_schema = {|
+CREATE TABLE IF NOT EXISTS works(doi TEXT PRIMARY KEY,evidence TEXT NOT NULL);
+PRAGMA user_version=2;
 |}
 let open_db ?audit ~sw ~readonly path =
   if not readonly then Eio.Path.with_open_out ~follow:false
     ~create:(`If_missing 0o600) path (fun _ -> ());
   let db=Sqlite3_eio.open_path ~sw ~busy_timeout:5000
     ?mode:(if readonly then Some `READONLY else None) path in
-  let t={db;lock=Eio.Mutex.create ();audit} in
+  let t={db;lock=Eio.Mutex.create ();audit;works=true} in
   run t (fun db ->
     let scalar sql = stmt db sql [] (fun s ->
       if Q.step s <> Q.Rc.ROW then failwith "Missing metadata schema";
@@ -50,8 +61,10 @@ let open_db ?audit ~sw ~readonly path =
         if scalar "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'" <> 0
         then failwith "Refusing nonempty abstract evidence database";
         exec db schema
-      end else if v<>1 || app<>application_id then
-        failwith "Unsupported abstract evidence database" in
+      end else if app<>application_id || v<1 || v>schema_version then
+        failwith "Unsupported abstract evidence database"
+      else if v<schema_version then
+        if readonly then t.works <- false else exec db works_schema in
     if readonly then (check ();exec db "PRAGMA query_only=ON") else begin
       transaction db check;exec db "PRAGMA journal_mode=WAL";
       exec db "PRAGMA synchronous=FULL" end);
@@ -67,6 +80,12 @@ let find t doi = run t (fun db -> stmt db
     | Q.Rc.DONE -> None
     | Q.Rc.ROW -> Some (get (Jsont_bytesrw.decode_string E.jsont (Q.column_text s 0)))
     | rc -> Q.Rc.check rc;assert false))
+let find_work t doi = if not t.works then None else run t (fun db -> stmt db
+  "SELECT evidence FROM works WHERE doi=?" [Q.Data.TEXT (Doi.to_string doi)]
+  (fun s -> match Q.step s with
+    | Q.Rc.DONE -> None
+    | Q.Rc.ROW -> Some (get (Jsont_bytesrw.decode_string W.jsont (Q.column_text s 0)))
+    | rc -> Q.Rc.check rc;assert false))
 let attempted t doi = run t (fun db -> stmt db
   "SELECT 1 FROM attempts WHERE doi=? LIMIT 1" [Q.Data.TEXT (Doi.to_string doi)]
   (fun s -> match Q.step s with
@@ -76,6 +95,9 @@ let record t ~sha256 = run t (fun db -> stmt db
   (fun s -> match Q.step s with Q.Rc.DONE -> None
     | Q.Rc.ROW -> Some (Q.column_blob s 0) | rc -> Q.Rc.check rc;assert false))
 let count t = run t (fun db -> stmt db "SELECT count(*) FROM abstracts" []
+  (fun s -> ignore (Q.step s); Q.column_int s 0))
+let count_works t = if not t.works then 0 else run t (fun db ->
+  stmt db "SELECT count(*) FROM works" []
   (fun s -> ignore (Q.step s); Q.column_int s 0))
 let iter t f = run t (fun db -> stmt db "SELECT evidence FROM abstracts ORDER BY doi" []
   (fun s -> let rec loop () = match Q.step s with
@@ -97,18 +119,128 @@ let reconstruct index =
     if text = "" || String.length text > max_abstract then None else Some text
   end
 
-type work = {id:string option; doi:string option;
+(* The fields requested from OpenAlex. [select] names top-level members
+   only, so [authorships] and [primary_location] arrive whole. *)
+let select = "id,doi,title,display_name,authorships,primary_location," ^
+  "publication_year,publication_date,biblio,ids,abstract_inverted_index"
+let ostr name enc = Jsont.Object.mem name (Jsont.option Jsont.string)
+  ~dec_absent:(fun () -> None) ~enc
+let oobj name codec enc = Jsont.Object.mem name (Jsont.option codec)
+  ~dec_absent:(fun () -> None) ~enc
+type person = {display_name:string option}
+let person_jsont = Jsont.Object.map (fun display_name -> {display_name})
+  |> ostr "display_name" (fun p -> p.display_name) |> Jsont.Object.finish
+type authorship = {author:person option; raw_author_name:string option}
+let authorship_jsont =
+  Jsont.Object.map (fun author raw_author_name -> {author;raw_author_name})
+  |> oobj "author" person_jsont (fun a -> a.author)
+  |> ostr "raw_author_name" (fun a -> a.raw_author_name)
+  |> Jsont.Object.finish
+type source = {source_name:string option; issn_l:string option;
+  issns:string list option; host:string option}
+let source_jsont =
+  Jsont.Object.map (fun source_name issn_l issns host ->
+    {source_name;issn_l;issns;host})
+  |> ostr "display_name" (fun s -> s.source_name)
+  |> ostr "issn_l" (fun s -> s.issn_l)
+  |> oobj "issn" (Jsont.list Jsont.string) (fun s -> s.issns)
+  |> ostr "host_organization_name" (fun s -> s.host)
+  |> Jsont.Object.finish
+type location = {source:source option}
+let location_jsont = Jsont.Object.map (fun source -> {source})
+  |> oobj "source" source_jsont (fun l -> l.source) |> Jsont.Object.finish
+type biblio = {volume:string option; issue:string option;
+  first_page:string option; last_page:string option}
+let biblio_jsont =
+  Jsont.Object.map (fun volume issue first_page last_page ->
+    {volume;issue;first_page;last_page})
+  |> ostr "volume" (fun b -> b.volume) |> ostr "issue" (fun b -> b.issue)
+  |> ostr "first_page" (fun b -> b.first_page)
+  |> ostr "last_page" (fun b -> b.last_page)
+  |> Jsont.Object.finish
+type ids = {pmid:string option; pmcid:string option}
+let ids_jsont = Jsont.Object.map (fun pmid pmcid -> {pmid;pmcid})
+  |> ostr "pmid" (fun i -> i.pmid) |> ostr "pmcid" (fun i -> i.pmcid)
+  |> Jsont.Object.finish
+type work = {id:string option; doi:string option; title:string option;
+  display_name:string option; authorships:authorship list option;
+  location:location option; year:int option; date:string option;
+  biblio:biblio option; ids:ids option;
   inverted:int list Jsont.String_map.t option}
 let work_jsont =
-  Jsont.Object.map (fun id doi inverted -> {id;doi;inverted})
-  |> Jsont.Object.mem "id" (Jsont.option Jsont.string) ~dec_absent:(fun () -> None)
-       ~enc:(fun w -> w.id)
-  |> Jsont.Object.mem "doi" (Jsont.option Jsont.string) ~dec_absent:(fun () -> None)
-       ~enc:(fun w -> w.doi)
+  Jsont.Object.map (fun id doi title display_name authorships location year
+      date biblio ids inverted ->
+    {id;doi;title;display_name;authorships;location;year;date;biblio;ids;
+     inverted})
+  |> ostr "id" (fun w -> w.id)
+  |> ostr "doi" (fun w -> w.doi)
+  |> ostr "title" (fun w -> w.title)
+  |> ostr "display_name" (fun w -> w.display_name)
+  |> oobj "authorships" (Jsont.list authorship_jsont) (fun w -> w.authorships)
+  |> oobj "primary_location" location_jsont (fun w -> w.location)
+  |> oobj "publication_year" Jsont.int (fun w -> w.year)
+  |> ostr "publication_date" (fun w -> w.date)
+  |> oobj "biblio" biblio_jsont (fun w -> w.biblio)
+  |> oobj "ids" ids_jsont (fun w -> w.ids)
   |> Jsont.Object.mem "abstract_inverted_index"
        (Jsont.option (Jsont.Object.as_string_map (Jsont.list Jsont.int)))
        ~dec_absent:(fun () -> None) ~enc:(fun w -> w.inverted)
   |> Jsont.Object.finish
+let nonblank = function
+  | Some s when String.trim s <> "" -> Some (String.trim s) | _ -> None
+let first_nonblank l = List.find_map nonblank l
+(* OpenAlex names authors as display strings. "Family, Given" splits at
+   the comma; otherwise the last word is the family name. *)
+let author_of_name name =
+  match String.index_opt name ',' with
+  | Some i ->
+    let family = String.trim (String.sub name 0 i) in
+    let given = nonblank (Some (String.sub name (i+1) (String.length name-i-1))) in
+    if family = "" then None else Some {Author.given; family}
+  | None ->
+    match String.rindex_opt name ' ' with
+    | None -> Some {Author.given=None; family=name}
+    | Some i ->
+      let family = String.trim (String.sub name (i+1) (String.length name-i-1)) in
+      let given = nonblank (Some (String.sub name 0 i)) in
+      if family = "" then Some {Author.given=None; family=name}
+      else Some {Author.given; family}
+let authors_of_work w = List.filter_map (fun a ->
+  Option.bind (first_nonblank [Option.bind a.author (fun p -> p.display_name);
+    a.raw_author_name]) author_of_name)
+  (Option.value ~default:[] w.authorships)
+(* Identifiers arrive as URLs: the PubMed id is the last path segment and
+   the PMC id, which OpenAlex gives with or without its prefix, is
+   normalised to the catalogue's PMC form. *)
+let last_segment s = match String.rindex_opt s '/' with
+  | None -> s | Some i -> String.sub s (i+1) (String.length s-i-1)
+let identifier s = Option.bind (nonblank s) (fun s ->
+  nonblank (Some (last_segment s)))
+let digits s = s <> "" && String.for_all (fun c -> c >= '0' && c <= '9') s
+let pmc_identifier s = Option.map (fun s ->
+  if digits s then "PMC" ^ s else s) (identifier s)
+let pages (b : biblio) = match nonblank b.first_page, nonblank b.last_page with
+  | Some f, Some l when f <> l -> Some (f ^ "\xe2\x80\x93" ^ l)
+  | Some f, _ -> Some f
+  | None, l -> l
+let bibliography_of_work doi w =
+  let source = Option.bind w.location (fun l -> l.source) in
+  let field f = Option.bind source f in
+  { Bibliography.empty with
+    title = first_nonblank [w.title; w.display_name];
+    authors = authors_of_work w;
+    journal = field (fun s -> nonblank s.source_name);
+    publisher = field (fun s -> nonblank s.host);
+    published = nonblank w.date;
+    year = (match w.year with Some y when y > 0 -> Some y | _ -> None);
+    volume = Option.bind w.biblio (fun b -> nonblank b.volume);
+    issue = Option.bind w.biblio (fun b -> nonblank b.issue);
+    pages = Option.bind w.biblio pages;
+    issn = field (fun s -> first_nonblank (s.issn_l ::
+      List.map Option.some (Option.value ~default:[] s.issns)));
+    doi = Some (Doi.to_string doi);
+    pmid = Option.bind w.ids (fun i -> identifier i.pmid);
+    pmcid = Option.bind w.ids (fun i -> pmc_identifier i.pmcid) }
 let results_jsont =
   Jsont.Object.map (fun results -> results)
   |> Jsont.Object.mem "results" (Jsont.list work_jsont) ~enc:Fun.id
@@ -125,13 +257,21 @@ let evidence_of_work ~provider ~endpoint ~sha256 ~retrieved doi w =
   | None -> Error "missing_abstract"
   | Some abstract -> Ok {E.doi=Doi.to_string doi;abstract;provider;endpoint;
       sha256;retrieved}
-let decode ~provider ~endpoint ~doi body =
+let work_of_work ~provider ~endpoint ~sha256 ~retrieved doi w =
+  {W.doi=Doi.to_string doi;bibliography=bibliography_of_work doi w;provider;
+   endpoint;sha256;retrieved}
+let decode_both ~provider ~endpoint ~doi body =
   match Jsont_bytesrw.decode_string work_jsont body with
   | Error _ -> Error "invalid_json"
   | Ok w ->
     if work_doi w <> Some doi then Error "doi_mismatch" else
-    evidence_of_work ~provider ~endpoint ~sha256:(hash body)
-      ~retrieved:(Unix.gettimeofday ()) doi w
+    let sha256 = hash body and retrieved = Unix.gettimeofday () in
+    Ok (evidence_of_work ~provider ~endpoint ~sha256 ~retrieved doi w,
+        work_of_work ~provider ~endpoint ~sha256 ~retrieved doi w)
+let decode ~provider ~endpoint ~doi body =
+  Result.bind (decode_both ~provider ~endpoint ~doi body) fst
+let decode_work ~provider ~endpoint ~doi body =
+  Result.map snd (decode_both ~provider ~endpoint ~doi body)
 let decode_results body =
   match Jsont_bytesrw.decode_string results_jsont body with
   | Error _ -> Error "invalid_json"
@@ -180,18 +320,25 @@ let retain (t : write store) ~body ~retrieved ~status decisions =
   run t (fun db -> transaction db (fun () ->
     Option.iter (fun body -> command db
       "INSERT OR IGNORE INTO records VALUES(?,?)" [TEXT (hash body);BLOB body]) body;
-    List.iter (fun (doi, decision, evidence) ->
+    List.iter (fun (doi, decision, evidence, work) ->
       command db "INSERT INTO attempts(doi,provider,endpoint,retrieved,status,decision,sha256) VALUES(?,?,?,?,?,?,?)"
         [TEXT (Doi.to_string doi);TEXT provider;TEXT "";FLOAT retrieved;INT (Int64.of_int status);
          TEXT decision;Option.fold ~none:Q.Data.NULL ~some:(fun s -> Q.Data.TEXT s) sha];
       Option.iter (fun e -> command db
         "INSERT OR REPLACE INTO abstracts VALUES(?,?)" [TEXT (Doi.to_string doi);TEXT (encode e)])
-        evidence) decisions))
+        evidence;
+      Option.iter (fun w -> command db
+        "INSERT OR REPLACE INTO works VALUES(?,?)" [TEXT (Doi.to_string doi);TEXT (encode_work w)])
+        work) decisions))
 type refusal = Rate_limited | Budget | Http of int | Transport of string
 let refusal_name = function Rate_limited -> "rate_limited" | Budget -> "budget_exhausted"
   | Http s -> "http_" ^ string_of_int s | Transport e -> e
+(* A DOI counts as known once its work evidence is stored: abstracts
+   accepted by version 1, which fetched only the inverted index, are
+   queried again so that the bibliography is retained too. *)
+let known store d = find_work store d <> None
 let lookup_many t store dois =
-  let dois = List.filter (fun d -> find store d = None) dois in
+  let dois = List.filter (fun d -> not (known store d)) dois in
   if dois = [] then Ok [] else
   if List.length dois > batch_size then invalid_arg "At most 100 DOIs per lookup" else
   let filter = filter_value dois in
@@ -199,7 +346,7 @@ let lookup_many t store dois =
     invalid_arg "DOI filter exceeds the request URL limit" else
   let url = t.endpoint ^ "/works?filter=doi:" ^ filter ^
     "&per-page=" ^ string_of_int batch_size ^
-    "&select=id,doi,abstract_inverted_index" ^ key_query t in
+    "&select=" ^ select ^ key_query t in
   Taposaur_audit.with_operation ?session:t.audit ~action:"abstracts.lookup"
     ~subject:(provider ^ " batch") ~details:["provider",provider;"endpoint",t.endpoint;
       "dois",string_of_int (List.length dois);"first",Doi.to_string (List.hd dois)]
@@ -213,7 +360,7 @@ let lookup_many t store dois =
       match response with
       | Error r ->
         retain store ~body:None ~retrieved ~status:0
-          (List.map (fun d -> d, refusal_name r, None) dois); Error r
+          (List.map (fun d -> d, refusal_name r, None, None) dois); Error r
       | Ok (429, _) -> Error Rate_limited
       | Ok ((402 | 403), _) -> Error Budget
       | Ok (status, body) when status <> 200 ->
@@ -221,32 +368,31 @@ let lookup_many t store dois =
            retry its members singly and attribute a bad DOI to itself. *)
         if List.length dois = 1 then
           retain store ~body:(Some body) ~retrieved ~status
-            (List.map (fun d -> d, "http_error", None) dois);
+            (List.map (fun d -> d, "http_error", None, None) dois);
         Error (Http status)
       | Ok (status, body) ->
         match decode_results body with
         | Error e ->
           retain store ~body:(Some body) ~retrieved ~status
-            (List.map (fun d -> d, e, None) dois); Error (Transport e)
+            (List.map (fun d -> d, e, None, None) dois); Error (Transport e)
         | Ok works ->
           let sha256 = hash body in
           let decisions = List.map (fun doi ->
             match List.find_opt (fun (d, _) -> Doi.equal d doi) works with
-            | None -> doi, "not_found", None
+            | None -> doi, "not_found", None, None
             | Some (_, w) ->
+              let work = work_of_work ~provider ~endpoint:t.endpoint ~sha256 ~retrieved doi w in
               match evidence_of_work ~provider ~endpoint:t.endpoint ~sha256 ~retrieved doi w with
-              | Ok e -> doi, "accepted", Some e
-              | Error reason -> doi, reason, None) dois in
+              | Ok e -> doi, "accepted", Some e, Some work
+              | Error reason -> doi, reason, None, Some work) dois in
           retain store ~body:(Some body) ~retrieved ~status decisions;
-          Ok (List.filter_map (fun (d, _, e) -> Option.map (fun e -> d, e) e) decisions))
+          Ok (List.filter_map (fun (d, _, e, _) -> Option.map (fun e -> d, e) e) decisions))
 (* Single-work reads are free of the credit budget, so they carry the
    remainder once the day's list queries are spent. *)
 let lookup t store doi =
-  match find store doi with
-  | Some e -> Ok (Some e)
-  | None ->
+  if known store doi then Ok (find store doi) else
   let url = t.endpoint ^ "/works/https://doi.org/" ^ pct (Doi.to_string doi) ^
-    "?select=id,doi,abstract_inverted_index" ^
+    "?select=" ^ select ^
     (match t.api_key with None -> "" | Some k -> "&api_key=" ^ pct k) in
   Taposaur_audit.with_operation ?session:t.audit ~action:"abstracts.lookup"
     ~subject:("doi:" ^ Doi.to_string doi) ~details:["provider",provider;"endpoint",t.endpoint]
@@ -259,21 +405,23 @@ let lookup t store doi =
         | Eio.Buf_read.Buffer_limit_exceeded -> Error (Transport "oversized_response") in
       match response with
       | Error r -> retain store ~body:None ~retrieved ~status:0
-          [doi, refusal_name r, None]; Error r
+          [doi, refusal_name r, None, None]; Error r
       | Ok (429, _) -> Error Rate_limited
       | Ok ((402 | 403), _) -> Error Budget
       | Ok (404, body) ->
-        retain store ~body:(Some body) ~retrieved ~status:404 [doi, "not_found", None];
+        retain store ~body:(Some body) ~retrieved ~status:404 [doi, "not_found", None, None];
         Ok None
       | Ok (status, body) when status <> 200 ->
-        retain store ~body:(Some body) ~retrieved ~status [doi, "http_error", None];
+        retain store ~body:(Some body) ~retrieved ~status [doi, "http_error", None, None];
         Error (Http status)
       | Ok (status, body) ->
-        let decoded = decode ~provider ~endpoint:t.endpoint ~doi body in
-        let decision = match decoded with Ok _ -> "accepted" | Error e -> e in
+        let abstract, work = match decode_both ~provider ~endpoint:t.endpoint ~doi body with
+          | Ok (abstract, work) -> abstract, Some work
+          | Error e -> Error e, None in
+        let decision = match abstract with Ok _ -> "accepted" | Error e -> e in
         retain store ~body:(Some body) ~retrieved ~status
-          [doi, decision, Result.to_option decoded];
-        Ok (Result.to_option decoded))
+          [doi, decision, Result.to_option abstract, work];
+        Ok (Result.to_option abstract))
 
 let default_path () = Option.value ~default:"taposaur-abstracts.db"
   (Sys.getenv_opt "TAPOSAUR_ABSTRACTS_DB")

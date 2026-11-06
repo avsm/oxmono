@@ -12,6 +12,7 @@ val execute : ?max_members:int ->
     the result budget aborts without publishing a run. *)
 val snapshot : ?publishers:Taposaur.Publisher_evidence.t list ->
   ?abstracts:Taposaur.Abstract_evidence.t list ->
+  ?works:Taposaur.Work_evidence.t list ->
   ?max_members:int -> ?max_bytes:int -> ?capture_seconds:float ->
   S.write S.t -> Taposaur_catalog.read Taposaur_catalog.t ->
   run_id:int -> parent:int option -> label:string -> actor:string -> int
@@ -19,4 +20,5 @@ val snapshot : ?publishers:Taposaur.Publisher_evidence.t list ->
     transaction for fixed run membership. It never changes that membership.
     [publishers] and [abstracts] are exact-DOI evidence applied to members
     whose frozen observation lacks that field, catalogued or not, with the
-    evidence label recorded as the field's source. *)
+    evidence label recorded as the field's source; [works] fills the other
+    blank bibliographic fields the same way through {!Taposaur_review.fill}. *)

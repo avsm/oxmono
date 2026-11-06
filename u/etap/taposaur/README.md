@@ -458,7 +458,8 @@ and refuses to overwrite an existing one.
 `taposaur review corpus SNAPSHOT --output FILE.jsonl` writes one JSON object
 per member in DOI order: the frozen title, abstract, authors, journal,
 publisher, year and identifiers with the source of the title, abstract and
-publisher, the holdings recorded at capture, and the body prose of the
+publisher and a `sources` map naming the source of every field that has
+one, the holdings recorded at capture, and the body prose of the
 paper's preferred TEI document read from the archive when the export runs
 (Pub2TEI before GROBID, published versions first, the first with prose
 wins). Rows are flat, every key is present and absent values are `null`, so
@@ -474,6 +475,7 @@ duckdb -c "COPY (SELECT * FROM read_json('snapshot-7.jsonl',
   volume:'VARCHAR', issue:'VARCHAR', pages:'VARCHAR', issn:'VARCHAR',
   pmid:'VARCHAR', pmcid:'VARCHAR', title_source:'VARCHAR',
   abstract_source:'VARCHAR', publisher_source:'VARCHAR',
+  sources:'MAP(VARCHAR, VARCHAR)',
   in_catalogue:'BOOLEAN', pdf:'BOOLEAN', xml:'BOOLEAN', tei:'BOOLEAN',
   s2orc:'BOOLEAN', tei_file:'VARCHAR', tei_converter:'VARCHAR',
   tei_sha256:'VARCHAR', tei_bytes:'BIGINT', text:'VARCHAR',
@@ -483,9 +485,12 @@ duckdb -c "COPY (SELECT * FROM read_json('snapshot-7.jsonl',
 
 `--live CATALOG` replays the snapshot's catalogue-then-input policy against
 the live catalogue, so nonblank current values, holdings and presence
-supersede the frozen ones with source `catalogue`; `--abstracts` fills a
-still-blank abstract from the configured evidence store with the evidence
-label as source. Both leave the snapshot untouched and are for exports that
+supersede the frozen ones with source `catalogue`; `--evidence` fills a
+still-blank abstract from the configured evidence store, then the other
+blank bibliographic fields (title, authors, journal, publisher, dates,
+volume, issue, pages, ISSN, PubMed identifiers) from its work evidence,
+with the evidence label as each field's source. Both leave the snapshot
+untouched and are for exports that
 must carry metadata gathered since the capture. Members the export does not
 find in the catalogue are written without an archive lookup. Each row names the TEI file, its converter, SHA-256 and
 size, so the text can be traced to an archive artifact; `text_error`
@@ -906,14 +911,18 @@ queries to configured Crossref and DataCite mirrors, with an original CSV
 fallback. It retains raw evidence, logs operations and publishes a new
 immutable snapshot. See [configuration, CLI and OCaml API](mirrors/README.md).
 
-## Recover missing abstracts
+## Recover missing abstracts and bibliographies
 
-`taposaur abstracts fetch DOIS` looks up abstracts in OpenAlex for the listed
-DOIs, batching up to 100 per request and falling back to free single-work
-reads when the daily budget refuses a batch, and retains every response in
-`taposaur-abstracts.db` (or `TAPOSAUR_ABSTRACTS_DB`). The resolver applies
-that evidence only when no archive document or index row has an abstract;
-enrichment, refresh workers and the website consult the store, `taposaur
-abstracts fill` updates catalogue rows that lack one without re-reading the
-archive, and `taposaur review snapshot` carries it to members the archive does
-not hold. See [costs, keys and the OCaml API](abstracts/README.md).
+`taposaur abstracts fetch DOIS` looks up the listed DOIs in OpenAlex,
+batching up to 100 per request and falling back to free single-work reads
+when the daily budget refuses a batch, and retains every response in
+`taposaur-abstracts.db` (or `TAPOSAUR_ABSTRACTS_DB`). Every matched work
+yields bibliographic evidence (title, authors, journal, publisher, dates,
+volume, issue, pages, ISSN, PubMed identifiers) and, when its inverted index
+reconstructs, abstract evidence. The resolver applies abstract evidence only
+when no archive document or index row has an abstract; enrichment, refresh
+workers and the website consult the store, `taposaur abstracts fill` updates
+catalogue rows that lack one without re-reading the archive, and `taposaur
+review snapshot` carries abstracts and fills the other blank fields of every
+member, held or not, from the work evidence, naming it as each field's
+source. See [costs, keys and the OCaml API](abstracts/README.md).

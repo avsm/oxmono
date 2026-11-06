@@ -1,9 +1,15 @@
-(** Exact-DOI abstract lookups with retained responses and audit.
+(** Exact-DOI abstract and bibliography lookups with retained responses
+    and audit.
 
     OpenAlex is the provider. Single-work reads are free of its credit
     budget, but a list query filtered on up to 100 DOIs costs one credit
     and returns them all in one round trip, so {!lookup_many} batches that
-    way and reports when the daily budget or rate limit refuses it. *)
+    way and reports when the daily budget or rate limit refuses it. Every
+    matched work yields {!Taposaur.Work_evidence} (title, authors, venue,
+    dates, identifiers) and, when its inverted index reconstructs,
+    {!Taposaur.Abstract_evidence}. The store is SQLite at schema version 2;
+    a writable open migrates version 1, and a read-only version 1 store
+    answers {!find_work} with [None]. *)
 type read
 type write
 type 'a store
@@ -11,13 +17,23 @@ val open_read : sw:Eio.Switch.t -> _ Eio.Path.t -> read store
 val open_write : ?audit:Taposaur_audit.session -> sw:Eio.Switch.t ->
   _ Eio.Path.t -> write store
 val find : 'a store -> Taposaur.Doi.t -> Taposaur.Abstract_evidence.t option
-(** [find store doi] is accepted evidence, if any. *)
+(** [find store doi] is accepted abstract evidence, if any. *)
+val find_work : 'a store -> Taposaur.Doi.t -> Taposaur.Work_evidence.t option
+(** [find_work store doi] is the bibliographic evidence of the matched
+    work, if any. It exists for every DOI matched since schema version 2,
+    with or without an abstract. *)
+val known : 'a store -> Taposaur.Doi.t -> bool
+(** [known store doi] is whether work evidence is stored, which is what
+    makes a lookup skip the network; abstracts accepted at version 1 are
+    queried again so their bibliography is retained. *)
 val attempted : 'a store -> Taposaur.Doi.t -> bool
 (** [attempted store doi] is whether any lookup of [doi] was recorded,
     accepted or not. *)
 val record : 'a store -> sha256:string -> string option
 (** [record store ~sha256] is the retained response body. *)
 val count : 'a store -> int
+(** [count store] is the number of DOIs with abstract evidence. *)
+val count_works : 'a store -> int
 val iter : 'a store -> (Taposaur.Abstract_evidence.t -> unit) -> unit
 (** [iter store f] visits accepted evidence in DOI order. *)
 
@@ -44,7 +60,8 @@ val lookup_many : client -> write store -> Taposaur.Doi.t list ->
     accepted evidence in one filtered list query. The response body is
     retained once; each DOI gets an attempt row naming the decision:
     [accepted], [not_found] (absent from the results), [missing_abstract],
-    or a failure. Accepted evidence is stored and returned. A refusal
+    or a failure. Work evidence is stored for every matched DOI; accepted
+    abstract evidence is stored and returned. A refusal
     stores nothing for rate limits, budgets, or another HTTP status on a
     multi-DOI batch, so those DOIs can be retried, singly if need be; a
     single DOI's HTTP failure is recorded against it. Raises
@@ -58,6 +75,16 @@ val decode : provider:string -> endpoint:string -> doi:Taposaur.Doi.t ->
   string -> (Taposaur.Abstract_evidence.t, string) result
 (** Pure validation of one OpenAlex work: the DOI must match and the
     inverted index must reconstruct to a nonblank abstract. *)
+val decode_work : provider:string -> endpoint:string -> doi:Taposaur.Doi.t ->
+  string -> (Taposaur.Work_evidence.t, string) result
+(** Pure decoding of one OpenAlex work's bibliography: the DOI must match.
+    Titles prefer [title] over [display_name]; authors come from each
+    authorship's display name, split as "Family, Given" or at the last
+    space; the journal, publisher and ISSN come from the primary location's
+    source; pages join first and last with an en dash; PubMed identifiers
+    are the last path segment of their URLs. *)
+val select : string
+(** The OpenAlex [select] parameter both lookups send. *)
 val reconstruct : int list Jsont.String_map.t -> string option
 (** [reconstruct index] rebuilds abstract text from an OpenAlex inverted
     index, or [None] when it is empty or absurdly long. *)

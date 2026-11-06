@@ -147,10 +147,50 @@ let invalid_final_retry () = setup (fun env q ->
   with Invalid_argument _ -> true);
   check "invalid result does not settle" true
     ((D.Job.state (List.hd (D.list q (D.query ()))))=D.Running))
+let recovered () = setup (fun env q ->
+  ignore (D.enqueue q (spec ()));
+  ignore (D.enqueue q (spec ()));
+  let exception Handler_failed in
+  let done_,resolve=Eio.Promise.create () in
+  let settled=ref 0 and calls=ref 0 in
+  Eio.Fiber.first
+    (fun () -> Duraml_worker.run ~mono_clock:env#mono_clock ~queue:"work"
+      ~concurrency:1 ~on_settled:(fun _ _ -> incr settled;
+        if !settled=2 then Eio.Promise.resolve resolve ())
+      ~on_exn:(fun _ _ -> D.complete (D.Failed {code="raised";detail=""}))
+      q (fun ~sw:_ _ -> incr calls;
+        if !calls=1 then raise Handler_failed
+        else D.complete (D.Succeeded "")))
+    (fun () -> Eio.Promise.await done_);
+  count "one job failed" 1 (List.length (D.list q (D.query
+    ~state:D.Failed_job ())));
+  count "pool continued" 1 (List.length (D.list q (D.query ~state:D.Done
+    ()))))
+let storage_failure () = setup (fun env q ->
+  ignore (D.enqueue q (spec ()));
+  let failed=Hashtbl.create 2 in
+  let before={Duraml_mock.observe=(fun request ->
+    match D.Pi.operation request with
+    | ("take" | "settle") as op when not (Hashtbl.mem failed op) ->
+        Hashtbl.add failed op (); raise (D.err (D.Storage "busy"))
+    | _ -> ())} in
+  let flaky=Duraml_mock.wrap ~before q in
+  let done_,resolve=Eio.Promise.create () in
+  Eio.Fiber.first
+    (fun () -> Duraml_worker.run ~mono_clock:env#mono_clock ~queue:"work"
+      ~concurrency:1 ~on_settled:(fun _ _ -> Eio.Promise.resolve resolve ())
+      ~on_exn:(fun _ e -> raise e)
+      flaky (fun ~sw:_ _ -> D.complete (D.Succeeded "")))
+    (fun () -> Eio.Promise.await done_);
+  count "both failed once" 2 (Hashtbl.length failed);
+  count "failed take and settlement retried" 1 (List.length (D.list q
+    (D.query ~state:D.Done ()))))
 let () = Alcotest.run "Duraml workers" ["worker", List.map (fun (n,f) ->
   Alcotest.test_case n `Quick f) ["renewal",renewing;"bounded retries",retries;
     "revocation cleanup",revoked;"concurrency",concurrency;
     "scripted mock",scripted;"failure cancels siblings",handler_failure;
     "graceful drain",draining;"bounded drain",drain_timeout;
     "shortened lease wakes consumer",shortened_lease;
-    "invalid final retry",invalid_final_retry]]
+    "invalid final retry",invalid_final_retry;
+    "handler exception recovered",recovered;
+    "storage failure recovered",storage_failure]]

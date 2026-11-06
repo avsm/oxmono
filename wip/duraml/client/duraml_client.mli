@@ -155,6 +155,7 @@ module Queue : sig
     ?lease:Ptime.Span.t -> ?max_attempts:int -> ?stop:unit Eio.Promise.t ->
     ?drain:Ptime.Span.t ->
     ?on_settled:('result Job.t -> Duraml.settlement -> unit) ->
+    ?on_exn:(exn -> 'result Completion.t) ->
     ('request, 'result) t ->
     (sw:Eio.Switch.t -> 'request -> 'result Completion.t) -> unit
   (** [run queue handler] blocks until stopped, cancelled or failed. Each
@@ -166,11 +167,15 @@ module Queue : sig
       immediate cancellation and joins cleanup. Unexpected exceptions and
       settlement conflicts stop the pool. Unsettled claims expire normally.
       [on_settled] is a transient notification, not durable audit delivery.
-      Its exceptions stop the pool. It also receives conflict/lost responses. *)
+      Its exceptions stop the pool. It also receives conflict/lost responses.
+      [on_exn exn] is the completion of a handler that raised [exn], and
+      supplying it keeps the pool running through storage failures, as
+      {!Duraml_worker.run} describes. *)
   val start : sw:Eio.Switch.t -> mono_clock:_ Eio.Time.Mono.t ->
     ?concurrency:int -> ?lease:Ptime.Span.t -> ?max_attempts:int ->
     ?stop:unit Eio.Promise.t -> ?drain:Ptime.Span.t ->
     ?on_settled:('result Job.t -> Duraml.settlement -> unit) ->
+    ?on_exn:(exn -> 'result Completion.t) ->
     ('request, 'result) t ->
     (sw:Eio.Switch.t -> 'request -> 'result Completion.t) -> unit
   (** [start ~sw queue handler] forks {!run} into [sw] and returns immediately.

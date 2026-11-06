@@ -14,3 +14,5 @@
 - Dispatch oldest-first within fair-share lanes, so retries and expired
   claims keep their age and small submissions interleave with bulk ones.
   Schema 3 upgrades version 2 stores in place.
+- Keep worker pools running through handler exceptions and storage failures
+  when an `on_exn` completion is supplied.

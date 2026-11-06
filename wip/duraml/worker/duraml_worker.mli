@@ -22,9 +22,11 @@
     Bound network operations and subprocesses with application timeouts.
 
     Return expected failures and explicit retry schedules as completions.
-    Unexpected handler exceptions, renewal I/O failures and settlement conflicts
-    stop the pool and cancel sibling workers. An unacknowledged external effect
-    may have completed, so unsettled claims are left to expire.
+    Without [on_exn], unexpected handler exceptions, storage failures and
+    settlement conflicts stop the pool and cancel sibling workers. An
+    unacknowledged external effect may have completed, so unsettled claims
+    are left to expire. With [on_exn], only settlement conflicts and
+    exceptions other than storage failures stop the pool.
 
     {1 SHUTDOWN}
     Resolving [stop] prevents new handlers and starts a drain interval. Active
@@ -45,6 +47,7 @@ val run :
   ?concurrency:int -> ?lease:Ptime.Span.t -> ?max_attempts:int ->
   ?stop:unit Eio.Promise.t -> ?drain:Ptime.Span.t ->
   ?on_settled:(Duraml.Claim.t -> Duraml.settlement -> unit) ->
+  ?on_exn:(Duraml.Claim.t -> exn -> Duraml.completion) ->
   _ Duraml.t ->
   (sw:Eio.Switch.t -> Duraml.Claim.t -> Duraml.completion) -> unit
 (** [run ... store handler] blocks until stopped, cancelled or failed.
@@ -60,4 +63,12 @@ val run :
 
     [on_settled claim result] runs after each settlement response, including a
     lost claim or conflict. Callback exceptions stop the pool. Callbacks are
-    transient notifications. Durable audit consumers read {!Duraml.events}. *)
+    transient notifications. Durable audit consumers read {!Duraml.events}.
+
+    [on_exn claim exn] is the completion settled when [handler] raises [exn],
+    other than by cancellation. Supplying it also keeps the pool running
+    through storage failures, the [Storage] errors of {!Duraml.err}. A
+    failed take is retried after a pause that doubles from 1 to 30 seconds.
+    A failed settlement is retried twice in the same way and then left to
+    expire. A failed renewal cancels the handler and leaves the claim to
+    expire. Exceptions from [on_exn] itself stop the pool. *)

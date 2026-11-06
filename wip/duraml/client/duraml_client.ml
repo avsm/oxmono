@@ -96,9 +96,12 @@ module Queue = struct
     D.complete ~followups:(List.map (fun s -> s.Submission.spec) c.followups)
       outcome
   let run ~mono_clock ?concurrency ?lease ?max_attempts ?stop ?drain
-      ?(on_settled=fun _ _ -> ()) t handler =
+      ?(on_settled=fun _ _ -> ()) ?on_exn t handler =
+    let on_exn = Option.map (fun f _ -> function
+      | Schema_mismatch _ as e -> raise e
+      | e -> finish t (f e)) on_exn in
     Duraml_worker.run ~mono_clock ~queue:t.name ?concurrency ?lease
-      ?max_attempts ?stop ?drain
+      ?max_attempts ?stop ?drain ?on_exn
       ~on_settled:(fun c result -> on_settled (handle t (D.Claim.id c)) result)
       t.store (fun ~sw c ->
         let spec=D.Claim.spec c in
@@ -110,8 +113,8 @@ module Queue = struct
             Eio.Fiber.with_binding context (D.Claim.id c, D.Claim.attempt c)
               (fun () -> finish t (handler ~sw request)))
   let start ~sw ~mono_clock ?concurrency ?lease ?max_attempts ?stop ?drain
-      ?on_settled t handler =
+      ?on_settled ?on_exn t handler =
     Eio.Fiber.fork ~sw (fun () ->
       run ~mono_clock ?concurrency ?lease ?max_attempts ?stop ?drain
-        ?on_settled t handler)
+        ?on_settled ?on_exn t handler)
 end

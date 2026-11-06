@@ -6,16 +6,13 @@ module R = Taposaur_review
 module S = Taposaur_review_store
 module X = Taposaur_review_run
 let ( / ) = Eio.Path.( / )
-let get = function Ok x -> x | Error e -> Alcotest.fail e
+let get = Tap_test.get
 let check = Alcotest.(check bool)
 let equal = Alcotest.(check string)
 let count = Alcotest.(check int)
 let doi s = get (Doi.of_string s)
-let with_temp f = Eio_main.run (fun env ->
-  let name=Filename.temp_file "abstract-test-" "" in Unix.unlink name;
-  let root=env#fs / name in Eio.Path.mkdir ~perm:0o700 root;
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root)
-    (fun () -> Eio.Switch.run (fun sw -> f env sw root)))
+let with_temp f = Tap_test.with_temp "abstract-test-"
+  (fun env sw root _ -> f env sw root)
 let work ?(inverted={|{"Birds":[0],"migrate":[1],"south.":[2]}|}) d =
   Printf.sprintf {|{"id":"https://openalex.org/W1","doi":"https://doi.org/%s","abstract_inverted_index":%s}|} d inverted
 let results works = {|{"meta":{"count":1},"results":[|} ^ String.concat "," works ^ "]}"

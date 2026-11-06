@@ -1,3 +1,8 @@
+(library
+ (name tap_test)
+ (modules tap_test)
+ (libraries eio eio_main alcotest unix))
+
 (test
  (name test_regeneration)
  (modules test_regeneration)
@@ -15,6 +20,7 @@
  (deps
   (glob_files fixtures/*))
  (libraries
+  tap_test
   taposaur.audit
   taposaur
   taposaur.archive
@@ -43,6 +49,7 @@
  (name test_reviews)
  (modules test_reviews)
  (libraries
+  tap_test
   taposaur.audit
   taposaur
   taposaur.review
@@ -64,6 +71,7 @@
  (name test_acquisition)
  (modules test_acquisition)
  (libraries
+  tap_test
   taposaur.audit
   taposaur
   taposaur.archive
@@ -99,6 +107,7 @@
  (name test_abstracts)
  (modules test_abstracts)
  (libraries
+  tap_test
   taposaur
   taposaur.abstracts
   taposaur.audit
@@ -120,6 +129,7 @@
  (name test_mirrors)
  (modules test_mirrors)
  (libraries
+  tap_test
   taposaur
   taposaur.mirrors
   taposaur.audit
@@ -140,6 +150,7 @@
  (name test_accept)
  (modules test_accept)
  (libraries
+  tap_test
   taposaur.accept
   taposaur.lock
   taposaur.archive
@@ -158,6 +169,7 @@
  (name test_jobs)
  (modules test_jobs)
  (libraries
+  tap_test
   taposaur.jobs
   taposaur.accept
   taposaur.lock
@@ -188,4 +200,11 @@
 (test
  (name test_secrets)
  (modules test_secrets)
- (libraries taposaur.secrets sekrit sekrit.eio eio_main alcotest unix))
+ (libraries
+  tap_test
+  taposaur.secrets
+  sekrit
+  sekrit.eio
+  eio_main
+  alcotest
+  unix))

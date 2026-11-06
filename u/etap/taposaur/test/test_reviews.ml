@@ -6,7 +6,7 @@ module X = Taposaur_review_run
 module C = Taposaur_catalog
 module W = Proffer_mock
 let ( / ) = Eio.Path.( / )
-let get = function Ok x -> x | Error e -> Alcotest.fail e
+let get = Tap_test.get
 let equal = Alcotest.(check string)
 let count = Alcotest.(check int)
 let check = Alcotest.(check bool)
@@ -16,13 +16,7 @@ let includes hay needle =
   let rec loop i = i+n <= String.length hay &&
     (String.sub hay i n = needle || loop (i+1)) in
   loop 0
-let with_temp f = Eio_main.run @@ fun env ->
-  let path = Filename.temp_file "taposaur-reviews-" "" in
-  Unix.unlink path;
-  let root = env#fs / path in
-  Eio.Path.mkdir ~perm:0o700 root;
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root) (fun () ->
-    Eio.Switch.run (fun sw -> f env sw root path))
+let with_temp f = Tap_test.with_temp "taposaur-reviews-" f
 let make_index doi =
   get (Index.of_string (Printf.sprintf
     {|{"uid":"doi:%s","scheme":"doi","pdf_path":"","pdf_size":0,"pdf_mtime":0,"tei_path":"","tei_mtime":0}|}

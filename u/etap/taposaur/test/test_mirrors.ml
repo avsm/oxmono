@@ -6,7 +6,7 @@ module R = Taposaur_review
 module S = Taposaur_review_store
 module X = Taposaur_review_run
 let ( / ) = Eio.Path.( / )
-let get = function Ok x -> x | Error e -> Alcotest.fail e
+let get = Tap_test.get
 let check = Alcotest.(check bool)
 let equal = Alcotest.(check string)
 let count = Alcotest.(check int)
@@ -14,11 +14,8 @@ let doi = get (Doi.of_string "10.1000/a")
 let uid = get (Uid.of_input "10.1000/a")
 let body = {|{"DOI":"10.1000/A","publisher":"Publisher & Co"}|}
 let evidence () = get (M.decode ~provider:"crossref.glutton" ~endpoint:"http://mirror" ~doi body)
-let with_temp f = Eio_main.run (fun env ->
-  let name=Filename.temp_file "mirror-test-" "" in Unix.unlink name;
-  let root=env#fs / name in Eio.Path.mkdir ~perm:0o700 root;
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root)
-    (fun () -> Eio.Switch.run (fun sw -> f env sw root)))
+let with_temp f = Tap_test.with_temp "mirror-test-"
+  (fun env sw root _ -> f env sw root)
 let validation () =
   equal "canonical match" "10.1000/a" (evidence ()).doi;
   List.iter (fun body -> check "refuse invalid evidence" true

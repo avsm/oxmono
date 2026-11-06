@@ -3,20 +3,15 @@ module Store = Taposaur_store
 module D = Taposaur_download
 module S = Taposaur_services
 let ( / ) = Eio.Path.( / )
-let get = function Ok x -> x | Error e -> Alcotest.fail e
+let get = Tap_test.get
 let check = Alcotest.(check bool)
 let count = Alcotest.(check int)
 let equal = Alcotest.(check string)
 let uid = get (Uid.of_input "10.1000/staged/paper")
 let pdf = "%PDF-1.4\n0123456789\n%%EOF\n"
 let at = "2026-10-23T12:00:00.000Z"
-let with_temp f = Eio_main.run (fun env ->
-  let name = Filename.temp_file "taposaur-acquisition-" "" in
-  Unix.unlink name;
-  let root = env#fs / name in
-  Eio.Path.mkdir ~perm:0o700 root;
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root)
-    (fun () -> Eio.Switch.run (fun sw -> f env sw root)))
+let with_temp f = Tap_test.with_temp "taposaur-acquisition-"
+  (fun env sw root _ -> f env sw root)
 let save path value = Eio.Path.save ~create:(`Or_truncate 0o600) path value
 let add paper data = Store.add paper ~at ~source:Manifest.Source.Url
   ~format:Manifest.Format.Pdf ~strategy:"url" ~status:200

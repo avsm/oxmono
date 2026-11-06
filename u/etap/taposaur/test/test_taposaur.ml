@@ -6,7 +6,7 @@ module E = Taposaur_indexing.Enrich
 module P = Taposaur_paper
 module W = Proffer_mock
 let ( / ) = Eio.Path.( / )
-let get = function Ok x -> x | Error e -> Alcotest.fail e
+let get = Tap_test.get
 let uid = fun s -> get (Uid.of_string s)
 let equal = Alcotest.(check string)
 let check = Alcotest.(check bool)
@@ -89,14 +89,8 @@ let records () =
     (rejected (Jsont_bytesrw.decode_string Manifest.Artifact.jsont
       {|{"file":"../secret","format":"pdf","source":"publisher","bytes":1,"at":"x"}|}))
 
-let with_temp f =
-  Eio_main.run @@ fun env ->
-  let name = Filename.temp_file "taposaur-test-" "" in
-  Unix.unlink name;
-  let root = env#fs / name in
-  Eio.Path.mkdir ~perm:0o700 root;
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root)
-    (fun () -> Eio.Switch.run (fun sw -> f env sw root))
+let with_temp f = Tap_test.with_temp "taposaur-test-"
+  (fun env sw root _ -> f env sw root)
 let save root path text =
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 (root / Filename.dirname path);
   Eio.Path.save ~create:(`Or_truncate 0o600) (root / path) text

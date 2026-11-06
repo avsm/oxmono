@@ -10,7 +10,7 @@ module RS = Taposaur_review_store
 module X = Taposaur_review_run
 module Cat = Taposaur_catalog
 let ( / ) = Eio.Path.( / )
-let get = function Ok x -> x | Error e -> Alcotest.fail e
+let get = Tap_test.get
 let check = Alcotest.(check bool)
 let count = Alcotest.(check int)
 let equal = Alcotest.(check string)
@@ -28,13 +28,7 @@ let tei ?(doi = "10.1000/x") ?(title = "Study") () = Printf.sprintf
   {|<TEI xmlns="http://www.tei-c.org/ns/1.0"><teiHeader><fileDesc><titleStmt><title level="a" type="main">%s</title></titleStmt><publicationStmt><publisher>Test Press</publisher></publicationStmt><sourceDesc><biblStruct><analytic><title>%s</title><idno type="DOI">%s</idno></analytic><monogr><imprint/></monogr></biblStruct></sourceDesc></fileDesc></teiHeader><text><body><p>Text</p></body></text></TEI>|}
   title title doi
 
-let with_temp f = Eio_main.run (fun env ->
-  let name = Filename.temp_file "taposaur-jobs-" "" in
-  Unix.unlink name;
-  let root = env#fs / name in
-  Eio.Path.mkdir ~perm:0o700 root;
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root)
-    (fun () -> Eio.Switch.run (fun sw -> f env sw root name)))
+let with_temp f = Tap_test.with_temp "taposaur-jobs-" f
 let memory env sw =
   Duraml_memory.create ~sw ~clock:env#clock ~random:env#secure_random ()
 let make_archive ~sw root =

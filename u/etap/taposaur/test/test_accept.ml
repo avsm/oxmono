@@ -2,7 +2,7 @@ open Taposaur
 module A = Taposaur_accept
 module L = Taposaur_lock
 let ( / ) = Eio.Path.( / )
-let get = function Ok x -> x | Error e -> Alcotest.fail e
+let get = Tap_test.get
 let check = Alcotest.(check bool)
 let count = Alcotest.(check int)
 let equal = Alcotest.(check string)

@@ -2,13 +2,8 @@ module S = Taposaur_secrets
 let ( / ) = Eio.Path.( / )
 let check = Alcotest.(check bool)
 let equal = Alcotest.(check string)
-let with_temp f = Eio_main.run (fun env ->
-  let name = Filename.temp_file "taposaur-secrets-" "" in
-  Unix.unlink name;
-  let root = env#fs / name in
-  Eio.Path.mkdir ~perm:0o700 root;
-  Fun.protect ~finally:(fun () -> Eio.Path.rmtree root)
-    (fun () -> Eio.Switch.run (fun sw -> f env sw root)))
+let with_temp f = Tap_test.with_temp "taposaur-secrets-"
+  (fun env sw root _ -> f env sw root)
 let names () =
   List.iter (fun c -> check "name round-trips" true (S.of_name (S.name c) = Some c))
     S.credentials;

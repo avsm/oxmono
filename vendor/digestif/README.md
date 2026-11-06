@@ -20,6 +20,10 @@ Local patches cover the shared sources and both backends:
   index, the update glue and the BLAKE3 derive-key context length, and
   includes `<stddef.h>` in the seven headers that lacked `size_t`. The
   algorithms and all other C lines are unchanged upstream sources.
+- `src-c/native/stubs.c` also passes the BLAKE3 XOF output length as a
+  `size_t`. Upstream narrows it with `Int_val`, so `BLAKE3.get_xof` and
+  `get_xof_into_bytes` wrote out of bounds for 2 GiB or more and left all
+  but the low 32 bits of a 4 GiB or longer request unwritten.
 - `src-c/digestif.ml` preserves portable functor boundaries and implements
   the raw helpers. BLAKE3 uses a 32-byte digest and 64-byte HMAC block.
 - `src/digestif_by.ml` and `src/digestif_bi.ml` mark their externals
@@ -46,7 +50,8 @@ The length patch was checked with single feeds of 2^32 + 17 and
 points of all 16 C hashes. Each digest equals the chunked feed and an
 independent implementation: `hashlib`, RHash for Whirlpool and BLAKE3, and
 OpenSSL for Keccak-256. The OCaml backend agrees on the larger input. BLAKE3
-derive-key contexts of 2^31 + 9 and 2^32 + 5 bytes match the OCaml backend.
+derive-key contexts and XOF outputs of 2^31 + 9 and 2^32 + 5 bytes match the
+OCaml backend.
 
 `Int_val` remains for the BLAKE2 key length and the XOR helper length. Both
 are bounded by their OCaml callers.

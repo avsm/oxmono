@@ -177,7 +177,7 @@ caml_digestif_blake3_st_finalize_seek(value ctx, value seek, value dst,
 {
   digestif_blake3_finalize_seek(
     (blake3_ctx *) String_val(ctx), Int64_val(seek),
-    _st_uint8_off(dst, off), Int_val(len));
+    _st_uint8_off(dst, off), Long_val(len));
   return Val_unit;
 }
 

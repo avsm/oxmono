@@ -117,7 +117,7 @@
       "archive_checksums": [
         "sha256=aca9b1474e5a292f47b0b002a378301e299036b91718ef5eaa818fb413168d90"
       ],
-      "scope": "Upstream tree without bench/ and CI metadata. Local OxCaml portability patches, full-width C hash input lengths and one corrected slow-test expectation. See README.md."
+      "scope": "Upstream tree without bench/ and CI metadata. Local OxCaml portability patches, full-width C hash input and XOF output lengths and one corrected slow-test expectation. See README.md."
     },
     {
       "name": "domain-name",

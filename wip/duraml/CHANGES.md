@@ -16,3 +16,12 @@
   Schema 3 upgrades version 2 stores in place.
 - Keep worker pools running through handler exceptions and storage failures
   when an `on_exn` completion is supplied.
+- Rank a lane that gains work at the back of its queue's rotation, forget
+  emptied lanes, and claim with one indexed query in schema 4 SQLite
+  stores, upgrading versions 2 and 3 in place.
+- Answer idle polls without the SQLite write lock or fresh randomness, and
+  wake memory waiters on renewal only when a lease shortens.
+- Report damaged SQLite records and SQLite errors, with their text, as
+  storage failures, and close a handle whose transaction cannot roll back.
+- Reject conflicting successors that share a key, oversized leases on idle
+  queues and non-canonical job IDs. Add `Id.equal` and `Id.pp`.

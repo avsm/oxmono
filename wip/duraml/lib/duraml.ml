@@ -2,10 +2,15 @@ module Id = struct
   type t = int64
   let to_string = Int64.to_string
   let of_string s =
-    match Int64.of_string_opt s with
+    let decimal = s <> "" && String.length s <= 19 &&
+      String.for_all (function '0'..'9' -> true | _ -> false) s &&
+      s.[0] <> '0' in
+    match if decimal then Int64.of_string_opt s else None with
     | Some n when n > 0L -> Ok n
     | _ -> Error "Invalid job ID"
   let compare = Int64.compare
+  let equal = Int64.equal
+  let pp ppf id = Format.pp_print_string ppf (Int64.to_string id)
 end
 
 let text name limit s =
@@ -39,7 +44,6 @@ module Spec = struct
   let key (x : t) = x.key
   let not_before (x : t) = x.not_before
   let lane (x : t) = x.lane
-  (* Lanes schedule work; they do not identify it. *)
   let same (a : t) (b : t) = {a with lane=""} = {b with lane=""}
 end
 
@@ -57,6 +61,16 @@ let validate_completion (c : completion) =
    | Failed {code;detail} -> name "failure code" code;
        text "failure detail" 4096 detail);
   if List.length c.followups > 100 then invalid_arg "Too many successors";
+  (* A second successor with the same key would conflict with the first,
+     which the rollback then removes, so the conflict could name no job. *)
+  ignore (List.fold_left (fun seen (s : Spec.t) -> match s.key with
+    | None -> seen
+    | Some key ->
+        (match List.assoc_opt (s.queue,key) seen with
+         | Some other when not (Spec.same other s) ->
+             invalid_arg "Successors with one key must be identical"
+         | _ -> ());
+        ((s.queue,key),s)::seen) [] c.followups);
   if List.fold_left (fun n s -> n + String.length s.Spec.payload)
       0 c.followups > 4*1048576 then invalid_arg "Successors exceed 4 MiB"
 
@@ -97,9 +111,15 @@ type event = {
   sequence : int64; time : Ptime.t; kind : string; job : Id.t;
   attempt : int; detail : string;
 }
-type error = Closed | Storage of string
+type error = Closed | Storage of string | Conflict of string
 type Eio.Exn.err += E of error
 let err e = Eio.Exn.create (E e)
+let () = Eio.Exn.register_pp (fun ppf -> function
+  | E Closed -> Format.pp_print_string ppf "Duraml closed"; true
+  | E (Storage s) -> Format.fprintf ppf "Duraml storage: %s" s; true
+  | E (Conflict s) -> Format.fprintf ppf "Duraml conflict: %s" s; true
+  | _ -> false)
+let missing_attempt () = err (Storage "Missing attempt record")
 type 'a t = 'a Eio.Resource.t constraint 'a = [> `Job_queue]
 type plain = [ `Job_queue ] Eio.Resource.t
 
@@ -230,6 +250,12 @@ module Pi = struct
           a.status="running" && a.claim.token=c.token &&
           Ptime.compare j.available_at now > 0 -> Some (j,a)
       | _ -> None in
+    let deadline lease = match Ptime.add_span now lease with
+      | Some t -> t
+      | None -> invalid_arg "Lease exceeds timestamp range" in
+    let attempt (j : job) = match s.attempt j.id j.attempt with
+      | Some a -> a
+      | None -> raise (missing_attempt ()) in
     match request with
     | Identity -> s.identity
     | Enqueue spec -> enqueue spec
@@ -239,17 +265,14 @@ module Pi = struct
     | Events (after,limit) -> s.events ~after ~limit
     | Tail (before,limit) -> s.tail ~before ~limit
     | Try_take (queue,lease) ->
+        let deadline = deadline lease in
         (match s.eligible ~queue ~now with
          | None -> Await {revision=s.revision ();next_at=s.next_at ~queue}
          | Some j ->
              if j.state=Running then begin
-               let a = Option.get (s.attempt j.id j.attempt) in
-               s.put_attempt {a with status="expired"};
+               s.put_attempt {(attempt j) with status="expired"};
                emit j "lease_expired" ""
              end;
-             let deadline=match Ptime.add_span now lease with
-               | Some t -> t
-               | None -> invalid_arg "Lease exceeds timestamp range" in
              let j={j with state=Running;attempt=j.attempt+1;
                available_at=deadline;updated_at=now} in
              let c={Claim.identity=s.identity;id=j.id;spec=j.spec;
@@ -259,10 +282,8 @@ module Pi = struct
              s.served ~queue ~lane:j.spec.lane;
              emit j "claimed" ""; Ready c)
     | Renew (c,lease) ->
+        let deadline = deadline lease in
         (match owned c with None -> false | Some (j,a) ->
-          let deadline=match Ptime.add_span now lease with
-               | Some t -> t
-               | None -> invalid_arg "Lease exceeds timestamp range" in
           s.put {j with available_at=deadline;updated_at=now};
           s.put_attempt {a with claim={a.claim with deadline}}; true)
     | Cancel id ->
@@ -270,10 +291,8 @@ module Pi = struct
          | None -> false
          | Some j when j.state<>Queued && j.state<>Running -> false
          | Some j ->
-             if j.state=Running then begin
-               let a=Option.get (s.attempt id j.attempt) in
-               s.put_attempt {a with status="cancelled"}
-             end;
+             if j.state=Running then
+               s.put_attempt {(attempt j) with status="cancelled"};
              let j={j with state=Cancelled;updated_at=now} in
              s.put j; emit j "cancelled" ""; true)
     | Settle (c,completion) ->
@@ -302,6 +321,16 @@ module Pi = struct
                  completion=Some completion};
                emit j kind detail; Applied)
 
+  (* The revision is read first, so a change between the reads makes the
+     observation stale and the wait return at once. *)
+  let idle ~now ~lease s ~queue =
+    timestamp now;
+    if Ptime.add_span now lease=None then
+      invalid_arg "Lease exceeds timestamp range";
+    let revision=s.revision () in
+    match s.eligible ~queue ~now with
+    | None -> Some {revision;next_at=s.next_at ~queue}
+    | Some _ -> None
   let time_of_float_s seconds =
     match Ptime.of_float_s seconds with
     | Some t -> timestamp t; t

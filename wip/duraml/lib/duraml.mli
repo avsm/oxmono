@@ -43,10 +43,8 @@
 
     {1 TIME}
     Timestamps use {!Ptime.t}, from the Unix epoch through [Ptime.max].
-      Durations
-    use {!Ptime.Span.t}. Leases must be positive. Backends convert their
-      supplied
-    Eio wall clock at the boundary. Workers use an Eio monotonic clock for
+    Durations use {!Ptime.Span.t}. Leases must be positive. Backends convert
+    their supplied Eio wall clock at the boundary. Workers use an Eio monotonic clock for
     heartbeat and drain intervals. Sleep precision is that of the Eio backend.
     Persisted deadlines and retry times use wall time, so clock adjustments can
     advance or delay eligibility. Processes sharing a store must use consistent
@@ -66,7 +64,8 @@
 
     {1 ERRORS}
     Constructors and operations raise [Invalid_argument] for invalid inputs.
-    Backend failures use [Eio.Io (Duraml.E error, context)]. Eio cancellation
+    Backend failures use [Eio.Io (Duraml.E error, context)], including
+    damaged stored records. Eio cancellation
     propagates normally. Domain outcomes such as key conflicts and lost claims
     are returned as variants. Closing the owning switch invalidates its handle.
 
@@ -85,9 +84,15 @@ module Id : sig
   val to_string : t -> string @@ portable
   (** [to_string id] is its decimal storage and display form. *)
   val of_string : string -> (t, string) result @@ portable
-  (** [of_string s] parses a positive signed 64-bit OCaml integer literal. *)
+  (** [of_string s] parses the decimal form of {!to_string}: digits without
+      sign, prefix, separator or leading zero, denoting a positive signed
+      64-bit integer. Every identifier therefore has exactly one string. *)
   val compare : t -> t -> int @@ portable
   (** [compare a b] orders identifiers by allocation order within a store. *)
+  val equal : t -> t -> bool @@ portable
+  (** [equal a b] is [compare a b = 0]. *)
+  val pp : Format.formatter -> t -> unit
+  (** [pp ppf id] prints {!to_string}[ id]. *)
 end
 module Spec : sig
   type t
@@ -95,13 +100,13 @@ module Spec : sig
   val v : queue:string -> kind:string -> version:int -> payload:string ->
     ?key:string -> ?not_before:Ptime.t -> ?lane:string -> unit -> t
     @@ portable
-  (** [v ... ()] validates a specification. Names, keys and lanes must be
-      nonblank, NUL-free UTF-8 of at most 256 bytes. [version] must be
-      positive. Payloads are UTF-8 of at most 1 MiB. Omitted [not_before]
-      means immediately eligible. [lane] names the fair-share lane the job
-      is dispatched from; the default is the unnamed lane. Deduplication
-      compares every field except the lane, including the initial
-      schedule. *)
+  (** [v ... ()] validates a specification. Names, keys and named lanes
+      must be NUL-free UTF-8 of at most 256 bytes, not empty or only ASCII
+      whitespace. [version] must be positive. Payloads are UTF-8 of at most
+      1 MiB. Omitted [not_before] means immediately eligible. [lane] names
+      the fair-share lane the job is dispatched from. It defaults to [""],
+      the unnamed lane. Deduplication compares every field except the lane,
+      including the initial schedule. *)
   val queue : t -> string @@ portable
   (** [queue s] is the named queue receiving [s]. *)
   val kind : t -> string @@ portable
@@ -131,7 +136,8 @@ val complete : ?followups:Spec.t list -> outcome -> completion @@ portable
 (** [complete ~followups outcome] validates a result. Success data is limited
     to 1 MiB. Reasons and failure details are UTF-8 of at most 4096 bytes.
     Failure codes obey the name rules of {!Spec.v}. At most 100 successors
-    and 4 MiB of successor payloads are allowed. Retry cannot have successors.
+    and 4 MiB of successor payloads are allowed. Successors sharing a queue
+    and key must be identical. Retry cannot have successors.
     Validation occurs here, before a completion reaches a store or worker. *)
 module Completion : sig
   type t = completion
@@ -240,14 +246,17 @@ module Event : sig
   val job : t -> Id.t @@ portable
   (** [job e] is the affected job. *)
   val attempt : t -> int @@ portable
-  (** [attempt e] is the generation at the transition, zero before first claim.
-    *)
+  (** [attempt e] is the generation at the transition, zero before the
+      first claim. *)
   val detail : t -> string @@ portable
   (** [detail e] is the retry reason or failure code, otherwise empty. *)
 end
 
-type error = Closed | Storage of string
-(** A closed handle or a backend failure. Storage text is diagnostic only. *)
+type error = Closed | Storage of string | Conflict of string
+(** A closed handle, a backend failure, or stored work contradicting a
+    worker's completion. A [Storage] failure may be transient, and a busy
+    database is one. A [Conflict] is deterministic. Text is diagnostic
+    only. *)
 type Eio.Exn.err += E of error
 val err : error -> exn
 (** [err e] wraps [e] in an Eio I/O exception. *)
@@ -262,24 +271,30 @@ val identity : _ t -> string
     numbers when deduplicating delivery to an external audit consumer. *)
 val enqueue : _ t -> Spec.t -> enqueue_result
 (** [enqueue t s] atomically inserts or reconciles [s]. Unkeyed enqueues always
-    insert and cannot reconcile a lost response. Keys survive terminal states.
-      *)
+    insert and cannot reconcile a lost response. Keys survive terminal
+    states. *)
 val try_take : _ t -> queue:string -> lease:Ptime.Span.t -> poll
 (** [try_take t ~queue ~lease] claims the next eligible job or returns a
     wait observation. It does not wait for eligibility, but storage may suspend.
-    Dispatch is fair across lanes and oldest-first within a lane: the lane
-    served least recently in [queue] goes first, then the eligible job with
-    the earliest creation time, then the lowest ID. A retry or an expired
-    claim therefore keeps its place behind no job younger than itself, and a
-    small submission is interleaved with a large one rather than queued
-    behind it. Expired claims receive a new generation.
-    The deadline must fit within [Ptime]'s timestamp range. *)
+    Dispatch is fair across lanes and oldest-first within a lane. The lane
+    of [queue] served least recently goes first, then the eligible job with
+    the earliest creation time, then the lowest ID. A lane that gains work
+    after holding none ranks as served just now, so new lanes join the back
+    of the rotation instead of preempting lanes already waiting. A retry or
+    an expired claim keeps its place behind no job younger than itself, and
+    a small submission is interleaved with a large one rather than queued
+    behind it. Each lane with work is served once per rotation, so a
+    submitter able to create unlimited lanes can take a matching share of
+    dispatch. Expired claims receive a new generation. The deadline must
+    fit within [Ptime]'s timestamp range, or [Invalid_argument] is raised
+    whether or not work is eligible. *)
 val take : _ t -> queue:string -> lease:Ptime.Span.t -> Claim.t
 (** [take t ~queue ~lease] polls and waits until eligible work is claimed or
     the fiber is cancelled. It is safe against enqueue/wait races. *)
 val renew : _ t -> Claim.t -> lease:Ptime.Span.t -> bool
-(** [renew t c ~lease] sets the deadline to current time plus [lease], which may
-    shorten it. Returns false after expiry, cancellation or takeover. *)
+(** [renew t c ~lease] sets the deadline to current time plus [lease], which
+    may shorten it. It is [false] after expiry, cancellation or takeover.
+    The deadline must fit within [Ptime]'s timestamp range. *)
 val settle : _ t -> Claim.t -> completion -> settlement
 (** [settle t c result] commits the outcome and all successors atomically.
     Identical repeats return [Already_applied], even after expiry or a later
@@ -287,23 +302,24 @@ val settle : _ t -> Claim.t -> completion -> settlement
     conflicts roll back the entire operation. Retry the identical completion
     to reconcile a response lost through cancellation or I/O failure. *)
 val cancel : _ t -> Id.t -> bool
-(** [cancel t id] revokes queued or running work. Returns false for missing or
-    terminal jobs. External effects are not undone. A worker observes revocation
+(** [cancel t id] revokes queued or running work. It is [false] for missing
+    or terminal jobs. External effects are not undone. A worker observes revocation
     at its next renewal. *)
 val find : _ t -> Id.t -> job option
-(** [find t id] returns the current snapshot, or [None] if absent. *)
+(** [find t id] is the current snapshot, or [None] if absent. *)
 val list : _ t -> query -> job list
-(** [list t q] returns matching snapshots in ascending ID order. Separate pages
-    are separate observations, not a snapshot of the whole store. *)
+(** [list t q] is the matching snapshots in ascending ID order. Separate
+    pages are separate observations, not a snapshot of the whole store. A
+    page holds whole records, up to 2 MiB each with payload and result. *)
 val count : _ t -> query -> int
-(** [count t q] is the number of jobs matching the queue, state and [after]
-    filters of [q], ignoring its limit. It reads no job records. *)
+(** [count t q] is the number of jobs matching every filter of [q],
+    ignoring its limit. *)
 val events : ?after:int64 -> ?limit:int -> _ t -> event list
-(** [events t] returns ascending events. [after] defaults to zero and is an
-    exclusive nonnegative cursor. [limit] defaults to 100 and must be 1..1000.
-      *)
+(** [events t] is ascending events. [after] defaults to zero and is an
+    exclusive nonnegative cursor. [limit] defaults to 100 and must be
+    1..1000. *)
 val tail : ?before:int64 -> ?limit:int -> _ t -> event list
-(** [tail t] returns the newest events first, those with sequence below the
+(** [tail t] is the newest events first, those with sequence below the
     exclusive positive cursor [before], or the newest of all when it is
     omitted. [limit] defaults to 100 and must be 1..1000. A viewer seeds
     itself from the tail and then follows {!events} from the newest
@@ -339,8 +355,8 @@ module Pi : sig
     | Count : query -> int request
     | Events : int64 * int -> event list request
     | Tail : int64 option * int -> event list request
-  (** The typed provider protocol. Use public operations for input validation.
-    *)
+  (** The typed provider protocol. Use public operations for input
+      validation. *)
   val operation : 'a request -> string
   (** [operation r] is its diagnostic name, without payload or credentials. *)
   module type BACKEND = sig
@@ -350,7 +366,7 @@ module Pi : sig
     (** [call t r] executes one atomic request. *)
     val await : t -> waiting -> unit
     (** [await t w] waits for a change or deadline. Spurious wakeups are
-      allowed. *)
+        allowed. *)
   end
   val handler : (module BACKEND with type t = 'a) ->
     ('a, [ `Job_queue ]) Eio.Resource.handler
@@ -386,26 +402,37 @@ module Pi : sig
   (** Transaction-local storage callbacks. They must not yield. [allocate]
       returns a fresh increasing ID. [put] and [put_attempt] upsert records.
       [eligible] returns a queued or running job with deadline at or before
-      [now], from the lane of [queue] served least recently (ties by lane
-      name, lanes never served first), ordered within the lane by creation
-      time then ID. [served ~queue ~lane] records that the lane was just
-      dispatched from, so it sorts after every other lane of [queue]. [count]
-      applies a query's filters without its limit. [tail] returns events in
-      descending sequence order below an optional exclusive cursor. [next_at]
-      returns the earliest deadline in [queue] regardless of current
-      eligibility. [emit] allocates an
-      increasing event sequence. Reads must see preceding writes in the same
+      [now], from the lane of [queue] served least recently, with ties
+      broken by lane name, ordered within the lane by creation time then
+      ID. [put] ranks a lane that gains its first queued or running job as
+      served just now, and may forget a lane left with none. [served ~queue
+      ~lane] records that the lane was just dispatched from, so it sorts
+      after every other lane of [queue]. [count] applies a query's filters
+      without its limit. [tail] returns events in descending sequence order
+      below an optional exclusive cursor. [next_at] returns the earliest
+      deadline in [queue] regardless of current eligibility. [emit]
+      allocates an increasing event sequence. [attempt] returning [None]
+      for a running job's current generation is a storage failure. Reads must see preceding writes in the same
       transaction. [revision] is a wakeup token independent of audit sequence.
       Custom stores must preserve key uniqueness and retain settlement receipts.
       The record is intentionally concrete so providers can supply callbacks. *)
   exception Abort_followup of Id.t
   (** Requests transaction rollback on successor conflict. {!settle} converts
-      this exception to [Followup_conflict] after the backend has rolled back.
-        *)
+      this exception to [Followup_conflict] after the backend has rolled
+      back, so a provider must let it escape unwrapped. *)
   val execute : now:Ptime.t -> token:string -> storage -> 'a request -> 'a
   (** [execute ~now ~token storage r] applies the shared transition engine.
       Sample [now] after acquiring the transaction lock. Supply a fresh random
-      [token] for [Try_take]. Commit only on success, otherwise roll back. *)
+      [token] for [Try_take]. Commit only on success, otherwise roll back,
+      and let {!Abort_followup} escape unwrapped. *)
+  val idle : now:Ptime.t -> lease:Ptime.Span.t -> storage -> queue:string ->
+    waiting option
+  (** [idle ~now ~lease storage ~queue] is the observation [Try_take] would
+      return at [now] when [queue] has no eligible job, or [None] when it
+      has one. It validates [lease] as [Try_take] does.
+      It reads without writing, so a provider can answer an idle poll
+      without a write lock or a fresh token, then run {!execute} only when
+      work exists. *)
   val time_of_float_s : float -> Ptime.t
   (** [time_of_float_s seconds] converts an Eio Unix clock reading. Raises
       [Invalid_argument] for nonfinite, pre-epoch or out-of-range readings. *)

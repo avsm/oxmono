@@ -216,7 +216,7 @@ INSERT INTO events VALUES(1,'{"sequence":"1","time":"2026-01-01T00:00:00Z",
   let scalar sql = let s=Sqlite3.prepare db sql in
     ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
     ignore (Sqlite3.finalize s); v in
-  check "schema upgraded" true (scalar "PRAGMA user_version"="3");
+  check "schema upgraded" true (scalar "PRAGMA user_version"="4");
   check "lane recorded as served" true
     (scalar "SELECT served FROM lanes WHERE queue='work' AND lane=''"="1");
   check "creation column filled" true
@@ -225,6 +225,30 @@ INSERT INTO events VALUES(1,'{"sequence":"1","time":"2026-01-01T00:00:00Z",
   let reader=Duraml_sqlite.open_ ~sw ~clock:env#clock
     ~random:env#secure_random ~read_only:true Eio.Path.(env#fs / path) in
   count "reader sees upgraded store" 2 (List.length (D.list reader (D.query ())));
+  List.iter (fun suffix -> let p=path^suffix in
+    if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"]))
+(* A damaged record is a storage failure, and emptied lanes are forgotten. *)
+let damaged () = Eio_main.run (fun env -> Eio.Switch.run (fun sw ->
+  let path=Filename.temp_file "duraml-damaged-" ".db" in Unix.unlink path;
+  let q=open_queue env sw path in
+  ignore (D.enqueue q (D.Spec.v ~queue:"work" ~kind:"process-test" ~version:1
+    ~payload:"data" ~lane:"once" ()));
+  let c=D.take q ~queue:"work" ~lease:(span 30.) in
+  ignore (D.settle q c (D.complete (D.Succeeded "ok")));
+  ignore (D.enqueue q (spec "bad"));
+  let db=Sqlite3.db_open path in
+  let scalar sql = let s=Sqlite3.prepare db sql in
+    ignore (Sqlite3.step s); let v=Sqlite3.column_text s 0 in
+    ignore (Sqlite3.finalize s); v in
+  check "emptied lane forgotten" true
+    (scalar "SELECT count(*) FROM lanes WHERE lane='once'"="0");
+  Sqlite3.Rc.check (Sqlite3.exec db
+    "UPDATE jobs SET data=replace(data,'\"queued\"','\"bogus\"') \
+     WHERE key='bad'");
+  ignore (Sqlite3.db_close db);
+  check "damaged record is a storage failure" true (try
+    ignore (D.list q (D.query ())); false
+    with Eio.Io (D.E (D.Storage _),_) -> true);
   List.iter (fun suffix -> let p=path^suffix in
     if Sys.file_exists p then Sys.remove p) ["";"-wal";"-shm"]))
 let () =
@@ -238,4 +262,4 @@ let () =
       "clock after transaction lock",stale_clock_after_lock;
       "cancel blocked writer",cancel_busy_writer;
       "refuse unrelated store",refuses;"read-only inspection",read_only;
-      "upgrade from schema 2",upgrade]]
+      "upgrade from schema 2",upgrade;"damaged records",damaged]]

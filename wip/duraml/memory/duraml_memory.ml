@@ -1,5 +1,6 @@
 module D = Duraml
 module Jobs = Map.Make (D.Id)
+module Names = Map.Make (String)
 module Keys = Map.Make (struct
   type t = string * string
   let compare = Stdlib.compare
@@ -11,10 +12,14 @@ module Attempts = Map.Make (struct
 end)
 module Events = Map.Make (Int64)
 module Lanes = Keys
+(* [pending] holds each queue's queued and running jobs, and [lanes] counts
+   them per lane. A lane is ranked in [served] while it holds such a job,
+   and [latest] is each queue's highest rank. *)
 type state = {
   next_id : int64; revision : int64; jobs : D.job Jobs.t;
   keys : D.Id.t Keys.t; attempts : D.Pi.attempt Attempts.t;
-  events : D.event Events.t; served : int Lanes.t;
+  events : D.event Events.t; served : int Lanes.t; latest : int Names.t;
+  pending : D.job Jobs.t Names.t; lanes : int Lanes.t;
 }
 type t = {
   identity : string; mutable state : state; mutable closed : bool;
@@ -24,31 +29,61 @@ type t = {
   mutex : Eio.Mutex.t; changed : Eio.Condition.t;
 }
 let check t = if t.closed then raise (D.err D.Closed)
+let active (j:D.job) = D.Job.state j=D.Queued || D.Job.state j=D.Running
+let queue_of (j:D.job) = D.Spec.queue (D.Job.spec j)
+let lane_of (j:D.job) = D.Spec.lane (D.Job.spec j)
+let rec take n s () = if n<=0 then Seq.Nil else match s () with
+  | Seq.Nil -> Seq.Nil
+  | Seq.Cons (x,s) -> Seq.Cons (x,take (n-1) s)
 let storage t state =
   let find id = Jobs.find_opt id !state.jobs in
-  let scheduled queue = Jobs.bindings !state.jobs |> List.map snd
-    |> List.filter (fun (j:D.job) -> (D.Spec.queue (D.Job.spec j))=queue &&
-      ((D.Job.state j)=D.Queued || (D.Job.state j)=D.Running)) in
-  (* Lanes never served sort first; a lane's rank is its last service. *)
-  let rank queue lane = Option.value ~default:0
+  let pending queue = Option.value ~default:Jobs.empty
+    (Names.find_opt queue !state.pending) in
+  let latest queue = Option.value ~default:0
+    (Names.find_opt queue !state.latest) in
+  let rank queue lane = Option.value ~default:(latest queue)
     (Lanes.find_opt (queue,lane) !state.served) in
-  let dispatch_order queue (a:D.job) (b:D.job) =
-    let lane j = D.Spec.lane (D.Job.spec j) in
-    let c=compare (rank queue (lane a),lane a) (rank queue (lane b),lane b) in
+  let order queue (a:D.job) (b:D.job) =
+    let c=compare (rank queue (lane_of a),lane_of a)
+      (rank queue (lane_of b),lane_of b) in
     if c<>0 then c else
     let c=Ptime.compare (D.Job.created_at a) (D.Job.created_at b) in
     if c=0 then D.Id.compare (D.Job.id a) (D.Job.id b) else c in
-  let take n xs = List.filteri (fun i _ -> i<n) xs in
-  let matching q = Jobs.bindings !state.jobs |> List.map snd
-    |> List.filter (fun (j:D.job) ->
-      Option.fold ~none:true ~some:((=) (D.Spec.queue (D.Job.spec j)))
-        (D.Query.queue q) &&
-      Option.fold ~none:true ~some:((=) (D.Job.state j)) (D.Query.state q) &&
-      Option.fold ~none:true ~some:(fun id -> D.Id.compare (D.Job.id j) id>0)
-        (D.Query.after q) &&
-      Option.fold ~none:true ~some:(fun id ->
-        Option.fold ~none:false ~some:(fun p -> D.Id.compare p id=0)
-          (D.Job.parent j)) (D.Query.parent q)) in
+  let matching q =
+    let jobs = match D.Query.after q with
+      | None -> Jobs.to_seq !state.jobs
+      | Some after -> Jobs.to_seq_from after !state.jobs
+        |> Seq.drop_while (fun (id,_) -> D.Id.equal id after) in
+    Seq.filter_map (fun (_,(j:D.job)) ->
+      if Option.fold ~none:true ~some:((=) (queue_of j)) (D.Query.queue q) &&
+        Option.fold ~none:true ~some:((=) (D.Job.state j)) (D.Query.state q) &&
+        Option.fold ~none:true ~some:(fun id ->
+          Option.fold ~none:false ~some:(D.Id.equal id) (D.Job.parent j))
+          (D.Query.parent q)
+      then Some j else None) jobs in
+  let put (j:D.job) =
+    let s= !state in
+    let queue=queue_of j and lane=lane_of j and id=D.Job.id j in
+    let was=Option.fold ~none:false ~some:active (find id) in
+    let keys=match D.Spec.key (D.Job.spec j) with None -> s.keys
+      | Some key -> Keys.add (queue,key) id s.keys in
+    let jobs_in=pending queue in
+    let count=Option.value ~default:0 (Lanes.find_opt (queue,lane) s.lanes) in
+    let pending_q,lanes,served = match was,active j with
+      | _,true ->
+          let lanes,served = if was then s.lanes,s.served else
+            Lanes.add (queue,lane) (count+1) s.lanes,
+            (if count=0 then Lanes.add (queue,lane) (latest queue) s.served
+             else s.served) in
+          Jobs.add id j jobs_in,lanes,served
+      | true,false ->
+          let lanes,served = if count<=1 then
+            Lanes.remove (queue,lane) s.lanes,Lanes.remove (queue,lane) s.served
+            else Lanes.add (queue,lane) (count-1) s.lanes,s.served in
+          Jobs.remove id jobs_in,lanes,served
+      | false,false -> jobs_in,s.lanes,s.served in
+    state:={s with jobs=Jobs.add id j s.jobs;keys;lanes;served;
+      pending=Names.add queue pending_q s.pending} in
   {D.Pi.identity=t.identity;
    allocate=(fun () ->
      let n= !state.next_id in
@@ -58,27 +93,21 @@ let storage t state =
    find;
    find_key=(fun ~queue ~key ->
      Option.bind (Keys.find_opt (queue,key) !state.keys) find);
-   put=(fun (j:D.job) ->
-     let keys=match (D.Spec.key (D.Job.spec j)) with None -> !state.keys
-       | Some key -> Keys.add ((D.Spec.queue (D.Job.spec j)),key) (D.Job.id j)
-         !state.keys in
-     state:={!state with jobs=Jobs.add (D.Job.id j) j !state.jobs;keys});
-   eligible=(fun ~queue ~now -> scheduled queue
-     |> List.filter (fun (j:D.job) -> Ptime.compare (D.Job.available_at j)
-       now<=0)
-     |> List.sort (dispatch_order queue)
-     |> function [] -> None | j::_ -> Some j);
+   put;
+   eligible=(fun ~queue ~now -> Jobs.fold (fun _ (j:D.job) best ->
+     if Ptime.compare (D.Job.available_at j) now>0 then best
+     else match best with
+       | Some b when order queue b j<=0 -> best
+       | _ -> Some j) (pending queue) None);
    served=(fun ~queue ~lane ->
-     let latest=Lanes.fold (fun (q,_) n acc -> if q=queue then max n acc
-       else acc) !state.served 0 in
-     state:={!state with served=Lanes.add (queue,lane) (latest+1)
-       !state.served});
-   next_at=(fun ~queue -> scheduled queue
-     |> List.fold_left (fun acc (j:D.job) -> match acc with
-       | Some t when Ptime.compare t (D.Job.available_at j)<=0 -> acc
-       | _ -> Some (D.Job.available_at j)) None);
-   query=(fun q -> matching q |> take (D.Query.limit q));
-   count=(fun q -> List.length (matching q));
+     let next=latest queue+1 in
+     state:={!state with latest=Names.add queue next !state.latest;
+       served=Lanes.add (queue,lane) next !state.served});
+   next_at=(fun ~queue -> Jobs.fold (fun _ (j:D.job) acc -> match acc with
+     | Some t when Ptime.compare t (D.Job.available_at j)<=0 -> acc
+     | _ -> Some (D.Job.available_at j)) (pending queue) None);
+   query=(fun q -> List.of_seq (take (D.Query.limit q) (matching q)));
+   count=(fun q -> Seq.length (matching q));
    attempt=(fun id n -> Attempts.find_opt (id,n) !state.attempts);
    put_attempt=(fun a ->
      let c=D.Pi.attempt_claim a in
@@ -90,36 +119,56 @@ let storage t state =
      state:={!state with revision=sequence;
        events=Events.add sequence e !state.events});
    revision=(fun () -> t.wake_revision);
-   events=(fun ~after ~limit -> Events.bindings !state.events
-     |> List.filter_map (fun (seq,e) -> if seq>after then Some e else None)
-     |> take limit);
-   tail=(fun ~before ~limit -> List.rev (Events.bindings !state.events)
-     |> List.filter_map (fun (seq,e) ->
-       if Option.fold ~none:true ~some:(fun b -> seq<b) before then Some e
-       else None)
-     |> take limit)}
-let call : type a. t -> a D.Pi.request -> a = fun t request ->
-  check t;
-  (* Randomness can yield. Consume it before entering the transaction. *)
-  let token=match request with D.Pi.Try_take _ -> D.Pi.random_id t.random
-    | _ -> "" in
+   events=(fun ~after ~limit ->
+     Events.to_seq_from (Int64.succ after) !state.events
+     |> Seq.map snd |> take limit |> List.of_seq);
+   tail=(fun ~before ~limit ->
+     let older = match before with None -> !state.events
+       | Some b -> let older,_,_=Events.split b !state.events in older in
+     Events.to_rev_seq older |> Seq.map snd |> take limit |> List.of_seq)}
+(* A renewal wakes waiters only when it brings a deadline forward, the one
+   way it can make work eligible sooner. *)
+let wakes : type a. a D.Pi.request -> before:state -> after:state -> bool =
+  fun request ~before ~after -> match request with
+  | D.Pi.Renew (c,_) ->
+      let deadline s = Option.map D.Job.available_at
+        (Jobs.find_opt (D.Claim.id c) s.jobs) in
+      (match deadline before,deadline after with
+       | Some b,Some a -> Ptime.compare a b<0
+       | _ -> true)
+  | _ -> true
+let locked t f =
   let result=Eio.Mutex.use_rw ~protect:false t.mutex (fun () ->
-    try
-      check t;
-      let state=ref t.state in
-      let result=D.Pi.execute ~now:(D.Pi.time_of_float_s (Eio.Time.now
-        t.clock)) ~token
-        (storage t state) request in
-      (* Renewals change eligibility without emitting lifecycle events. *)
-      if !state != t.state then begin
-        t.state <- !state;
-        t.wake_revision <- Int64.succ t.wake_revision;
-        Eio.Condition.broadcast t.changed
-      end;
-      Ok result
+    try check t; Ok (f ())
     with ex -> Error (ex,Printexc.get_raw_backtrace ())) in
   match result with Ok x -> x
   | Error (ex,bt) -> Printexc.raise_with_backtrace ex bt
+let now t = D.Pi.time_of_float_s (Eio.Time.now t.clock)
+let call : type a. t -> a D.Pi.request -> a = fun t request ->
+  check t;
+  let idle = match request with
+    | D.Pi.Try_take (queue,lease) -> locked t (fun () ->
+        D.Pi.idle ~now:(now t) ~lease (storage t (ref t.state)) ~queue)
+    | _ -> None in
+  match idle, request with
+  | Some waiting, D.Pi.Try_take _ -> D.Await waiting
+  | _ ->
+  (* Randomness can yield. Consume it before entering the transaction, and
+     only when there is work to claim. *)
+  let token=match request with D.Pi.Try_take _ -> D.Pi.random_id t.random
+    | _ -> "" in
+  locked t (fun () ->
+    let state=ref t.state in
+    let result=D.Pi.execute ~now:(now t) ~token (storage t state) request in
+    if !state != t.state then begin
+      let wake=wakes request ~before:t.state ~after:!state in
+      t.state <- !state;
+      if wake then begin
+        t.wake_revision <- Int64.succ t.wake_revision;
+        Eio.Condition.broadcast t.changed
+      end
+    end;
+    result)
 let await t (w:D.waiting) =
   let wait () = Eio.Mutex.use_ro t.mutex (fun () ->
     check t;
@@ -138,7 +187,8 @@ let create ~sw ~clock ~random () =
   let identity=D.Pi.random_id random in
   let t={identity;state={next_id=1L;revision=0L;jobs=Jobs.empty;
     keys=Keys.empty;attempts=Attempts.empty;events=Events.empty;
-    served=Lanes.empty};closed=false;
+    served=Lanes.empty;latest=Names.empty;pending=Names.empty;
+    lanes=Lanes.empty};closed=false;
     wake_revision=0L;
     clock=(clock :> float Eio.Time.clock_ty Eio.Resource.t);
     random=(random :> Eio.Flow.source_ty Eio.Resource.t);

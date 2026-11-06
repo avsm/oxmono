@@ -13,7 +13,8 @@
     {1 DESCRIPTION}
     Indexed tables store jobs, attempts, events and store metadata. Mutations
     use short [BEGIN IMMEDIATE] transactions through [sqlite3-eio]. Time is
-    sampled after acquiring the write lock. The shared Duraml engine runs
+    sampled after acquiring the write lock. An idle claim poll reads in a
+    deferred transaction without the write lock. The shared Duraml engine runs
     inside the transaction. Application handlers run outside it.
 
     One handle serializes access between fibers in one Eio domain. Independent
@@ -23,21 +24,23 @@
 
     {1 STORAGE}
     Use a local filesystem, not NFS or Ceph. New database files have mode 0600.
-    WAL and FULL synchronization are enabled. Store identity survives reopening.
-    Schema version 2 stores timestamps as fixed-width UTC text with picosecond
-    precision in both records and the eligibility index. There is no conversion
-    through floating point when persisting or ordering timestamps.
+    A writable open enables WAL and FULL synchronization, and fails if WAL is
+    unavailable. Store identity survives reopening. Schema version 4 stores
+    timestamps as fixed-width UTC text with picosecond precision in both
+    records and the dispatch indexes. There is no conversion through
+    floating point when persisting or ordering timestamps.
 
-    Unrelated databases, version 1 experimental stores and unknown versions
-    are refused. No automatic migration or retention is performed. Backups must
+    A writable open upgrades version 2 and 3 stores in place. Unrelated
+    databases, version 1 experimental stores and unknown versions are
+    refused. No retention is performed. Backups must
     include committed WAL state, using SQLite backup facilities or coordinated
     checkpointing. Copying only the database file while live is insufficient.
 
     {1 RECOVERY}
     Cancelling an operation attempts interruption and rolls back unfinished
     transactions. A commit may nevertheless precede cancellation of its
-      response.
-    Reconcile through keyed enqueues or identical settlements. Dead processes
+    response. A transaction that cannot be rolled back closes the handle
+    rather than hold the write lock. Reconcile through keyed enqueues or identical settlements. Dead processes
     leave running jobs recoverable by lease expiry. SQLite durability does not
     make external handler effects exactly once. *)
 
@@ -59,7 +62,7 @@ val open_ : sw:Eio.Switch.t -> clock:_ Eio.Time.clock ->
     [poll_interval] must be positive and defaults to 100 milliseconds. It bounds
     idle polling sleep, not scheduling latency under load or lock contention.
     The SQLite busy timeout is five seconds. Opening and operations may suspend.
-    Closing [sw] closes the connection. Invalid intervals raise
-    [Invalid_argument]. Schema and storage failures raise [Duraml.E] I/O errors.
-    Filesystem and SQLite opening errors may retain their provider error type.
-      *)
+    Closing [sw] closes the connection, as does a failed open. Invalid
+    intervals raise [Invalid_argument]. Schema, storage and damaged-record
+    failures raise [Duraml.E] I/O errors. Filesystem and SQLite opening
+    errors may retain their provider error type. *)

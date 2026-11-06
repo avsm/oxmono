@@ -307,6 +307,45 @@ let fairness backend () = with_queue backend (fun _ clock q ->
     (D.Spec.lane (D.Job.spec (Option.get (D.find q id)))="one");
   check "lane validated" true (try
     ignore (spec ~lane:"bad\000" ()); false with Invalid_argument _ -> true))
+(* A lane that gains work joins the back of the rotation, so lanes created
+   on demand cannot keep preempting a lane already waiting. *)
+let rotation backend () = with_queue backend (fun _ clock q ->
+  let at t = Eio_mock.Clock.set_time clock t in
+  let done_ c = check "settled" true
+    (D.settle q c (D.complete (D.Succeeded "ok"))=D.Applied) in
+  at 0.;
+  let z1=inserted (D.enqueue q (spec ~key:"z1" ~lane:"z" ())) in
+  let z2=inserted (D.enqueue q (spec ~key:"z2" ~lane:"z" ())) in
+  let c=claim q in check "first lane served" true (D.Claim.id c=z1); done_ c;
+  at 1.; let a=inserted (D.enqueue q (spec ~key:"a" ~lane:"a" ())) in
+  let c=claim q in check "new lane ties by name" true (D.Claim.id c=a);
+  done_ c;
+  at 2.; let b=inserted (D.enqueue q (spec ~key:"b" ~lane:"b" ())) in
+  let c=claim q in
+  check "waiting lane precedes a newer lane" true (D.Claim.id c=z2); done_ c;
+  let c=claim q in check "newer lane follows" true (D.Claim.id c=b); done_ c;
+  (* An emptied lane is forgotten and rejoins at the back. *)
+  at 3.; let z3=inserted (D.enqueue q (spec ~key:"z3" ~lane:"z" ())) in
+  let a2=inserted (D.enqueue q (spec ~key:"a2" ~lane:"a" ())) in
+  let c=claim q in check "rejoined lanes tie by name" true (D.Claim.id c=a2);
+  done_ c;
+  let c=claim q in check "then the other" true (D.Claim.id c=z3); done_ c)
+let core_validation backend () = with_queue backend (fun _ _ q ->
+  let rejects f = try f (); false with Invalid_argument _ -> true in
+  List.iter (fun s -> check ("rejects ID " ^ s) true
+    (Result.is_error (D.Id.of_string s)))
+    ["0x1";"+1";"0b1";"1_0";"01";"0";"-1";"";"9223372036854775808"];
+  check "accepts canonical ID" true
+    (Result.map D.Id.to_string (D.Id.of_string "42")=Ok "42");
+  check "conflicting successors rejected" true (rejects (fun () ->
+    ignore (D.complete ~followups:[spec ~key:"k" ~payload:"a" ();
+      spec ~key:"k" ~payload:"b" ()] (D.Succeeded ""))));
+  check "identical successors allowed" true (not (rejects (fun () ->
+    ignore (D.complete ~followups:[spec ~key:"k" ();spec ~key:"k" ()]
+      (D.Succeeded "")))));
+  let huge=Option.get (Ptime.Span.of_d_ps (365*1_000_000, 0L)) in
+  check "oversized lease rejected on an empty queue" true (rejects (fun () ->
+    ignore (D.try_take q ~queue:"work" ~lease:huge))))
 let () = Alcotest.run "Duraml backends" (List.map (fun backend -> backend,
   List.map (fun (name,test) -> Alcotest.test_case name `Quick (test backend))
     ["deduplication and queries",dedup;"lease fencing",fencing;
@@ -316,4 +355,6 @@ let () = Alcotest.run "Duraml backends" (List.map (fun backend -> backend,
      "uncertain commit",uncertain;"switch lifetime",closed;
      "validation and isolation",validation;
      "typed time precision and bounds",precise_times;
-     "lane fairness and age order",fairness]) ["memory";"sqlite"])
+     "lane fairness and age order",fairness;
+     "lane rotation",rotation;"identifiers and bounds",core_validation])
+    ["memory";"sqlite"])

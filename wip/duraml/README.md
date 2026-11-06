@@ -22,7 +22,8 @@ abstract representations with read-only accessors. Only the provider interface
 exposes trusted backend restoration hooks.
 
 The core and memory backend do not link SQLite or a JSON library. The SQLite
-backend uses Jsont for its internal, versioned record encoding. Applications
+backend uses Jsont for its internal record encoding, versioned by the
+database schema version. Applications
 can use any encoding for their UTF-8 payloads.
 
 Start with [the typed client interface](client/duraml_client.mli).
@@ -91,7 +92,14 @@ Use `Codec.v ~encode ~decode` for an application encoding, or link
 for keyed deduplication. Decoder errors become fixed `invalid_payload` failures.
 Decoder exceptions propagate and stop the pool. Bind one kind and version per
 queue name. Incompatible stored specifications stop the runner and remain
-recoverable rather than being consumed by the wrong handler.
+recoverable rather than being consumed by the wrong handler, whatever their
+attempt count.
+
+Pass `~on_exn` to keep a long-running pool alive. A handler exception then
+becomes the completion `on_exn` returns, and transient storage failures,
+such as a busy SQLite database, are retried or left to lease expiry instead
+of stopping every worker. Settlement conflicts are deterministic and still
+stop the pool, as `Duraml.E (Conflict _)`.
 
 To build an atomic pipeline, encode a successor with `Queue.stage next request`
 and return `Completion.succeed ~followups:[successor] result`. Staging performs
@@ -202,12 +210,15 @@ rejects old generations, but cannot stop an already-running external effect.
 Worker heartbeat intervals use a supplied monotonic clock.
 
 Dispatch is fair across lanes and oldest-first within a lane. A
-specification names its lane with `?lane`; the default is the unnamed lane.
-Each claim takes the lane of the queue served least recently (never-served
-lanes first, ties by name), and within it the eligible job with the earliest
-creation time, then the lowest ID. A retry or an expired claim therefore
+specification names its lane with `?lane`. The default is the unnamed lane.
+Each claim takes the lane of the queue served least recently, ties broken by
+name, and within it the eligible job with the earliest creation time, then
+the lowest ID. A lane that gains work after holding none ranks as served
+just now, so it joins the back of the rotation. A retry or an expired claim
 keeps its place behind no job younger than itself, and a single request
-submitted during a bulk batch runs after at most one job of that batch.
+submitted during a bulk batch runs after at most one job of each other
+waiting lane. Every lane with work is served once per rotation, so let
+untrusted submitters choose among a bounded set of lanes.
 Successors without a lane inherit the lane of the job that published them.
 Lanes schedule work but do not identify it: a keyed repeat in another lane
 reconciles with the stored job and keeps the stored lane. IDs are scoped to
@@ -240,22 +251,27 @@ Retention and export are future explicit operations.
 Memory uses immutable maps and transaction-local updates under an Eio mutex.
 An exception discards all updates. Waiting uses a revision check and a condition
 variable, so an enqueue between an empty poll and waiting is not lost. This
-revision also changes on renewal, so shortening a lease wakes consumers.
-It is independent of the lifecycle event cursor. This backend is intended for
-tests and small ephemeral queues. Selection scans the in-memory jobs.
+revision also changes when a renewal shortens a lease, which wakes
+consumers. It is independent of the lifecycle event cursor. An idle poll
+reads no randomness. This backend is intended for tests and small ephemeral
+queues. Selection scans the queued and running jobs of the queue, and
+listings scan from their cursor.
 
 SQLite stores indexed jobs, attempts, events and store metadata. Writes use
 short `BEGIN IMMEDIATE` transactions via `sqlite3-eio`. It samples the wall
 clock after acquiring the write transaction so lock contention cannot make a
-stale timestamp renew an expired claim. No handler runs under a transaction.
+stale timestamp renew an expired claim. An idle poll reads in a deferred
+transaction and takes no write lock. No handler runs under a transaction.
+SQLite errors, including a busy database after the five-second busy
+timeout, are `Duraml.E (Storage _)` with SQLite's error text.
 
-Schema version 3 stores exact UTC timestamps, the dispatch lane and creation
-time of every job, a lanes table recording each lane's last service, and
-dispatch indexes so a claim costs one index probe per lane of the queue.
-Version 2 stores upgrade in place on their first writable open; read-only
+Schema version 4 stores exact UTC timestamps, the dispatch lane and creation
+time of every job, a lanes table ranking each lane with queued or running
+work, and each queue's latest rank. Dispatch indexes let a claim seek the
+first ready lane in service order and that lane's oldest eligible job.
+Versions 2 and 3 upgrade in place on their first writable open. Read-only
 opens require the current version. Experimental version 1 stores are refused
-without modification. Lanes persist once seen, so name them by batch or
-requester rather than per job.
+without modification.
 The database uses WAL and FULL synchronization. New files are mode 0600.
 Unrelated databases and unknown schema versions are refused. Use local storage,
 not a network filesystem. Consumers poll for cross-process changes, at a

@@ -19,10 +19,10 @@
 
     {1 LIFETIME AND COST}
     Share a handle between fibers in one Eio domain. Closing [sw] invalidates
-    the handle and wakes waiters. There is no persistence or automatic
-      retention.
-    Eligibility selection scans and sorts jobs. This backend is intended for
-    tests and small ephemeral queues, not a large persistent catalogue.
+    the handle and wakes waiters. There is no persistence or retention.
+    Eligibility selection scans the queue's queued and running jobs. This
+    backend is intended for tests and small ephemeral queues, not a large
+    persistent catalogue.
 
     {1 TESTING}
     Use [Eio_mock.Backend.run_full] for automatically advancing test clocks.
@@ -34,6 +34,5 @@ val create : sw:Eio.Switch.t -> clock:_ Eio.Time.clock ->
   random:_ Eio.Flow.source -> unit -> Duraml.plain
 (** [create ~sw ~clock ~random ()] constructs an empty store owned by [sw].
     [clock] supplies Unix wall time. [random] supplies store identities and
-      claim
-    nonces. Construction consumes 16 random bytes and may suspend. Jobs and
+    claim nonces. Construction consumes 16 random bytes and may suspend. Jobs and
     claims from other stores have no authority in this one. *)

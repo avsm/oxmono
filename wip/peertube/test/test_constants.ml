@@ -21,18 +21,22 @@ let check name cond =
 
 let () =
   let module P = Peer_tube in
-  check "a category with a null id decodes"
-    (Result.is_ok (decode P.VideoConstantNumberCategory.T.jsont unknown));
+  check "a category with a null id decodes to a null id"
+    (match decode P.VideoConstantNumberCategory.T.jsont unknown with
+     | Ok c -> P.VideoConstantNumberCategory.T.id c = Some None
+     | Error _ -> false);
   check "a licence with a null id decodes"
     (Result.is_ok (decode P.VideoConstantNumberLicence.T.jsont unknown));
-  check "a language with a null id decodes"
-    (Result.is_ok (decode P.VideoConstantStringLanguage.T.jsont unknown));
+  check "a language with a null id decodes to a null id"
+    (match decode P.VideoConstantStringLanguage.T.jsont unknown with
+     | Ok l -> P.VideoConstantStringLanguage.T.id l = Some None
+     | Error _ -> false);
   check "a category with an id still decodes"
     (match decode P.VideoConstantNumberCategory.T.jsont known_int with
-     | Ok c -> P.VideoConstantNumberCategory.T.id c <> None
+     | Ok c -> P.VideoConstantNumberCategory.T.id c = Some (Some 2)
      | Error _ -> false);
   check "a language with an id still decodes"
     (match decode P.VideoConstantStringLanguage.T.jsont known_str with
-     | Ok l -> P.VideoConstantStringLanguage.T.id l <> None
+     | Ok l -> P.VideoConstantStringLanguage.T.id l = Some (Some "en")
      | Error _ -> false);
   Printf.printf "test_constants: %d checks passed\n" !checks

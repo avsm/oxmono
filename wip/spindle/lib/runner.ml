@@ -30,6 +30,7 @@ type t = {
   mutable finished : string option;
   mutable error : string option;
   mutable events : Jsont.json list;
+  mutable embedded : Jsont.json list;
   mutable log_bytes : int;
   mutable log_seq : int64;
   log_lock : Eio.Mutex.t;
@@ -76,6 +77,7 @@ let v ?parent job =
     finished = None;
     error = None;
     events = [];
+    embedded = [];
     log_bytes = 0;
     log_seq = 0L;
     log_lock = Eio.Mutex.create ();
@@ -99,6 +101,9 @@ let snapshot p =
   obj
     ([
        ("workflow", view p);
+     ]
+    @ (if p.embedded = [] then [] else [ ("events", arr p.embedded) ])
+    @ [
        ( "steps",
          arr
            (List.map
@@ -172,7 +177,8 @@ let restore ?(resume = false) raw =
   p.error <- Option.map string (field "error" workflow);
   (* Snapshots hold no events, which stay in the store's journal, except
      those written before the journal kept them all. *)
-  p.events <- List.rev (Option.fold ~none:[] ~some:list (field "events" raw));
+  p.embedded <- Option.fold ~none:[] ~some:list (field "events" raw);
+  p.events <- List.rev p.embedded;
   p.log_bytes <-
     List.fold_left (fun n e -> n + String.length (encode e)) 0 p.events;
   if interrupted raw then
@@ -181,6 +187,7 @@ let restore ?(resume = false) raw =
       p.status <- `Pending;
       p.started <- None;
       p.events <- [];
+      p.embedded <- [];
       p.log_bytes <- 0)
     else (
       p.status <- `Failed;
@@ -197,6 +204,7 @@ let reset p =
   p.finished <- None;
   p.error <- None;
   p.events <- [];
+  p.embedded <- [];
   p.log_bytes <- 0
 
 let emit record p ~step ~kind fields =

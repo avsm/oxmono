@@ -411,6 +411,22 @@ let () =
       (fun (s : Job.step) -> (s.name, s.command))
       (Runner.restore old).job.steps
     = [ ("spindle request metadata", ""); ("ls -la", "ls -la") ]);
+  (* Events a snapshot holds from before the journal kept every event stay
+     in it, since the journal does not have them. *)
+  let event = J.obj [ ("type", J.str "control") ] in
+  let embedded =
+    J.obj
+      [
+        ( "workflow",
+          J.obj [ ("name", J.str "kept"); ("status", J.str "success") ] );
+        ("events", J.arr [ event ]);
+        ("steps", J.arr []);
+      ]
+  in
+  let restored = Runner.restore embedded in
+  assert (restored.events = [ event ]);
+  assert (
+    J.field "events" (Runner.snapshot restored) = Some (J.arr [ event ]));
   print_endline
     "runner: executor steps, outcomes, cancellation, time limit, bounded and \
      durable logs, secret masking and the default and solving executors passed"

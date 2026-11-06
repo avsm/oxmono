@@ -6,6 +6,13 @@
 
 ## Unreleased
 
+- Keep the log events that older snapshots hold, fail a durable workflow
+  whose last attempt hits a store error, and let every repository's first
+  event run in each observer pass.
+- Give signed requests their own identity lookup budget, recheck a failed
+  token against a fresh DID document, and spend no budget on repositories
+  already looked up.
+
 - Keep the inbox's size as events arrive instead of measuring it for each
   event, and drop log lines a workflow writes after its pipeline is wiped.
 

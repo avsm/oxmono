@@ -181,6 +181,11 @@ let managed t id =
 
 let forget t id = Hashtbl.remove t.cache id
 
+let cached t id =
+  match Hashtbl.find_opt t.cache id with
+  | Some (expires, _) -> expires > t.now ()
+  | None -> false
+
 let known t id =
   (match t.static with Some repo -> repo.did = id | None -> false)
   || Settings.owner_of t.settings id <> None

@@ -45,6 +45,14 @@ val resolve : t -> string -> string
     most 64 KiB, whose [id] must be [did]. A document is reused for 60
     seconds, and at most 4096 are kept. *)
 
+val cached : t -> string -> bool
+(** [cached t did] holds when {!resolve} would answer for [did] without a
+    request. *)
+
+val forget : t -> string -> unit
+(** [forget t did] drops [did]'s kept document, so that the next {!resolve}
+    reads it afresh. *)
+
 val service : Jsont.json -> string -> string -> string option
 (** [service document name kind] is the endpoint of the service [#name] of type
     [kind] in the DID [document]. *)

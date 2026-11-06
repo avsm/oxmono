@@ -648,9 +648,10 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
             []
             (Store.waiting store "inbox" ~now)
         in
-        (* A pass starts no event after 10 seconds, so that one repository's
-           slow events hold back the others' for at most that and one event's
-           timeout. The rest wait for the next pass. *)
+        (* After 10 seconds a pass starts no more than the first event of
+           each repository, so that one repository's slow events hold back
+           the others' for at most that and one event's timeout, and every
+           repository makes progress. The rest wait for the next pass. *)
         let deadline =
           Mtime.add_span
             (Eio.Time.Mono.now system#mono_clock)
@@ -662,7 +663,7 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
         in
         Eio.Fiber.List.iter ~max_fibers:4
           (fun items ->
-            let stopped = ref false in
+            let stopped = ref false and ran = ref false in
             ignore
               (List.fold_left
                  (fun failed ((key, _) as item) ->
@@ -676,10 +677,12 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
                          | _ -> None)
                    in
                    match behind with
-                   | None when !stopped || late () ->
+                   | None when !stopped || (!ran && late ()) ->
                        stopped := true;
                        None
-                   | None -> if one item then None else Some key
+                   | None ->
+                       ran := true;
+                       if one item then None else Some key
                    | Some behind ->
                        Store.hold store "inbox" key ~behind;
                        Some behind)

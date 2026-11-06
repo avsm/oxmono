@@ -113,6 +113,13 @@ let knot t name =
   in
   origin ~allow_http:t.allow_http value
 
+let cached t did =
+  match Hashtbl.find_opt t.documents did with
+  | Some (expires, _) -> expires > t.now ()
+  | None -> false
+
+let forget t did = Hashtbl.remove t.documents did
+
 (* Every signed request and every lookup of a repository resolves a DID, so
    documents are kept briefly. A key rotation takes effect within [ttl]. *)
 let document_ttl = 60.

@@ -47,6 +47,7 @@ type state = {
   web : Web.t option;
   streams : int Atomic.t;  (** Log streams open now. *)
   lookups : bucket;
+  auth_lookups : bucket;  (** Identity lookups for signed requests. *)
   definitions : (string * string, float * Jsont.json list) Hashtbl.t;
 }
 
@@ -66,8 +67,8 @@ let seconds state =
     (Mtime.to_uint64_ns (Eio.Time.Mono.now state.system#mono_clock))
   /. 1e9
 
-let spend state =
-  let b = state.lookups and now = seconds state in
+let spend ?(bucket = fun state -> state.lookups) state =
+  let b = bucket state and now = seconds state in
   b.tokens <- Float.min burst (b.tokens +. ((now -. b.filled) *. rate));
   b.filled <- now;
   if b.tokens < 1. then
@@ -79,7 +80,8 @@ let spend state =
    lookup budget when the network must be asked. *)
 let served_repo state repo =
   let catalog = Engine.catalog state.engine in
-  if not (Catalog.known catalog repo) then spend state;
+  if not (Catalog.known catalog repo || Catalog.cached catalog repo) then
+    spend state;
   Engine.managed state.engine repo
 
 (* [fields req name] is every value of the request field [name], which must
@@ -102,18 +104,34 @@ let bearer req =
       String.sub s 7 (String.length s - 7)
   | _ -> raise Service_auth.Rejected
 
+(* A token's issuer is resolved before its signature is checked, so
+   resolutions that need a request spend from their own budget. A token that
+   fails against a kept document is checked once more against a fresh one,
+   so that a key rotated within the last minute is honoured. *)
 let authorize state meth req =
   let token = bearer req in
   let now = Eio.Time.now state.system#clock in
-  let actor =
-    Service_auth.authenticate
-      ~resolve:(Network.resolve state.network)
+  let stale = ref None in
+  let resolve did =
+    if Network.cached state.network did then stale := Some did
+    else spend ~bucket:(fun s -> s.auth_lookups) state;
+    Network.resolve state.network did
+  in
+  let check () =
+    Service_auth.authenticate ~resolve
       ~consume:(fun ~issuer ~jti ~expires ->
         let now = Eio.Time.now state.system#clock in
         expires > now
         && Store.consume (Engine.store state.engine) ~now ~issuer ~jti ~expires)
       ~audience:(Catalog.web_did state.config.hostname)
       ~meth ~now token
+  in
+  let actor =
+    try check ()
+    with Service_auth.Rejected when !stale <> None ->
+      Network.forget state.network (Option.get !stale);
+      stale := None;
+      check ()
   in
   if Settings.banned state.settings actor then
     reject Status.Forbidden "AccessControl"
@@ -1299,6 +1317,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       web;
       streams = Atomic.make 0;
       lookups = { tokens = burst; filled = 0. };
+      auth_lookups = { tokens = burst; filled = 0. };
       definitions = Hashtbl.create 16;
     }
   in

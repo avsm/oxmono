@@ -26,6 +26,10 @@ type t = {
   mutable finished : string option;
   mutable error : string option;
   mutable events : Jsont.json list;
+  mutable embedded : Jsont.json list;
+      (** Events, oldest first, that a snapshot written before the journal
+          kept every event holds and the journal does not. Snapshots keep
+          them until the workflow runs again. *)
   mutable log_bytes : int;
   mutable log_seq : int64;
   log_lock : Eio.Mutex.t;

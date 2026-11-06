@@ -661,6 +661,19 @@ let serve ?(lease = 60.) t =
             ~reason:"spindle error")
         queue
         (fun ~sw:_ key ->
+          let attempt =
+            Option.fold ~none:1 ~some:snd (Duraml_client.attempt ())
+          in
+          let find () =
+            Option.bind (parse_key key) (fun (id, name) ->
+                Option.bind (Hashtbl.find_opt t.pipelines id) (fun p ->
+                    Option.map
+                      (fun w -> (p, w))
+                      (List.find_opt
+                         (fun (r : Runner.t) -> r.job.name = name)
+                         p.workflows)))
+          in
+          match
           (match parse_key key with
           | None -> ()
           | Some (id, name) -> (
@@ -688,8 +701,9 @@ let serve ?(lease = 60.) t =
                       (match Hashtbl.find_opt t.active key with
                       | Some earlier -> Eio.Promise.await earlier
                       | None -> ());
-                      (* The earlier run may have finished it meanwhile. *)
-                      if Runner.terminal w then ()
+                      (* The earlier run may have finished it meanwhile, or
+                         ended it without storing that. *)
+                      if Runner.terminal w then persist t p
                       else if attempt > max_restarts + 1 then
                         lost t p w
                           (Printf.sprintf
@@ -709,8 +723,22 @@ let serve ?(lease = 60.) t =
                             Hashtbl.remove t.active key;
                             Eio.Promise.resolve finish ())
                           (fun () -> run t p w))
-                  | _ -> ())));
-          Duraml_client.Completion.succeed "")
+                  | _ -> ())))
+          with
+          | () -> Duraml_client.Completion.succeed ""
+          | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+          | exception exn when attempt >= max_restarts + 2 ->
+              (* No attempt follows, so the workflow ends here. *)
+              (try
+                 Option.iter
+                   (fun (p, w) ->
+                     lost t p w "the spindle could not run this workflow")
+                   (find ())
+               with Eio.Cancel.Cancelled _ as e -> raise e | _ -> ());
+              Printf.eprintf "spindle: durable workflow %s: %s\n%!" key
+                (Printexc.to_string exn);
+              Duraml_client.Completion.fail ~code:"spindle_error"
+                ~detail:"the spindle could not run this workflow" ())
 
 let view t p = view_in t.hostname p
 

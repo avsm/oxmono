@@ -78,6 +78,10 @@ val managed : t -> string -> repo option
 val forget : t -> string -> unit
 (** [forget t did] drops the cached acceptance of [did]. *)
 
+val cached : t -> string -> bool
+(** [cached t id] holds when {!managed} would answer for [id] without asking
+    the network. *)
+
 val known : t -> string -> bool
 (** [known t id] holds for the static repository and for repositories this
     spindle has accepted before. It reads only local state. *)

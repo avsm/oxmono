@@ -71,6 +71,23 @@ let%expect_test "empty lists, unicode search and backspace" =
     controls: a?[31m?b?x
     |}]
 
+let%expect_test "safe text removes C1 controls, bidi isolates and bad UTF-8" =
+  (* U+009B is a one-character CSI on terminals that honour 8-bit controls. *)
+  let csi = "\xc2\x9b31m" and nel = "\xc2\x85" in
+  let isolates = "\xe2\x81\xa6x\xe2\x81\xa9" and alm = "\xd8\x9c" in
+  let marks = "\xe2\x80\x8e\xe2\x80\x8f" in
+  printf "c1: %s\n" (M.safe_text ("a" ^ csi ^ nel ^ "b"));
+  printf "bidi: %s\n" (M.safe_text (isolates ^ alm ^ marks));
+  printf "invalid: %S\n" (M.safe_text "a\xff\xc3b");
+  printf "kept: %S\n" (M.safe_text "tab\tline\nend \xe7\x95\x8c");
+  [%expect
+    {|
+    c1: a?31m?b
+    bidi: ?x????
+    invalid: "a\239\191\189\239\191\189b"
+    kept: "tab\tline\nend \231\149\140"
+    |}]
+
 let%expect_test "pagination uses actual server positions" =
   let t = { ready with page = { ready.page with next = Some 2 } } in
   let t, _ = M.update t Next_page in

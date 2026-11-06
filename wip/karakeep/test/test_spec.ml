@@ -43,6 +43,17 @@ let () =
       prerr_endline ("FAIL: status " ^ status ^ ": " ^ e);
       exit 1
   in
+  let rejects status =
+    match decode guard (bookmark status) with
+    | Error _ -> ()
+    | Ok _ ->
+      prerr_endline ("FAIL: status " ^ status ^ " was accepted");
+      exit 1
+  in
   accepts {|"success"|};
   accepts "null";
+  (* The guard must still enforce the enum, or the checks above prove
+     nothing. *)
+  rejects {|"bogus"|};
+  rejects "7";
   print_endline "test_spec: bookmark with null statuses accepted"

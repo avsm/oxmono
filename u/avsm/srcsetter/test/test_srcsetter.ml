@@ -57,6 +57,36 @@ let test_workers () =
     | () -> false
     | exception Worker_failed -> !active = 0)
 
+let test_codec () =
+  check "variant map sorts and keeps the last binding"
+    (Srcsetter.MS.(bindings (of_list [ ("b", 2); ("a", 1); ("b", 3) ]))
+    = [ ("a", 1); ("b", 3) ]);
+  let entry =
+    Srcsetter.v "p.webp" "p" "P.JPG"
+      (Srcsetter.MS.of_list [ ("p.100.webp", (100, 75)) ])
+      (800, 600)
+  in
+  check "entry list round trip"
+    (match Srcsetter.list_to_json [ entry ] with
+    | Ok json -> Srcsetter.list_of_json json = Ok [ entry ]
+    | Error _ -> false);
+  let entry_json dims =
+    Printf.sprintf
+      {|[{"name":"p.webp","slug":"p","origin":"P.JPG","variants":{},"dims":%s}]|}
+      dims
+  in
+  check "well-formed dimensions decode"
+    (Result.is_ok (Srcsetter.list_of_json (entry_json "[1,65535]")));
+  List.iter
+    (fun dims ->
+      check
+        ("dimensions rejected: " ^ dims)
+        (Result.is_error (Srcsetter.list_of_json (entry_json dims))))
+    [ "[1]"; "[1,2,3]"; "[-1,2]"; "[1,65536]"; {|"1x2"|} ];
+  check "missing field rejected"
+    (Result.is_error
+       (Srcsetter.list_of_json {|[{"name":"p.webp","dims":[1,2]}]|}))
+
 let test_pipeline env root =
   let proc_mgr = Eio.Stdenv.process_mgr env in
   let src_dir = Eio.Path.(root / "Input Images") in
@@ -134,10 +164,12 @@ let test_pipeline env root =
 
 let () =
   Eio_main.run @@ fun env ->
+  test_codec ();
   test_workers ();
   let root = Eio.Path.(Eio.Stdenv.cwd env / "test-work") in
   Eio.Path.mkdir ~perm:0o700 root;
   Fun.protect
     ~finally:(fun () -> remove root)
     (fun () -> test_pipeline env root);
-  print_endline "srcsetter: Eio paths, workers, copies and pipeline passed"
+  print_endline
+    "srcsetter: codec, Eio paths, workers, copies and pipeline passed"

@@ -1,3 +1,8 @@
+(library
+ (name testkit)
+ (modules testkit)
+ (libraries eio unix))
+
 (test
  (name test_auth)
  (modules test_auth)
@@ -17,27 +22,27 @@
 (test
  (name test_events)
  (modules test_events)
- (libraries spindle httpz eio_main))
+ (libraries testkit spindle httpz eio_main))
 
 (test
  (name test_catalog)
  (modules test_catalog)
- (libraries spindle atp uriz eio_main base64))
+ (libraries testkit spindle atp uriz eio_main base64))
 
 (test
  (name test_runner)
  (modules test_runner)
- (libraries spindle base64 eio_main))
+ (libraries testkit spindle base64 eio_main))
 
 (test
  (name test_operations)
  (modules test_operations)
- (libraries spindle eio_main))
+ (libraries testkit spindle eio_main))
 
 (test
  (name test_settings)
  (modules test_settings)
- (libraries spindle eio_main))
+ (libraries testkit spindle eio_main))
 
 (test
  (name test_workflows)
@@ -47,14 +52,23 @@
 (test
  (name test_observer)
  (modules test_observer)
- (libraries spindle eio_main))
+ (libraries testkit spindle eio_main))
 
 (test
  (name test_durable)
  (modules test_durable)
- (libraries spindle duraml.sqlite eio_main unix))
+ (libraries testkit spindle duraml.sqlite eio_main unix))
 
 (test
  (name test_web)
  (modules test_web)
- (libraries spindle proffer proffer.mock httpz uriz duraml.sqlite eio_main unix))
+ (libraries
+  testkit
+  spindle
+  proffer
+  proffer.mock
+  httpz
+  uriz
+  duraml.sqlite
+  eio_main
+  unix))

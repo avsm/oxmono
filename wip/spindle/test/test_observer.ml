@@ -6,14 +6,9 @@ open J
 
 let () =
   Eio_main.run @@ fun env ->
-  let name = Filename.temp_file "spindle-observer-" "" in
-  Sys.remove name;
-  Unix.mkdir name 0o700;
-  Fun.protect ~finally:(fun () ->
-      Eio.Process.run env#process_mgr [ "rm"; "-rf"; "--"; name ])
-  @@ fun () ->
+  Testkit.with_dir env "spindle-observer-" @@ fun name directory ->
   Eio.Switch.run @@ fun sw ->
-  let store = Store.open_ ~sw Eio.Path.(env#fs / name) in
+  let store = Store.open_ ~sw directory in
   let settings =
     Spindle__Settings.v ~store
       ~now:(fun () -> 0.)

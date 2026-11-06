@@ -17,23 +17,12 @@ let bob = "did:plc:bbbbbbbbbbbbbbbbbbbbbbbb"
 let repo = "did:web:repo.test"
 let bobs = "did:web:bobs.test"
 
-let has s sub =
-  let n = String.length sub in
-  let rec at i =
-    i + n <= String.length s && (String.sub s i n = sub || at (i + 1))
-  in
-  at 0
+let has = Testkit.has
 
 let () =
   Eio_main.run @@ fun env ->
   Eio.Time.with_timeout_exn env#clock 60. @@ fun () ->
-  let name = Filename.temp_file "spindle-web-" "" in
-  Sys.remove name;
-  Unix.mkdir name 0o700;
-  let directory = Eio.Path.(env#fs / name) in
-  Fun.protect ~finally:(fun () ->
-      Eio.Process.run env#process_mgr [ "rm"; "-rf"; "--"; name ])
-  @@ fun () ->
+  Testkit.with_dir env "spindle-web-" @@ fun name directory ->
   (* The engine's workers run until the switch ends, so the test ends it. *)
   try
     Eio.Switch.run @@ fun sw ->

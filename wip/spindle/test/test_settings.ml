@@ -11,14 +11,9 @@ let refused code f =
 
 let () =
   Eio_main.run @@ fun env ->
-  let name = Filename.temp_file "spindle-settings-" "" in
-  Sys.remove name;
-  Unix.mkdir name 0o700;
-  Fun.protect ~finally:(fun () ->
-      Eio.Process.run env#process_mgr [ "rm"; "-rf"; "--"; name ])
-  @@ fun () ->
+  Testkit.with_dir env "spindle-settings-" @@ fun name directory ->
   Eio.Switch.run @@ fun sw ->
-  let store = Store.open_ ~sw Eio.Path.(env#fs / name) in
+  let store = Store.open_ ~sw directory in
   let clock = ref 1_800_000_000. in
   let t =
     Settings.v ~store
@@ -128,5 +123,18 @@ let () =
   clock := 1.;
   assert (B.spend b ~client:(Some "a"));
   assert (not (B.spend b ~client:(Some "a")));
+  (* A refused spend takes nothing from either budget. *)
+  let clock = ref 0. in
+  let b =
+    B.v ~now:(fun () -> !clock) ~rate:1. ~burst:1. ~client_rate:0.
+      ~client_burst:2. ()
+  in
+  assert (B.spend b ~client:(Some "a"));
+  assert (not (B.spend b ~client:(Some "a")));
+  clock := 1.;
+  assert (B.spend b ~client:(Some "a"));
+  clock := 2.;
+  assert (not (B.spend b ~client:(Some "a")));
+  assert (B.spend b ~client:(Some "b"));
   print_endline
     "settings: secrets, bans, invite codes, quotas, minutes and budgets passed"

@@ -30,13 +30,7 @@ let () =
    Spindle__Gate.run gate (fun () -> ());
    assert (!released = 2 && !acquired = 2));
   Eio.Time.with_timeout_exn env#clock 30. @@ fun () ->
-  let name = Filename.temp_file "spindle-runner-" "" in
-  Sys.remove name;
-  Unix.mkdir name 0o700;
-  Fun.protect ~finally:(fun () ->
-      Eio.Process.run env#process_mgr [ "rm"; "-rf"; "--"; name ])
-  @@ fun () ->
-  let directory = Eio.Path.(env#fs / name) in
+  Testkit.with_dir env "spindle-runner-" @@ fun name directory ->
   let runner ?(timeout = 60.) executor : Runner.env =
     { system = env; directory; slots = Eio.Semaphore.make 1; timeout; executor }
   in
@@ -231,13 +225,7 @@ let () =
   let log =
     J.encode (Runner.view w) ^ String.concat "" (List.map J.encode w.events)
   in
-  let has s sub =
-    let n = String.length sub in
-    let rec at i =
-      i + n <= String.length s && (String.sub s i n = sub || at (i + 1))
-    in
-    at 0
-  in
+  let has = Testkit.has in
   assert (not (has log "hunter2"));
   assert (w.error = Some "bad token ***");
   (* A workflow stopped while it waits in a builder's queue was running. *)

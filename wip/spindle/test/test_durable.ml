@@ -20,13 +20,7 @@ let count name = Option.value ~default:0 (Hashtbl.find_opt runs name)
 let () =
   Eio_main.run @@ fun env ->
   Eio.Time.with_timeout_exn env#clock 60. @@ fun () ->
-  let name = Filename.temp_file "spindle-durable-" "" in
-  Sys.remove name;
-  Unix.mkdir name 0o700;
-  let directory = Eio.Path.(env#fs / name) in
-  Fun.protect ~finally:(fun () ->
-      Eio.Process.run env#process_mgr [ "rm"; "-rf"; "--"; name ])
-  @@ fun () ->
+  Testkit.with_dir env "spindle-durable-" @@ fun name directory ->
   let started, set_started = Eio.Promise.create () in
   (* The first run spawns a child and waits forever. Later runs spawn it
      again and finish. *)
@@ -143,13 +137,7 @@ let () =
     (* The log is the second run's alone. *)
     ignore store;
     let log = (Runner.outcome inspect).log in
-    let has sub =
-      let n = String.length sub in
-      let rec at i =
-        i + n <= String.length log && (String.sub log i n = sub || at (i + 1))
-      in
-      at 0
-    in
+    let has = Testkit.has log in
     assert (has "run 2" && not (has "run 1"));
     Eio.Switch.fail sw Exit
   with Exit -> ()

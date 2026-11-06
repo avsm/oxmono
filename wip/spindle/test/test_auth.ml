@@ -40,6 +40,26 @@ let () =
       if actual <> expected || !consumed <> if expected then 1 else 0 then
         failwith name)
     tests;
+  (* A valid token whose nonce [consume] refuses, as a replay, is rejected,
+     and [consume] is given the token's issuer, nonce and expiry. *)
+  let valid =
+    List.find (fun test -> string (member "name" test) = "valid") tests
+  in
+  let seen = ref [] in
+  (match
+     Spindle.Service_auth.authenticate
+       ~resolve:(fun _ -> document)
+       ~consume:(fun ~issuer ~jti ~expires ->
+         seen := (issuer, jti, expires) :: !seen;
+         false)
+       ~audience:"did:web:spindle.test" ~meth:"sh.tangled.ci.triggerPipeline"
+       ~now:1000.
+       (string (member "token" valid))
+   with
+  | _ -> failwith "replayed token accepted"
+  | exception Spindle.Service_auth.Rejected -> ());
+  assert (
+    !seen = [ ("did:plc:aaaaaaaaaaaaaaaaaaaaaaaa", "fixture-nonce", 1060.) ]);
   (* [controller] reads the claim without verifying the signature. *)
   let unsigned claims =
     let b64 s =

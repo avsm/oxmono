@@ -8,13 +8,7 @@ open J
 
 let () =
   Eio_main.run @@ fun env ->
-  let name = Filename.temp_file "spindle-events-" "" in
-  Sys.remove name;
-  Unix.mkdir name 0o700;
-  let directory = Eio.Path.(env#fs / name) in
-  Fun.protect ~finally:(fun () ->
-      Eio.Process.run env#process_mgr [ "rm"; "-rf"; "--"; name ])
-  @@ fun () ->
+  Testkit.with_dir env "spindle-events-" @@ fun name directory ->
   Eio.Switch.run @@ fun sw ->
   let store = Store.open_ ~sw directory in
   let settings =

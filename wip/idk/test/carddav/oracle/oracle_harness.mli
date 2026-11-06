@@ -23,7 +23,7 @@ type t = {
 }
 
 val configured : unit -> bool
-(** [configured ()] is [true] when [CARDDAV_ORACLE_URL] is set. *)
+(** [configured ()] is [true] when [CARDDAV_ORACLE_URL] is set and non-empty. *)
 
 val url : unit -> string
 (** [url ()] is [CARDDAV_ORACLE_URL], failing the test when it is unset. *)

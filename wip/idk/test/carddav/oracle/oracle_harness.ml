@@ -17,7 +17,10 @@ let join collection name =
 let getenv name default =
   match Sys.getenv_opt name with Some v when v <> "" -> v | _ -> default
 
-let configured () = Sys.getenv_opt "CARDDAV_ORACLE_URL" <> None
+let configured () =
+  match Sys.getenv_opt "CARDDAV_ORACLE_URL" with
+  | Some u -> u <> ""
+  | None -> false
 
 let url () =
   match Sys.getenv_opt "CARDDAV_ORACLE_URL" with

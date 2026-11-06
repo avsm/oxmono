@@ -17,6 +17,10 @@
 
 (test
  (name test_oracle)
+ (deps
+  (env_var CARDDAV_ORACLE_URL)
+  (env_var CARDDAV_ORACLE_USER)
+  (env_var CARDDAV_ORACLE_PASSWORD))
  (package caldav)
  (modules test_oracle)
  (libraries
@@ -33,6 +37,10 @@
 
 (test
  (name test_mirror)
+ (deps
+  (env_var CARDDAV_ORACLE_URL)
+  (env_var CARDDAV_ORACLE_USER)
+  (env_var CARDDAV_ORACLE_PASSWORD))
  (package caldav)
  (modules test_mirror)
  (libraries

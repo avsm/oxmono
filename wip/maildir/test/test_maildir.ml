@@ -126,7 +126,10 @@ let test_invalid_mapping env = with_root (fun root ->
     match M.scan m with
     | Error (M.Keyword_map _) -> ()
     | _ -> Alcotest.fail "invalid keyword map accepted")
-    ["0 A\n0 B\n";"0 A\n1 a\n";"26 A\n";"00 A\n";"0\n";"0 A\nx\n"];
+    ["0 A\n0 B\n";"0 A\n1 a\n";"26 A\n";"00 A\n";"0\n";"0 A\nx\n";
+     "-1 A\n";"+1 A\n";"0 \\Seen\n";"0 A B\n";"0 A\000\n";"0 (A)\n";
+     "99999999999999999999 A\n";
+     String.make (Maildir.Keywords.max_size + 1) '\n'];
   Eio.Path.unlink Eio.Path.(path / "dovecot-keywords");
   Eio.Path.save ~create:(`Exclusive 0o600) Eio.Path.(path / "cur" / "external:2,a") "x";
   let e=error "unmapped keyword" (M.scan m) in

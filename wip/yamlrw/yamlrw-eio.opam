@@ -15,6 +15,7 @@ depends: [
   "bytesrw-eio"
   "eio" {>= "1.1"}
   "eio_main" {with-test}
+  "alcotest" {with-test}
   "odoc" {with-doc}
 ]
 build: [

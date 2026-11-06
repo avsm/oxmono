@@ -1,0 +1,4 @@
+(test
+ (name test_yamlrw_eio)
+ (package yamlrw-eio)
+ (libraries yamlrw yamlrw-eio eio eio_main alcotest))

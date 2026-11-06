@@ -43,10 +43,11 @@ let auth_method_jsont =
   in
   Jsont.Object.map ~kind:"AuthMethod"
     (fun type_ jwt api_key ->
-      match type_ with
-      | "jwt" -> Option.get jwt
-      | "api_key" -> Option.get api_key
-      | _ -> failwith ("Unknown auth type: " ^ type_))
+      match (type_, jwt, api_key) with
+      | "jwt", Some auth, _ | "api_key", _, Some auth -> auth
+      | ("jwt" | "api_key"), _, _ ->
+          Jsont.Error.msgf Jsont.Meta.none "Missing %s credentials" type_
+      | _ -> Jsont.Error.msgf Jsont.Meta.none "Unknown auth type: %s" type_)
   |> Jsont.Object.mem "type" Jsont.string ~enc:(function
        | Jwt _ -> "jwt"
        | Api_key _ -> "api_key")
@@ -83,8 +84,7 @@ let app_name = "immich"
 let base_config_dir fs =
   let home = Sys.getenv "HOME" in
   let config_path = Eio.Path.(fs / home / ".config" / app_name) in
-  (try Eio.Path.mkdir ~perm:0o700 config_path
-   with Eio.Io (Eio.Fs.E (Eio.Fs.Already_exists _), _) -> ());
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 config_path;
   config_path
 
 (* Profiles directory *)

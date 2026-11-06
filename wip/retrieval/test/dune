@@ -6,7 +6,7 @@
 (test
  (name test_http)
  (modules test_http)
- (libraries retrieval eio_main fetch.mock))
+ (libraries retrieval eio_main fetch fetch.mock http))
 
 (test
  (name test_algorithms)

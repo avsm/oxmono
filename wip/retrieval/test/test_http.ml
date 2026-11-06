@@ -53,4 +53,35 @@ let () =
             ~model:"fixture" ~dimensions:2 ());
        false
      with Invalid_argument _ -> true);
+  let authorizations = ref [] and status = ref 200 in
+  let fetch =
+    Fetch_mock.client (fun req ->
+        authorizations :=
+          Http.Header.get req.headers "authorization" :: !authorizations;
+        Fetch_mock.respond ~status:!status
+          ~headers:
+            (Http.Header.of_list [ ("location", "https://other.example/") ])
+          {|{"data":[{"index":0,"embedding":[1,0]}]}|} req)
+  in
+  let keyed =
+    E.http ~sw ~fetch ~url:"https://embedding.example/v1/embeddings"
+      ~api_key:"secret" ~model:"fixture" ~dimensions:2 ()
+  in
+  ignore (keyed.embed ~task:`Document ~check:(fun () -> ()) [ "one" ]);
+  check "API key is sent as a bearer token"
+    (!authorizations = [ Some "Bearer secret" ]);
+  let keyless =
+    E.http ~sw ~fetch ~url:"https://embedding.example/v1/embeddings"
+      ~model:"fixture" ~dimensions:2 ()
+  in
+  ignore (keyless.embed ~task:`Document ~check:(fun () -> ()) [ "one" ]);
+  check "no authorization is sent without an API key"
+    (List.hd !authorizations = None);
+  status := 302;
+  authorizations := [];
+  check "redirects are refused rather than followed"
+    (try
+       ignore (keyed.embed ~task:`Document ~check:(fun () -> ()) [ "one" ]);
+       false
+     with Failure _ -> List.length !authorizations = 1);
   print_endline "embedding HTTP tests passed"

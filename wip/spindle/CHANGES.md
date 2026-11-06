@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Run a durable workflow again when the spindle stops during it, instead of
+  sometimes recording it as failed while its minutes were charged.
+
 - Give each client behind the local proxy its own lookup budget of 2 a
   second, with bursts of 20, named by the address the proxy appends to
   X-Forwarded-For, within a shared budget of 20 a second.

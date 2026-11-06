@@ -13,11 +13,15 @@ exception Inbox_full
 let check = Sqlite3.Rc.check
 
 (* Finalizing a statement whose step failed repeats that step's error, which
-   is already raised, so its code is ignored. *)
+   is already raised, so its code is ignored. A cancelled step still
+   finalizes its statement, without the cancellation becoming
+   [Fun.Finally_raised]. *)
 let statement t sql args f =
   let stmt = Sqlite3_eio.prepare t.db sql in
   Fun.protect
-    ~finally:(fun () -> ignore (Sqlite3_eio.finalize t.db stmt : Sqlite3.Rc.t))
+    ~finally:(fun () ->
+      Eio.Cancel.protect (fun () ->
+          ignore (Sqlite3_eio.finalize t.db stmt : Sqlite3.Rc.t)))
     (fun () ->
       check (Sqlite3.bind_values stmt args);
       f stmt)

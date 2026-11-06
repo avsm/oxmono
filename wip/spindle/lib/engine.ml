@@ -363,7 +363,11 @@ and run t p (workflow : Runner.t) =
           | None -> watch t p workflow ~since:None
           | since -> released (fun () -> watch t p workflow ~since)
         in
+        (* A workflow interrupted by the spindle stopping is still charged.
+           The charge is protected, or its cancellation would become
+           [Fun.Finally_raised] and fail a workflow that should run again. *)
         Fun.protect ~finally:(fun () ->
+            Eio.Cancel.protect @@ fun () ->
             if !held then release t p;
             let spent = seconds () -. began -. !waited in
             if workflow.started <> None then

@@ -66,10 +66,23 @@ let run env =
   Sys.remove tmp;
   let root_path = Eio.Path.(fs / tmp) in
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 root_path;
+  (* A sibling of the subtree, named for this run so that no other file can
+     stand in for it. Escapes are checked against it rather than against
+     /etc, which the parent of the temporary directory may not lead to. *)
+  let outside_name = Filename.basename tmp ^ "-outside.txt" in
+  let outside = Filename.concat (Filename.dirname tmp) outside_name in
+  let outside_text = "secret root line\n" in
+  let outside_intact () =
+    Sys.file_exists outside
+    && In_channel.with_open_bin outside In_channel.input_all = outside_text
+  in
   Fun.protect
     ~finally:(fun () ->
+      if Sys.file_exists outside then Sys.remove outside;
       ignore (Sys.command (Filename.quote_command "rm" [ "-rf"; tmp ])))
     (fun () ->
+      Out_channel.with_open_bin outside (fun oc ->
+          output_string oc outside_text);
       populate root_path;
       (* Everything below reaches the tree only through this capability. *)
       Eio.Path.with_subtree root_path @@ fun dir ->
@@ -325,46 +338,91 @@ let run env =
       check "append says how large the file has grown" (contains out "8");
       check "append adds to what was there, losing nothing"
         (call read {|{"cap":"","path":"grown.txt"}|} = "one\ntwo\n");
+      (* A link inside the subtree to its parent, present only while the
+         escapes are tried so that the walking tools never meet it. *)
+      let up = Filename.concat tmp "up" in
+      Unix.symlink (Filename.dirname tmp) up;
       let escaped =
-        call append {|{"cap":"","path":"../escaped.txt","content":"x"}|}
+        call append
+          (Printf.sprintf {|{"cap":"","path":"../%s","content":"x"}|}
+             outside_name)
       in
       check "append cannot escape the subtree with .."
         (not (contains escaped "appended"));
       let escaped =
-        call append {|{"cap":"","path":"/tmp/ds4-escaped.txt","content":"x"}|}
+        call append
+          (Printf.sprintf {|{"cap":"","path":%S,"content":"x"}|} outside)
       in
       check "append refuses an absolute path with what to do instead"
         (contains escaped "outside this capability"
         && contains escaped "open_dir");
+      ignore
+        (call write
+           (Printf.sprintf {|{"cap":"","path":"../%s","content":"x"}|}
+              outside_name));
+      ignore
+        (call write
+           (Printf.sprintf {|{"cap":"","path":%S,"content":"x"}|} outside));
+      ignore
+        (call write
+           (Printf.sprintf {|{"cap":"","path":"up/%s","content":"x"}|}
+              outside_name));
+      check "append and write leave a file outside the subtree untouched"
+        (outside_intact ());
 
       (* An edit that climbs out is refused by the capability resolving it, as
          a read that climbs out is. What matters is that it fails and says so,
          rather than reporting the edit of a file it never reached. *)
       let out =
         call edit
-          {|{"cap":"","path":"../../etc/passwd","old":"root","new":"toor"}|}
+          (Printf.sprintf
+             {|{"cap":"","path":"../%s","old":"root","new":"toor"}|}
+             outside_name)
       in
       check "edit cannot escape the subtree with .."
         (not (contains out "edited"));
       let out =
-        call edit {|{"cap":"","path":"/etc/passwd","old":"root","new":"toor"}|}
+        call edit
+          (Printf.sprintf {|{"cap":"","path":%S,"old":"root","new":"toor"}|}
+             outside)
       in
       check "edit refuses an absolute path with what to do instead"
         (contains out "outside this capability" && contains out "open_dir");
+      let out =
+        call edit
+          (Printf.sprintf
+             {|{"cap":"","path":"up/%s","old":"root","new":"toor"}|}
+             outside_name)
+      in
+      check "edit cannot escape the subtree through a symlink"
+        (not (contains out "edited"));
+      check "edit leaves a file outside the subtree untouched"
+        (outside_intact ());
 
       (* The point of the subtree capability. Eio resolves these. *)
       let escaped =
         call read_lines
-          {|{"cap":"","path":"../../etc/passwd","start":1,"count":1}|}
+          (Printf.sprintf {|{"cap":"","path":"../%s","start":1,"count":1}|}
+             outside_name)
       in
       check "read_lines cannot escape the subtree with .."
-        (not (contains escaped "root:"));
+        (not (contains escaped "secret"));
+      let escaped =
+        call read_lines
+          (Printf.sprintf {|{"cap":"","path":"up/%s","start":1,"count":1}|}
+             outside_name)
+      in
+      check "read_lines cannot escape the subtree through a symlink"
+        (not (contains escaped "secret"));
       let escaped = call list {|{"cap":"","path":".."}|} in
       check "list cannot escape the subtree with .."
-        (not (contains escaped "etc"));
-      let escaped = call stat {|{"cap":"","path":"/etc/passwd"}|} in
+        (not (contains escaped outside_name));
+      let escaped =
+        call stat (Printf.sprintf {|{"cap":"","path":%S}|} outside)
+      in
       check "stat cannot reach an absolute path outside the subtree"
         (not (contains escaped "kind=file"));
+      Unix.unlink up;
 
       (* One call in place of walking the tree with repeated lists. *)
       let out = call tree {|{"cap":"","path":".","depth":0}|} in

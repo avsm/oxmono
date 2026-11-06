@@ -309,31 +309,31 @@ let pull_labels t (repo : repo) ~pull =
             and rest = List.filteri (fun i _ -> i >= 50) l in
             first :: chunks rest
       in
-      let blocks =
-        List.concat_map
-          (fun cids ->
-            let status, body =
-              Network.fetch_status
-                ~limit:(16 * 1024 * 1024)
-                t.network
-                (Network.query
-                   (repo.knot ^ "/xrpc/com.atproto.sync.getBlocks")
-                   (("did", repo.did) :: List.map (fun c -> ("cids", c)) cids))
-            in
-            if status <> 200 then failwith "the knot served no versions";
-            snd (Atp.Car.of_string body)
-            |> List.map (fun (cid, data) ->
-                (* A block counts only if it is what its content id names. *)
-                if not (Atp.Cid.equal cid (Atp.Cid.create `Dag_cbor data)) then
-                  failwith "the knot served a block that does not match its id";
-                (Atp.Cid.to_string cid, data)))
-          (chunks cids)
-      in
+      (* Only each version's labels are kept, not its block, so that at most
+         one answer of the knot is held at a time. *)
+      let found = Hashtbl.create (List.length cids) in
+      List.iter
+        (fun cids ->
+          let status, body =
+            Network.fetch_status ~limit:(4 * 1024 * 1024) t.network
+              (Network.query
+                 (repo.knot ^ "/xrpc/com.atproto.sync.getBlocks")
+                 (("did", repo.did) :: List.map (fun c -> ("cids", c)) cids))
+          in
+          if status <> 200 then failwith "the knot served no versions";
+          List.iter
+            (fun (cid, data) ->
+              (* A block counts only if it is what its content id names. *)
+              if not (Atp.Cid.equal cid (Atp.Cid.create `Dag_cbor data)) then
+                failwith "the knot served a block that does not match its id";
+              Hashtbl.replace found (Atp.Cid.to_string cid) (labels_in data))
+            (snd (Atp.Car.of_string body)))
+        (chunks cids);
       let labels = function
         | None -> []
         | Some cid -> (
-            match List.assoc_opt cid blocks with
-            | Some data -> labels_in data
+            match Hashtbl.find_opt found cid with
+            | Some labels -> labels
             | None -> failwith ("the knot did not serve version " ^ cid))
       in
       (* Who last added each label still on the ticket. *)

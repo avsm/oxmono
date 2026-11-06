@@ -6,6 +6,19 @@
 
 ## Unreleased
 
+- Limit anonymous lookups of repositories the spindle does not know, and
+  reads of repository workflow files, to 10 a second with bursts of 50,
+  answering 429 beyond that. Keep workflow definitions for a minute and DID
+  documents for 60 seconds.
+- Index pipeline views by repository, so a pipeline query reads only that
+  repository's pipelines.
+- Bound each observer pass to 10 seconds of new work, so one repository's
+  slow events cannot hold back the others for long.
+- Keep at most one knot answer in memory while reading a pull request's
+  labels, and remember a pull request's source instead of listing every
+  patch when its state changes.
+- Reject events naming malformed URLs instead of retrying them.
+
 - Keep durable workflows running through store errors, retrying the
   affected workflow later instead of stopping the worker pool.
 - Refuse manual run inputs whose keys are not variable names, repeat a key,

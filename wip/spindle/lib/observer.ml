@@ -133,9 +133,15 @@ let connect ~system ~store ~settings ~self ~url ~health ~policy =
   done
 
 (* What is known of a pull request between events: its newest head, its
-   author, its number of revisions and the state last seen. Older stores
-   hold only the head. *)
-type seen = { head : string; author : string; rounds : int; state : string }
+   author, its number of revisions, the state last seen and where its newest
+   patch comes from. Older stores hold only the head, or no source. *)
+type seen = {
+  head : string;
+  author : string;
+  rounds : int;
+  state : string;
+  source : Jsont.json option option;
+}
 
 let load_seen engine uri =
   Option.map
@@ -147,21 +153,31 @@ let load_seen engine uri =
             author = get "author" v;
             rounds = integer (required "rounds" v);
             state = get "state" v;
+            source =
+              Option.map
+                (function Jsont.Null _ -> None | s -> Some s)
+                (field "source" v);
           }
       | _ | (exception Invalid _) ->
-          { head = raw; author = ""; rounds = 1; state = "open" })
+          { head = raw; author = ""; rounds = 1; state = "open"; source = None })
     (Store.get (Engine.store engine) "pull-seen" uri)
 
 let save_seen engine uri s =
   Store.put (Engine.store engine) "pull-seen" uri
     (encode
        (obj
-          [
-            ("head", str s.head);
-            ("author", str s.author);
-            ("rounds", int s.rounds);
-            ("state", str s.state);
-          ]))
+          ([
+             ("head", str s.head);
+             ("author", str s.author);
+             ("rounds", int s.rounds);
+             ("state", str s.state);
+           ]
+          @
+         match s.source with
+         | None -> []
+         | Some source ->
+             [ ("source", Option.value ~default:(Jsont.Json.null ()) source) ]
+          )))
 
 let text field_ value =
   match Option.bind (field field_ value) (field "text") with
@@ -323,6 +339,7 @@ let pull engine network hooks ~repo ~rkey =
                                 ~some:(fun s -> s.rounds)
                                 previous;
                           state;
+                          source = Some (field "source" value);
                         }
                       in
                       let action, event =
@@ -370,8 +387,12 @@ let lifecycle engine network hooks ~repo ~rkey ~round =
                   Option.fold ~none:seen.author ~some:string
                     (field "x-tngl-editor" t)
                 in
-                (* The newest patch says where the change comes from. *)
+                (* The newest patch says where the change comes from. Older
+                   stores did not keep it, so the knot is asked. *)
                 let source =
+                  match seen.source with
+                  | Some source -> source
+                  | None ->
                   Option.bind
                     (List.find_opt
                        (fun p ->
@@ -627,8 +648,21 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
             []
             (Store.waiting store "inbox" ~now)
         in
+        (* A pass starts no event after 10 seconds, so that one repository's
+           slow events hold back the others' for at most that and one event's
+           timeout. The rest wait for the next pass. *)
+        let deadline =
+          Mtime.add_span
+            (Eio.Time.Mono.now system#mono_clock)
+            (Mtime.Span.of_uint64_ns 10_000_000_000L)
+          |> Option.get
+        in
+        let late () =
+          Mtime.is_later (Eio.Time.Mono.now system#mono_clock) ~than:deadline
+        in
         Eio.Fiber.List.iter ~max_fibers:4
           (fun items ->
+            let stopped = ref false in
             ignore
               (List.fold_left
                  (fun failed ((key, _) as item) ->
@@ -642,6 +676,9 @@ let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
                          | _ -> None)
                    in
                    match behind with
+                   | None when !stopped || late () ->
+                       stopped := true;
+                       None
                    | None -> if one item then None else Some key
                    | Some behind ->
                        Store.hold store "inbox" key ~behind;

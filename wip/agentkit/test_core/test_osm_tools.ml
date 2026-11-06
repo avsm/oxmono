@@ -84,8 +84,10 @@ let () =
   in
   check "bound Agentkit tool"
     (List.length (field (Jsont.list Jsont.json) "results" result) = 1);
+  let redirected = ref [] in
   let denied =
     Fetch_mock.client (fun req ->
+        redirected := Fetch.Middleware.Url.to_string req.url :: !redirected;
         Fetch_mock.respond ~status:302
           ~headers:
             (Http.Header.of_list [ ("Location", "http://other/private") ])
@@ -97,6 +99,9 @@ let () =
   check "cross-origin redirect denied"
     (Result.is_error
        (Agentkit_osm.invoke tool "address_search" {|{"query":"x"}|}));
+  check "cross-origin redirect never requested"
+    (List.for_all (String.starts_with ~prefix:"http://marpe:8888/") !redirected
+    && List.length !redirected = 1);
   let cancelled =
     Agentkit_osm.create
       ~fetch:(Fetch_mock.client (fun _ -> raise (Eio.Cancel.Cancelled Exit)))

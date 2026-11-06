@@ -167,6 +167,12 @@ let run_bounded fn =
   Eio_main.run @@ fun env ->
   Eio.Time.with_timeout_exn env#clock 10. (fun () -> fn env)
 
+(* [login_fails name f] checks that the login [f] is rejected. *)
+let login_fails name f =
+  match f () with
+  | _ -> Alcotest.failf "%s: login was not rejected" name
+  | exception _ -> ()
+
 let test_existing_session_is_rejected_and_closes () =
   run_bounded @@ fun env ->
   Eio.Switch.run @@ fun sw ->
@@ -188,7 +194,8 @@ let test_existing_session_is_rejected_and_closes () =
   in
   let client = Matrix_eio.Client.with_session client session in
   let displayed, _scanner, server = established sw in
-  (try ignore (Eio_qr.login ~env displayed client ()) with _ -> ());
+  login_fails "existing session" (fun () ->
+      Eio_qr.login ~env displayed client ());
   Alcotest.(check int) "no HTTP before rejection" 0 !calls;
   Alcotest.(check int) "channel cleanup" 1 server.deletes
 
@@ -577,14 +584,11 @@ let test_homeserver_mismatch_is_rejected_and_closes () =
   in
   let client = unauthenticated_client ~sw ~env ~fetch in
   let displayed, _scanner, server = established sw in
-  (try
-     ignore
-       (Eio_qr.login ~env
-          ~start:
-            (Eio_qr.Homeserver_known
-               (Uriz.of_string_exn "https://other.example"))
-          displayed client ())
-   with _ -> ());
+  login_fails "homeserver mismatch" (fun () ->
+      Eio_qr.login ~env
+        ~start:
+          (Eio_qr.Homeserver_known (Uriz.of_string_exn "https://other.example"))
+        displayed client ());
   Alcotest.(check int) "no HTTP before mismatch rejection" 0 !calls;
   Alcotest.(check int) "channel cleanup" 1 server.deletes
 

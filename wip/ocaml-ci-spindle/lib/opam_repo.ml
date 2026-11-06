@@ -253,7 +253,7 @@ type remotes = {
 }
 
 let default_hosts =
-  [ "github.com"; "gitlab.com"; "codeberg.org"; "bitbucket.org"; "git.sr.ht" ]
+  [ "github.com"; "gitlab.com"; "codeberg.org"; "bitbucket.org"; "git.sr.ht"; "tangled.org" ]
 
 let remotes ?(hosts = default_hosts) process clock ~dir =
   {

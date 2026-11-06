@@ -26,7 +26,7 @@ It takes every option of the `spindle` command, and these of its own:
 | `--day10 ARCHES` | Debian architectures built with day10 on the `day10-linux-ARCH` pools instead of OBuilder, from `x86_64`, `arm64`, `ppc64le` and `riscv64`, or `none`. `x86_64,riscv64` by default. |
 | `--oxcaml` | Also build with OxCaml 5.2.0minus39, as oxmono does. |
 | `--opam-cache DIR` | Where opam-repository is cloned to solve. |
-| `--remote-hosts HOSTS` | The only hosts a project's `x-opam-repositories` may name, since the build workers fetch them too. `github.com,gitlab.com,codeberg.org,bitbucket.org,git.sr.ht` by default. |
+| `--remote-hosts HOSTS` | The only hosts a project's `x-opam-repositories` may name, since the build workers fetch them too. `github.com,gitlab.com,codeberg.org,bitbucket.org,git.sr.ht,tangled.org` by default. |
 | `--diagnose` | Ask a language model about the failed builds of pull requests labelled `ci:diagnose`. Off by default. |
 | `--diagnose-url URL` | Its OpenAI-compatible API, required with `--diagnose`. `https://openrouter.ai/api/v1` is OpenRouter's. A key is sent only over https or to a loopback address. |
 | `--diagnose-model MODEL` | The model, `Qwen/Qwen3.8-27B-FP8` by default. |

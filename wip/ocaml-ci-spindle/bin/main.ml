@@ -79,8 +79,8 @@ let options =
                  $(b,x-opam-repositories). The build workers fetch them \
                  themselves, so name only public forges that cannot point a \
                  worker at a private address. $(b,github.com), \
-                 $(b,gitlab.com), $(b,codeberg.org), $(b,bitbucket.org) and \
-                 $(b,git.sr.ht) by default."))
+                 $(b,gitlab.com), $(b,codeberg.org), $(b,bitbucket.org), \
+                 $(b,git.sr.ht) and $(b,tangled.org) by default."))
     $ value
         (opt (list string) [ "auto" ]
         & info [ "compilers" ] ~docv:"MINORS"

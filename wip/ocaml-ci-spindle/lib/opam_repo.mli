@@ -34,7 +34,7 @@ type remotes
 
 val default_hosts : string list
 (** [default_hosts] is [github.com], [gitlab.com], [codeberg.org],
-    [bitbucket.org] and [git.sr.ht]. *)
+    [bitbucket.org], [git.sr.ht] and [tangled.org]. *)
 
 val remotes :
   ?hosts:string list ->

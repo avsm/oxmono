@@ -65,23 +65,38 @@ let test_parse_list () =
 
 let test_sidecar_roundtrip () =
   let path = Filename.temp_file "osdist-sidecar-" ".json" in
-  Osdist.Spec.write_sidecar ~path sample_spec;
-  match Osdist.Spec.read_sidecar ~path with
-  | Error e -> Alcotest.failf "read failed: %s" e
-  | Ok r ->
-      Alcotest.(check string) "package" sample_spec.package r.package;
-      Alcotest.(check string) "version" sample_spec.version r.version;
-      Alcotest.(check (option int)) "epoch" sample_spec.epoch r.epoch;
-      Alcotest.(check string) "prefix" sample_spec.prefix r.prefix;
-      (* depexts: order is StringMap-sorted on read, so compare canonically. *)
-      let sort_pairs xs =
-        List.sort (fun (a, _) (b, _) -> String.compare a b) xs
-      in
-      Alcotest.(check (list (pair string (list string))))
-        "depexts"
-        (sort_pairs sample_spec.depexts)
-        (sort_pairs r.depexts);
-      Sys.remove path
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      Osdist.Spec.write_sidecar ~path sample_spec;
+      match Osdist.Spec.read_sidecar ~path with
+      | Error e -> Alcotest.failf "read failed: %s" e
+      | Ok r ->
+          (* Reading sorts depexts by tag, so compare canonically. *)
+          let canonical (s : Osdist.Spec.t) =
+            {
+              s with
+              depexts =
+                List.sort (fun (a, _) (b, _) -> String.compare a b) s.depexts;
+            }
+          in
+          Alcotest.(check bool)
+            "every field survives" true
+            (canonical sample_spec = canonical r))
+
+let test_sidecar_rejects_garbage () =
+  let path = Filename.temp_file "osdist-sidecar-" ".json" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      List.iter
+        (fun text ->
+          Out_channel.with_open_bin path (fun oc -> output_string oc text);
+          Alcotest.(check bool)
+            (Printf.sprintf "rejects %S" text)
+            true
+            (Result.is_error (Osdist.Spec.read_sidecar ~path)))
+        [ ""; "not json"; "{}"; {|{"package":1}|} ])
 
 (* -- Sidecar path convention ------------------------------------------- *)
 
@@ -269,6 +284,8 @@ let suite =
       Alcotest.test_case "of_tag" `Quick test_of_tag;
       Alcotest.test_case "parse_list" `Quick test_parse_list;
       Alcotest.test_case "sidecar round-trip" `Quick test_sidecar_roundtrip;
+      Alcotest.test_case "sidecar rejects garbage" `Quick
+        test_sidecar_rejects_garbage;
       Alcotest.test_case "sidecar_path" `Quick test_sidecar_path;
       Alcotest.test_case "deb control" `Quick test_deb_control;
       Alcotest.test_case "deb rules $@ preserved" `Quick

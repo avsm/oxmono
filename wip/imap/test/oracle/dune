@@ -3,6 +3,13 @@
  (modules test_oracle corpus)
  (package imap)
  (locks oracle)
+ (deps
+  (env_var IMAP_ORACLE_HOST)
+  (env_var IMAP_ORACLE_PORT)
+  (env_var IMAP_ORACLE_TLS)
+  (env_var IMAP_ORACLE_USER)
+  (env_var IMAP_ORACLE_PASSWORD)
+  (env_var IMAP_ORACLE_REQUIRED))
  (libraries
   imap
   imap.eio

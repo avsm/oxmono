@@ -2,6 +2,14 @@
  (name test_stalwart)
  (package imap)
  (locks stalwart)
+ (deps
+  (env_var IMAP_STALWART_HOST)
+  (env_var IMAP_STALWART_PORT)
+  (env_var IMAP_STALWART_USER)
+  (env_var IMAP_STALWART_PASSWORD)
+  (env_var IMAP_STALWART_CA_CERT)
+  (env_var IMAP_STALWART_REQUIRED)
+  (env_var IMAP_STALWART_OBJECTID_PLUS_REQUIRED))
  (libraries
   imap
   imap.eio

@@ -85,8 +85,16 @@ module Id_tests = struct
     (match decode_id (of_len 255) with
     | Ok s -> Alcotest.(check int) "255 octets accepted" 255 (String.length s)
     | Error e -> Alcotest.failf "255 octets rejected: %s" e);
-    match decode_id (of_len 256) with
+    (match decode_id (of_len 256) with
     | Ok _ -> Alcotest.fail "256 octets should be rejected"
+    | Error _ -> ());
+    let e_acute n = String.concat "" (List.init n (fun _ -> "\xc3\xa9")) in
+    (match decode_id ("\"" ^ e_acute 127 ^ "a\"") with
+    | Ok s ->
+        Alcotest.(check int) "255 UTF-8 octets accepted" 255 (String.length s)
+    | Error e -> Alcotest.failf "255 UTF-8 octets rejected: %s" e);
+    match decode_id ("\"" ^ e_acute 128 ^ "\"") with
+    | Ok _ -> Alcotest.fail "128 two-octet characters should be rejected"
     | Error _ -> ()
 
   (* RFC 8620 1.2 restricts an Id to the base64url alphabet, but that is a rule

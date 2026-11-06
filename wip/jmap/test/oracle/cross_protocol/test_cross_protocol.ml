@@ -132,4 +132,6 @@ let () =
   H.run "imap-jmap-cross-protocol" ["mapping",[
     Alcotest.test_case "explicitly unrepresentable flags" `Quick unrepresentable];
     "roundtrip",[
-    H.test_case "exact bodies and bidirectional keywords" test]]
+    H.test_case "exact bodies and bidirectional keywords" (fun t ->
+      if Sys.getenv_opt "IMAP_ORACLE_HOST"=None then Alcotest.skip ()
+      else test t)]]

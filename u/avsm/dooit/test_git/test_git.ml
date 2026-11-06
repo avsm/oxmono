@@ -16,6 +16,30 @@ let rec remove_tree path =
     Unix.rmdir path)
   else Unix.unlink path
 
+let git process_mgr root args =
+  Eio.Process.parse_out process_mgr Eio.Buf_read.take_all
+    ([ "git"; "-C"; root ] @ args)
+
+let author process_mgr store =
+  ignore
+    (git process_mgr store.Store.root [ "config"; "user.name"; "Dooit Test" ]);
+  ignore
+    (git process_mgr store.root
+       [ "config"; "user.email"; "dooit@example.invalid" ])
+
+(* [with_base prefix ~env f] runs [f] in a fresh temporary directory, then
+   removes it and restores the environment variables named by [env]. *)
+let with_base ?(env = []) prefix f =
+  let base = Filename.temp_dir prefix "" in
+  let saved =
+    List.map (fun k -> (k, Option.value (Sys.getenv_opt k) ~default:"")) env
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter (fun (k, v) -> Unix.putenv k v) saved;
+      remove_tree base)
+    (fun () -> f base)
+
 let note =
   {|---
 schema: dooit/v1
@@ -32,25 +56,10 @@ Body.
 let id = Doc.id (Doc.parse note)
 
 let test () =
-  let base = Filename.temp_file "dooit-git-test-" "" in
-  Unix.unlink base;
-  mkdir base;
-  Fun.protect
-    ~finally:(fun () -> remove_tree base)
-    (fun () ->
+  with_base "dooit-git-test-" (fun base ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
-          let git root args =
-            Eio.Process.parse_out process_mgr Eio.Buf_read.take_all
-              ([ "git"; "-C"; root ] @ args)
-          in
-          let author store =
-            ignore
-              (git store.Store.root [ "config"; "user.name"; "Dooit Test" ]);
-            ignore
-              (git store.root
-                 [ "config"; "user.email"; "dooit@example.invalid" ])
-          in
+          let git = git process_mgr and author = author process_mgr in
           let remote = Filename.concat base "origin.git" in
           ignore
             (git base [ "init"; "--bare"; "--initial-branch=main"; remote ]);
@@ -202,15 +211,7 @@ let test () =
             (read (Filename.concat a.root "unrelated.txt") = "unrelated")))
 
 let cancellation () =
-  let base = Filename.temp_file "dooit-git-cancel-" "" in
-  Unix.unlink base;
-  mkdir base;
-  let original_path = Option.value (Sys.getenv_opt "PATH") ~default:"" in
-  Fun.protect
-    ~finally:(fun () ->
-      Unix.putenv "PATH" original_path;
-      remove_tree base)
-    (fun () ->
+  with_base ~env:[ "PATH" ] "dooit-git-cancel-" (fun base ->
       let bin = Filename.concat base "bin" in
       mkdir bin;
       let script = Filename.concat bin "git" in
@@ -222,7 +223,8 @@ let cancellation () =
          printf '%s\\n' \"$child\" > \"$DOOIT_GIT_TEST_PID\"\n\
          wait\n";
       Unix.chmod script 0o700;
-      Unix.putenv "PATH" (bin ^ ":" ^ original_path);
+      Unix.putenv "PATH"
+        (bin ^ ":" ^ Option.value (Sys.getenv_opt "PATH") ~default:"");
       Unix.putenv "DOOIT_GIT_TEST_PID" pid_file;
       Eio_main.run (fun env ->
           let clock = Eio.Stdenv.clock env in
@@ -251,15 +253,7 @@ let cancellation () =
           Store.with_lock store (fun () -> ())))
 
 let lost_notification () =
-  let base = Filename.temp_file "dooit-git-notification-" "" in
-  Unix.unlink base;
-  mkdir base;
-  let original_path = Option.value (Sys.getenv_opt "PATH") ~default:"" in
-  Fun.protect
-    ~finally:(fun () ->
-      Unix.putenv "PATH" original_path;
-      remove_tree base)
-    (fun () ->
+  with_base ~env:[ "PATH" ] "dooit-git-notification-" (fun base ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
           let git =
@@ -274,7 +268,8 @@ let lost_notification () =
             ("#!/bin/sh\n/bin/sleep 0.05\nexec " ^ Filename.quote git
            ^ " \"$@\"\n");
           Unix.chmod script 0o700;
-          Unix.putenv "PATH" (bin ^ ":" ^ original_path);
+          Unix.putenv "PATH"
+            (bin ^ ":" ^ Option.value (Sys.getenv_opt "PATH") ~default:"");
           let notifications = ref 0 in
           let previous =
             Sys.signal Sys.sigchld
@@ -291,25 +286,10 @@ let lost_notification () =
               Store.with_lock store (fun () -> ()))))
 
 let apply_retry () =
-  let base = Filename.temp_file "dooit-git-apply-" "" in
-  Unix.unlink base;
-  mkdir base;
-  Fun.protect
-    ~finally:(fun () -> remove_tree base)
-    (fun () ->
+  with_base "dooit-git-apply-" (fun base ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
-          let git root args =
-            Eio.Process.parse_out process_mgr Eio.Buf_read.take_all
-              ([ "git"; "-C"; root ] @ args)
-          in
-          let author store =
-            ignore
-              (git store.Store.root [ "config"; "user.name"; "Dooit Test" ]);
-            ignore
-              (git store.root
-                 [ "config"; "user.email"; "dooit@example.invalid" ])
-          in
+          let git = git process_mgr and author = author process_mgr in
           let remote = Filename.concat base "origin.git" in
           ignore
             (git base [ "init"; "--bare"; "--initial-branch=main"; remote ]);
@@ -432,25 +412,10 @@ let apply_retry () =
           | exception Exit -> ()))
 
 let full_sync () =
-  let base = Filename.temp_file "dooit-git-sync-" "" in
-  Unix.unlink base;
-  mkdir base;
-  Fun.protect
-    ~finally:(fun () -> remove_tree base)
-    (fun () ->
+  with_base "dooit-git-sync-" (fun base ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
-          let git root args =
-            Eio.Process.parse_out process_mgr Eio.Buf_read.take_all
-              ([ "git"; "-C"; root ] @ args)
-          in
-          let author store =
-            ignore
-              (git store.Store.root [ "config"; "user.name"; "Dooit Test" ]);
-            ignore
-              (git store.root
-                 [ "config"; "user.email"; "dooit@example.invalid" ])
-          in
+          let git = git process_mgr and author = author process_mgr in
           let remote = Filename.concat base "origin.git" in
           ignore
             (git base [ "init"; "--bare"; "--initial-branch=main"; remote ]);
@@ -542,15 +507,7 @@ let full_sync () =
             && not (Git.status ~process_mgr c config).dirty)))
 
 let oversized_blob () =
-  let base = Filename.temp_file "dooit-git-large-" "" in
-  Unix.unlink base;
-  mkdir base;
-  let old_trace = Option.value (Sys.getenv_opt "GIT_TRACE") ~default:"" in
-  Fun.protect
-    ~finally:(fun () ->
-      Unix.putenv "GIT_TRACE" old_trace;
-      remove_tree base)
-    (fun () ->
+  with_base ~env:[ "GIT_TRACE" ] "dooit-git-large-" (fun base ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
           let source = Store.init (Filename.concat base "source") in
@@ -586,13 +543,7 @@ let oversized_blob () =
             (not (contains "cat-file --batch\n"))))
 
 let failure_redaction () =
-  let base = Filename.temp_dir "dooit-git-redaction-" "" in
-  let old_path = Option.value (Sys.getenv_opt "PATH") ~default:"" in
-  Fun.protect
-    ~finally:(fun () ->
-      Unix.putenv "PATH" old_path;
-      remove_tree base)
-    (fun () ->
+  with_base ~env:[ "PATH" ] "dooit-git-redaction-" (fun base ->
       let executable = Filename.concat base "git" in
       let secret = "FIXTURE-CREDENTIAL-MUST-NOT-LEAK" in
       atomic_write executable

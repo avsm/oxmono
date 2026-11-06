@@ -145,13 +145,16 @@ let test_timeout_fires_under_contention () =
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
   let clock = Eio.Stdenv.clock env in
-  let start = Unix.gettimeofday () in
+  let mono = Eio.Stdenv.mono_clock env in
+  let start = Eio.Time.Mono.now mono in
   let raised = ref false in
   (try
      L.with_lock ~clock ~fs ~path:lockfile ~mode:Exclusive
        ~strategy:(L.Block_timeout 0.5) (fun _ -> ())
    with L.Lock_unavailable _ -> raised := true);
-  let elapsed = Unix.gettimeofday () -. start in
+  let elapsed =
+    Mtime.Span.to_float_ns (Mtime.span start (Eio.Time.Mono.now mono)) /. 1e9
+  in
   Alcotest.(check bool) "Lock_unavailable raised" true !raised;
   Alcotest.(check bool) "waited at least the timeout" true (elapsed >= 0.5);
   Alcotest.(check bool) "didn't wait excessively (< 3s)" true (elapsed < 3.0)

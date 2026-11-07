@@ -777,6 +777,37 @@ fill, snapshot 7 (parent 6) and the export with `--live --evidence
 --journal-links`, converting to Parquet with the struct columns declared in
 `corpus-parquet.sh`.
 
+### Snapshots 7 and 8 and the provenance export (2026-11-06 22:55 to 2026-11-07 02:08 UTC)
+
+The fetch ended at 22:55 UTC after 400,725 DOIs: 283,195 abstracts
+accepted and 386,267 work bibliographies retained, 43 DOIs left on
+OpenAlex 504s. The SIGTERM sent to `butterflies-works.sh` at 11:57 UTC
+had not stopped it: a non-interactive bash defers the signal while a
+foreground child runs, so the wrapper woke when the fetch exited and ran
+its own fill, snapshot and export alongside the finisher. Snapshot 7
+(23:09 UTC) is therefore the wrapper's: same label and parent as snapshot
+8, exported without `--live --evidence --journal-links`, so its Parquet
+has coarse provenance (kind catalogue or openalex, no venues). Snapshot 8
+(23:16 UTC, finisher) is the intended export. Both files are in
+`/data/papers/taposaur/reviews/ce-butterflies/`; snapshots are immutable,
+so snapshot 7 stays as a plain export. Check the process is gone, not
+just signalled, before starting a replacement (`kill -0`).
+
+Finisher steps: redecode rewrote 386,245 of 386,267 works with venues
+(5 min); `sources` found 588 of 604 keys (16 ISSNs unknown to OpenAlex);
+fill added 17 catalogue abstracts; the export with 96 domains took 2 h 50
+min for 610,180 rows (346,846 held, 276,751 texts, 1,903 TEI parse errors:
+1,881 empty or truncated files, 22 non-TEI). Snapshot 8 Parquet (2.18 GB):
+597,676 titles (was 331,012 in snapshot 6), 510,229 abstracts, 595,769
+journals; OpenAlex venue on 593,423 rows (386,245 from the member's work,
+148,584 by ISSN, 58,594 by name; 16,757 unmatched). Title provenance:
+openalex 265,086, grobid 123,991, publisher_xml 115,069, pub2tei 64,209,
+manifest 17,881, s2orc 11,440. Text provenance: grobid 143,101, pub2tei
+120,422, s2orc 13,228; every text row carries `text_acquisition`.
+Retrieval times are present on 579,795 title provenances (artifact times
+for TEI, response times for OpenAlex); digests only where the manifest
+or store records one (265,234).
+
 ### Remaining before a bulk run
 
 Run the pilot. Confirm live publisher entitlements and converter health.

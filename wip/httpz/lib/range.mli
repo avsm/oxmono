@@ -163,22 +163,17 @@ val write_multipart_final :
 (** [write_multipart_final buf ~off ~boundary] is the next offset after writing
     the closing multipart delimiter. [boundary] is not validated. *)
 
-val generate_boundary : unit -> string
+val generate_boundary : unit -> string @@ portable
 (** [generate_boundary ()] is a 24-character alphanumeric boundary drawn from a
-    self-initialised [Random] state, so the sequence differs from process to
-    process rather than repeating from every start.
+    [Random] state seeded from the operating system for this call alone, so
+    the sequence differs from process to process rather than repeating from
+    every start.
 
-    Each domain has its own state, created in domain-local storage on that
-    domain's first call, so calls from several domains neither race on one
-    state nor repeat one sequence. Calls from several fibers of one domain
-    share that domain's state, which is sound because no call suspends. It is
-    not cryptographically random and must not be relied on as a secret. The
+    No state outlives the call and none is shared, so calls from several
+    domains or fibers neither race nor repeat one sequence. It is not
+    cryptographically random and must not be relied on as a secret. The
     caller must ensure that it does not occur in the enclosed representation
-    data.
-
-    This is the one value in this module that is not [portable]: the shared
-    [Random] state it draws from is mutable, so a [portable] closure cannot
-    reach it. Generate the boundary before entering such a closure. *)
+    data. *)
 
 val empty_resolved : resolved @@ portable
 (** [empty_resolved] is a zero-length placeholder for array initialization and

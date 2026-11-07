@@ -402,15 +402,12 @@ let write_multipart_final dst ~off ~boundary =
 ;;
 
 (* The default [Random] state is seeded identically in every process, which would make
-   every server's boundaries the same sequence from startup. A self-initialised state per
-   domain keeps them per-process and lets domains draw without racing. *)
-let boundary_state =
-  Stdlib.Domain.DLS.new_key (fun () -> Stdlib.Random.State.make_self_init ())
-;;
-
+   every server's boundaries the same sequence from startup. A state seeded from the OS
+   per call keeps them per-process and shares nothing between domains, so there is no
+   state to race on. *)
 let generate_boundary () =
   let chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" in
-  let state = Stdlib.Domain.DLS.get boundary_state in
+  let state = Stdlib.Random.State.make_self_init () in
   let len = 24 in
   let buf = Bytes.create len in
   for i = 0 to len - 1 do

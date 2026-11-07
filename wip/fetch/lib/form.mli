@@ -74,10 +74,11 @@ val multipart :
     given is drawn freshly and checked against the parts, so that it occurs
     neither in a part's content nor in the headers a part serializes, and so
     that two requests carrying the same parts are not framed alike. No digest
-    of part contents appears in the boundary. Each domain draws from its own
-    generator, seeded from the system on first use, so calling [multipart]
-    from several domains at once is safe and never draws the same boundary;
-    the result is unpredictable, not cryptographic.
+    of part contents appears in the boundary. Each call draws from a
+    generator seeded from the system for that call alone and shared with
+    nothing, so calling [multipart] from several domains at once is safe and
+    never draws the same boundary; the result is unpredictable, not
+    cryptographic.
 
     A [name] or [filename] is written into the [Content-Disposition]
     quoted-string with a double quote as [%22], CR as [%0D] and LF as

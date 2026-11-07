@@ -6,13 +6,14 @@ open Fetch
 
 (* Regression for R34/R40: [Form.multipart]'s boundary generator used to be a
    shared [Random.State.t] behind a plain [lazy], so two Eio domains drawing
-   a boundary at once could race on the same mutable state. It now keeps one
-   generator per domain via [Stdlib.Domain.DLS], so several domains drawing
-   at once neither raise nor corrupt each other's draw. A short-lived,
-   black-box test cannot force the specific unsynchronized-mutation
-   interleaving that made the old code unsound, so this is a concurrency
-   smoke test rather than a proof: it exercises many domains drawing many
-   boundaries at once and checks every result is well-formed and distinct. *)
+   a boundary at once could race on the same mutable state. It now seeds a
+   generator per body from the OS and shares nothing, so several domains
+   drawing at once neither raise nor corrupt each other's draw. A
+   short-lived, black-box test cannot force the specific
+   unsynchronized-mutation interleaving that made the old code unsound, so
+   this is a concurrency smoke test rather than a proof: it exercises many
+   domains drawing many boundaries at once and checks every result is
+   well-formed and distinct. *)
 
 let is_boundary_hex s =
   String.length s = String.length "form" + 32 + 2

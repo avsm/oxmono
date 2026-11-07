@@ -1,5 +1,8 @@
 # Changes
 
+- Seed the `Form.multipart` boundary generator from the system on each
+  call instead of keeping one `Random` state per domain.
+
 - Borrow request bodies through middleware, retries, redirects and HTTPZ.
   Generate explicit owned request copies with ppx_globalize for asynchronous
   backends and retaining mocks.

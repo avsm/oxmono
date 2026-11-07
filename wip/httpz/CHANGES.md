@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- Make `Range.generate_boundary` portable by seeding a fresh `Random`
+  state from the system on each call instead of keeping one per domain.
+
 - Install the media interface needed by its public re-export, preserving
   nested modules and portability guarantees for standalone consumers.
 

@@ -151,19 +151,14 @@ let occurs b parts heads =
 
 (* Two requests carrying the same parts must not expose a stable digest of
    their immediate values in the Content-Type field, so a fresh boundary
-   seed is drawn per body: unpredictable, not cryptographic. Each domain
-   keeps its own generator, drawn on first use, so two domains building a
-   boundary concurrently never race on a shared [Random.State.t] and cannot
-   draw the same seed. The occurrence scan below, rather than a content
-   digest, establishes the delimiter invariant. *)
-let boundary_state =
-  Stdlib.Domain.Safe.DLS.new_key (fun () -> Stdlib.Random.State.make_self_init ())
-
+   seed is drawn per body: unpredictable, not cryptographic. The generator
+   is seeded from the OS for each body and shared with nothing, so two
+   domains building a boundary concurrently have no [Random.State.t] in
+   common to race on or to draw the same seed from. The occurrence scan
+   below, rather than a content digest, establishes the delimiter
+   invariant. *)
 let salt () =
-  (* A domain-local value is reachable from its own domain alone, so the
-     [contended] the safe accessor returns it at is weaker than what holds
-     here. Nothing else ever draws from this state. *)
-  let st = Obj.magic_uncontended (Stdlib.Domain.Safe.DLS.get boundary_state) in
+  let st = Stdlib.Random.State.make_self_init () in
   String.init 32 (fun _ -> "0123456789abcdef".[Stdlib.Random.State.int st 16])
 
 let rec fresh parts heads digest n =

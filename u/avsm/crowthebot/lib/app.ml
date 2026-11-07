@@ -1115,20 +1115,8 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
   in
   (* Signal handlers only touch an atomic flag. Shutdown happens in a fiber. *)
   let stopping = Atomic.make false in
-  let previous =
-    List.map
-      (fun signal ->
-        ( signal,
-          Sys.Safe.signal signal
-            (Sys.Signal_handle (fun _ -> Atomic.set stopping true)) ))
-      [ Sys.sigint; Sys.sigterm ]
-  in
-  Fun.protect ~finally:(fun () ->
-      (* Previous handlers may predate the portable signal API. *)
-      List.iter
-        (fun (signal, handler) ->
-          (Sys.set_signal [@alert "-unsafe_multidomain"]) signal handler)
-        previous)
+  let stop = Sys.Signal_handle (fun _ -> Atomic.set stopping true) in
+  Eioext.Signals.with_handlers [ (Sys.sigint, stop); (Sys.sigterm, stop) ]
   @@ fun () ->
   Log.info (fun m ->
       m

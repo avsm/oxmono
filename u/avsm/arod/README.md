@@ -36,20 +36,23 @@ server prints the last frame and leaves it in the scrollback.
 ## Access log
 
 Every request is recorded in `$XDG_DATA_HOME/arod/access.db` through
-`proffer-log`. The file grows without bound unless it is rotated:
+`proffer-log`. Each night at `log_rotate_hour` UTC the server moves requests
+older than `log_rotate_days` into `access-YYYY.db` beside the live file, one
+per calendar year, in small transactions that serving interleaves with, and
+then returns the freed pages to the filesystem. Nothing is deleted: the
+analytics page and `arod stats` read the live file and every archive
+together. Set `log_rotate_days = 0` to leave the log in one file.
+
+A file that predates `proffer-log` needs one rebuild to shrink and to enter
+the mode in which pages are returned nightly. Stop the server and run:
 
 ```sh
-arod log rotate --keep 90
-arod log ls
+arod log vacuum
 ```
 
-`rotate` moves requests older than the retention window into
-`access-YYYY.db` beside the live file, one per calendar year, in small
-transactions, so it can run while the server serves. The analytics page and
-`arod stats` read the live file and every archive together, so nothing
-leaves the reports. After the first rotation of a large file, stop the
-server and run `arod log vacuum` once to return the freed space. `arod log
-merge FILE` copies another log or archive back into the live file.
+`arod log ls` lists the files with their row counts, `arod log rotate`
+rotates by hand and `arod log merge FILE` copies another log or archive
+back into the live file.
 
 ## Stylesheet
 

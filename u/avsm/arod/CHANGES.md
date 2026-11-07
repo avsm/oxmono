@@ -1,11 +1,12 @@
 # Changes
 
 - Record the access log through `proffer-log`. The database migrates in
-  place on the first start, index statistics are sampled rather than
-  scanned so a large file no longer delays listening, and `arod log rotate`
-  moves old requests into yearly archives that the analytics page and
-  `arod stats` keep reading. `arod log ls`, `merge` and `vacuum` manage the
-  files.
+  place on the first start, and index statistics are sampled rather than
+  scanned so a large file no longer delays listening. Each night the
+  server moves requests older than `log_rotate_days` into yearly archives
+  that the analytics page and `arod stats` keep reading, and returns the
+  freed space. `arod log ls`, `rotate`, `merge` and `vacuum` manage the
+  files by hand.
 
 - Serve the site stylesheet as one cached file instead of inlining it in
   every page, and build it through Tailwind so its rules sit between the

@@ -8,6 +8,10 @@ type server = {
   port : int;
   finger_port : int option;
   stats_password : string option;
+  log_rotate_days : int;
+      (** Requests older than this many days move from the live access log
+          into yearly archives each night. Zero leaves the log in place. *)
+  log_rotate_hour : int;  (** The UTC hour at which rotation runs. *)
 }
 
 type paths = {
@@ -56,6 +60,8 @@ let default =
       port = 8080;
       finger_port = None;
       stats_password = None;
+      log_rotate_days = 90;
+      log_rotate_hour = 4;
     };
     paths = {
       data_dir = Filename.concat home "bushel";
@@ -81,11 +87,16 @@ let path_string =
 
 let server_codec =
   Tomlt.(Table.(
-    obj (fun host port finger_port stats_password -> { host; port; finger_port; stats_password })
+    obj (fun host port finger_port stats_password log_rotate_days log_rotate_hour ->
+      { host; port; finger_port; stats_password; log_rotate_days; log_rotate_hour })
     |> mem "host" string ~dec_absent:default.server.host ~enc:(fun s -> s.host)
     |> mem "port" int ~dec_absent:default.server.port ~enc:(fun s -> s.port)
     |> opt_mem "finger_port" int ~enc:(fun s -> s.finger_port)
     |> opt_mem "stats_password" string ~enc:(fun s -> s.stats_password)
+    |> mem "log_rotate_days" int ~dec_absent:default.server.log_rotate_days
+         ~enc:(fun s -> s.log_rotate_days)
+    |> mem "log_rotate_hour" int ~dec_absent:default.server.log_rotate_hour
+         ~enc:(fun s -> s.log_rotate_hour)
     |> finish
   ))
 
@@ -174,6 +185,9 @@ host = "0.0.0.0"
 port = 8080
 # finger_port = 79  # Enable RFC 1288 Finger protocol server
 # stats_password = "changeme"  # HTTP Basic auth password for /action stats dashboard
+# Requests older than this move into yearly archive files nightly; 0 disables.
+# log_rotate_days = 90
+# log_rotate_hour = 4  # UTC hour of the nightly rotation
 
 [paths]
 # Bushel data directory (notes, papers, projects, etc.)
@@ -211,6 +225,9 @@ let pp ppf t =
   (match t.server.stats_password with
    | Some _ -> pf ppf "  stats_password: (set)@,"
    | None -> ());
+  if t.server.log_rotate_days > 0 then
+    pf ppf "  log_rotate: after %d days at %02d:00 UTC@,"
+      t.server.log_rotate_days t.server.log_rotate_hour;
   pf ppf "@,Paths:@,";
   pf ppf "  data_dir: %s@," t.paths.data_dir;
   pf ppf "  images_dir: %s@," t.paths.images_dir;

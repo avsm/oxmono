@@ -64,6 +64,17 @@ let serve_cmd =
     let log_path = Eio.Path.(Xdge.data_dir xdg / "access.db") in
     let log = Proffer_log.open_ ~sw log_path in
     Log.info (fun m -> m "Access log: %a" Eio.Path.pp log_path);
+    if cfg.server.log_rotate_days > 0 then
+      Proffer_log.schedule ~sw ~clock ~mono:(Eio.Stdenv.mono_clock env) log
+        ~live_days:cfg.server.log_rotate_days ~hour:cfg.server.log_rotate_hour
+        ~on_done:(fun (r : Proffer_log.rotation) ~freed ->
+          Log.info (fun m ->
+            m "Access log: moved %d rows into %s and released %d pages"
+              r.moved (String.concat ", " r.written) freed))
+        ~on_error:(fun e ->
+          Log.err (fun m ->
+            m "Access log rotation failed: %s" (Printexc.to_string e)))
+        ();
     (* Retain only subtree capabilities for served files. *)
     let confined_dir dir =
       let base = if Filename.is_relative dir then cwd else fs in

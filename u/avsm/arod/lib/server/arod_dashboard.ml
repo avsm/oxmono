@@ -603,6 +603,7 @@ let headline t =
         ];
       hcat ~gap:1 [ muted "cache"; txt (percent hits (hits + misses)) ];
       search;
+      hcat ~gap:1 [ muted "ocaml"; txt Sys.ocaml_version ];
     ]
 
 let content_line t =

@@ -1687,7 +1687,8 @@ let render_dashboard db range =
     El.style [El.unsafe_raw dashboard_css];
     El.h1 ~at:[At.class' "text-2xl font-bold mb-1"] [El.txt "Arod Analytics"];
     El.p ~at:[At.class' "text-sm opacity-50 mb-4"] [
-      El.txt (Printf.sprintf "Showing: %s" (range_label range))];
+      El.txt (Printf.sprintf "Showing: %s · OCaml %s" (range_label range)
+        Sys.ocaml_version)];
     time_tabs range;
     overview_comparison db range;
     traffic_classification_section db range;

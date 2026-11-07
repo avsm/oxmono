@@ -1,5 +1,8 @@
 # Changes
 
+- Show the OCaml compiler version in the live dashboard headline and on
+  the analytics page.
+
 - Draw a live dashboard under `arod serve` when standard error is a
   terminal: request rates, latencies, status classes, cache outcomes, top and
   slowest paths, agents, visitors, process load and the last day from the

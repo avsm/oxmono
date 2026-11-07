@@ -303,8 +303,9 @@ characters. Completed logs stay in SQLite and are loaded on demand.
 
 Two workflows run at once unless `--concurrency` says otherwise. At most 32
 pipelines may be outstanding, with up
-to 50 configured workflows. Each workflow has a 1 MiB log budget and a
-deadline set by `--workflow-timeout`, 60 seconds by default. Git is needed
+to 50 configured workflows. Each workflow has a log budget set by
+`--log-megabytes`, 16 MiB by default, and a deadline set by
+`--workflow-timeout`, 60 seconds by default. Git is needed
 only to read workflow files from a static `--source`.
 Automatic maintenance retains completed history for 30 days, at most 1000
 pipelines or 1024 MiB of stored payload. Completed event receipts last seven

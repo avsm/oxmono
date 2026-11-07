@@ -31,8 +31,16 @@ let () =
    assert (!released = 2 && !acquired = 2));
   Eio.Time.with_timeout_exn env#clock 30. @@ fun () ->
   Testkit.with_dir env "spindle-runner-" @@ fun name directory ->
-  let runner ?(timeout = 60.) executor : Runner.env =
-    { system = env; directory; slots = Eio.Semaphore.make 1; timeout; executor }
+  let runner ?(timeout = 60.) ?(log_limit = 16 * 1024 * 1024) executor :
+      Runner.env =
+    {
+      system = env;
+      directory;
+      slots = Eio.Semaphore.make 1;
+      timeout;
+      log_limit;
+      executor;
+    }
   in
   let input ?(secrets = []) id : Runner.input =
     {
@@ -75,9 +83,9 @@ let () =
         else None)
     |> String.concat ""
   in
-  let run ?timeout ?secrets ?(job = Job.v "w" []) executor =
+  let run ?timeout ?log_limit ?secrets ?(job = Job.v "w" []) executor =
     let workflow = Runner.v job in
-    Runner.execute (runner ?timeout executor)
+    Runner.execute (runner ?timeout ?log_limit executor)
       (input ?secrets "3jzfcijpj2z2a")
       ~record:(fun _ -> 0L)
       ~persist:(fun () -> ())
@@ -166,7 +174,16 @@ let () =
   (* Malformed UTF-8 is replaced. *)
   let w = run (fun ctx _ -> ctx.step "s" (fun () -> ctx.log `Stdout "\xff€")) in
   assert (output w = "\xef\xbf\xbd€");
-  (* The log is bounded. *)
+  (* The log is bounded by the configured budget. *)
+  let w =
+    run ~log_limit:(1024 * 1024) (fun ctx _ ->
+        ctx.step "s" (fun () ->
+            for _ = 1 to 20 do
+              ctx.log `Stdout (String.make 65536 'x')
+            done))
+  in
+  assert (w.status = `Failed && w.log_bytes <= 1024 * 1024);
+  assert (w.error = Some "job log exceeds 1 MiB");
   let w =
     run (fun ctx _ ->
         ctx.step "s" (fun () ->
@@ -174,7 +191,7 @@ let () =
               ctx.log `Stdout (String.make 65536 'x')
             done))
   in
-  assert (w.status = `Failed && w.log_bytes <= 1024 * 1024);
+  assert (w.status = `Success && w.log_bytes > 1024 * 1024);
   (* The time limit stops a workflow. *)
   let w =
     run ~timeout:0.05 (fun ctx _ ->

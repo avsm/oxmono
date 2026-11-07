@@ -36,6 +36,7 @@ val v :
   ?read_workflows:reader ->
   ?tree:tree ->
   ?timeout:float ->
+  ?log_limit:int ->
   ?concurrency:int ->
   ?durable:Duraml.plain ->
   executor:Executor.t ->
@@ -47,8 +48,8 @@ val v :
 (** [v ... ~jobs ~executor ()] hands the OCaml [jobs], and with [read_workflows]
     also each repository's own YAML workflows, to [executor]. [tree] gives
     executors read access to the repository. A workflow may run for [timeout]
-    seconds, 60 by default, and [concurrency] workflows, 2 by default, run at
-    once.
+    seconds, 60 by default, and write [log_limit] bytes of log, 16 MiB by
+    default. [concurrency] workflows, 2 by default, run at once.
 
     With [durable], each workflow is a job of that Duraml store, keyed by its
     pipeline and name and laned by its repository, run once {!serve} starts the

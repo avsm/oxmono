@@ -44,6 +44,7 @@ type env = {
   directory : Eio.Fs.dir_ty Eio.Path.t;
   slots : Eio.Semaphore.t;
   timeout : float;  (** Seconds a workflow may run. *)
+  log_limit : int;  (** Bytes a workflow's log may hold. *)
   executor : Executor.t;
 }
 

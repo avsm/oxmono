@@ -1,5 +1,8 @@
 # Changes
 
+- Raise the log budget of a workflow from 1 MiB to 16 MiB and make it
+  configurable with `--log-megabytes` and `Engine.v ~log_limit`.
+
 - Clarify opam descriptions of package functionality and interfaces.
 
 - Update CLI rendering to the current Console View and terminal APIs.

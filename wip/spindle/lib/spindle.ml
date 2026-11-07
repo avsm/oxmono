@@ -25,6 +25,7 @@ type config = {
   allow_http : bool;
   executor : Executor.t;
   workflow_timeout : float;
+  log_megabytes : int;
   quotas : Settings.defaults;
   private_webhooks : bool;
   cors_origins : string list;
@@ -1291,6 +1292,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:config.hostname
       ~jobs:config.jobs ~timeout:config.workflow_timeout
+      ~log_limit:(config.log_megabytes * 1024 * 1024)
       ~executor:config.executor
       ?read_workflows:
         (if config.repository_workflows then

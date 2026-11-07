@@ -236,7 +236,8 @@ pipeline IDs, the event cursor, the allow-list and accepted JWT nonces.
 
 There are two concurrent workflows unless `--concurrency` allows more, 32
 outstanding pipelines, a 60-second
-default deadline and a 1 MiB log limit per workflow. Pending and blocked
+default deadline and a 16 MiB log limit per workflow, set by
+`--workflow-timeout` and `--log-megabytes`. Pending and blocked
 work resumes after restart. Interrupted workflows run again from the start
 about a minute after the spindle is back, up to three times, from the Duraml
 store `jobs.sqlite` in the state directory. Back it up with its WAL, as the

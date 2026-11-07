@@ -44,6 +44,7 @@ type env = {
   directory : Eio.Fs.dir_ty Eio.Path.t;
   slots : Eio.Semaphore.t;
   timeout : float;
+  log_limit : int;
   executor : Executor.t;
 }
 
@@ -221,7 +222,6 @@ let emit record p ~step ~kind fields =
   in
   let raw = encode event in
   let size = String.length raw in
-  if p.log_bytes + size > 1024 * 1024 then failwith "job log exceeds 1 MiB";
   let seq = record raw in
   p.log_seq <- seq;
   p.log_bytes <- p.log_bytes + size;
@@ -491,6 +491,14 @@ let message = function
 let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
     ?(watch = fun _ -> []) ?(finished = fun () -> []) ?(queued_for = ignore)
     ?(interruptible = false) p =
+  (* [emit] holds the log lock around [record], so the budget it checks here
+     is the one it then updates. *)
+  let record raw =
+    if p.log_bytes + String.length raw > state.log_limit then
+      failwith
+        (Printf.sprintf "job log exceeds %d MiB" (state.log_limit / (1024 * 1024)));
+    record raw
+  in
   let seconds () =
     Int64.to_float
       (Mtime.to_uint64_ns (Eio.Time.Mono.now state.system#mono_clock))

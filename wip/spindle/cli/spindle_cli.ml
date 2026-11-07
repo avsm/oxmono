@@ -9,7 +9,7 @@ type 'a make =
 
 let serve ~repository_workflows make web hostname owner admins admission repo
     source plc state_dir port addr jetstream allow_http workflow_timeout
-    quota_repo quota_user private_webhooks cors_origins contact_email
+    log_megabytes quota_repo quota_user private_webhooks cors_origins contact_email
     privacy_policy terms_of_service concurrency extra operations =
   (* Mistakes in the options are usage errors, found before anything starts. *)
   let ( let* ) = Result.bind in
@@ -28,6 +28,10 @@ let serve ~repository_workflows make web hostname owner admins admission repo
     let* () =
       if Float.is_finite workflow_timeout && workflow_timeout > 0. then Ok ()
       else usage "--workflow-timeout must be a positive number of seconds"
+    in
+    let* () =
+      if log_megabytes >= 1 then Ok ()
+      else usage "--log-megabytes must be at least 1"
     in
     let* () =
       if concurrency >= 1 then Ok ()
@@ -58,6 +62,7 @@ let serve ~repository_workflows make web hostname owner admins admission repo
               allow_http;
               executor;
               workflow_timeout;
+              log_megabytes;
               quotas = { repo = quota_repo; user = quota_user };
               private_webhooks;
               cors_origins;
@@ -232,6 +237,12 @@ let main ?(name = "spindle") ?(doc = "Run a Tangled spindle")
              value & opt float workflow_timeout
              & info [ "workflow-timeout" ] ~docv:"SECONDS"
                  ~doc:"How long a workflow may run before it is stopped.")
+         $ Arg.(
+             value & opt int 16
+             & info [ "log-megabytes" ] ~docv:"MIB"
+                 ~doc:
+                   "How much log a workflow may write, in MiB, before it \
+                    fails.")
          $ quota "quota-repo" "a repository"
          $ quota "quota-user" "an owner's repositories together"
          $ Arg.(

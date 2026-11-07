@@ -28,6 +28,7 @@ let () =
       allow_http = true;
       executor;
       workflow_timeout = 60.;
+      log_megabytes = 16;
       quotas = { repo = []; user = [] };
       private_webhooks = true;
       cors_origins = [];

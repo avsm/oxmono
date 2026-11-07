@@ -36,6 +36,7 @@ type config = {
   executor : Executor.t;
       (** Runs each workflow. The spindle runs no workflow commands itself. *)
   workflow_timeout : float;  (** Seconds a workflow may run. *)
+  log_megabytes : int;  (** MiB of log a workflow may write. *)
   quotas : Settings.defaults;  (** Default limits. *)
   private_webhooks : bool;
       (** Let webhooks reach private addresses, on a development network. *)

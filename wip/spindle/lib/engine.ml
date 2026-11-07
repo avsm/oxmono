@@ -441,8 +441,8 @@ let start t p =
     p.workflows
 
 let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
-    ?(timeout = 60.) ?(concurrency = 2) ?durable ~executor ~system ~directory
-    ~sw () =
+    ?(timeout = 60.) ?(log_limit = 16 * 1024 * 1024) ?(concurrency = 2) ?durable
+    ~executor ~system ~directory ~sw () =
   if jobs = [] || List.length jobs > 50 then invalid "define 1 to 50 workflows";
   if concurrency < 1 then invalid "concurrency must be at least 1";
   let names =
@@ -479,6 +479,7 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
         directory;
         slots = Eio.Semaphore.make concurrency;
         timeout;
+        log_limit;
         executor;
       };
     pipelines = Hashtbl.create 32;

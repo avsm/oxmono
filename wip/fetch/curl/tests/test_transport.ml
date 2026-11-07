@@ -1,6 +1,3 @@
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 open Eio.Std
 open Fetch
 
@@ -195,9 +192,9 @@ let test_proxy_ignores_environment () =
   with_fixture @@ fun _env sw ~active:_ ~proxy_hits ~http ~https ~proxy ->
   List.iter
     (fun (name, value) ->
-      Unix.putenv "NO_PROXY" "";
-      Unix.putenv "no_proxy" "";
-      Unix.putenv name value;
+      Testenv.with_bindings
+        [ ("NO_PROXY", None); ("no_proxy", None); (name, Some value) ]
+      @@ fun () ->
       let before = !proxy_hits in
       let client = Fetch_curl.v ~sw ~proxy ~tls_verify:false () in
       Alcotest.(check string)
@@ -208,14 +205,18 @@ let test_proxy_ignores_environment () =
         (Fetch.read client (https ^ "/"));
       Alcotest.(check int) (name ^ " used proxy twice") (before + 2) !proxy_hits)
     [ ("NO_PROXY", "*"); ("no_proxy", "localhost") ];
-  Unix.putenv "NO_PROXY" "";
-  Unix.putenv "no_proxy" "";
-  Unix.putenv "HTTP_PROXY" proxy;
-  Unix.putenv "http_proxy" proxy;
-  Unix.putenv "HTTPS_PROXY" proxy;
-  Unix.putenv "https_proxy" proxy;
-  Unix.putenv "ALL_PROXY" proxy;
-  Unix.putenv "all_proxy" proxy;
+  Testenv.with_bindings
+    [
+      ("NO_PROXY", None);
+      ("no_proxy", None);
+      ("HTTP_PROXY", Some proxy);
+      ("http_proxy", Some proxy);
+      ("HTTPS_PROXY", Some proxy);
+      ("https_proxy", Some proxy);
+      ("ALL_PROXY", Some proxy);
+      ("all_proxy", Some proxy);
+    ]
+  @@ fun () ->
   let before = !proxy_hits in
   let direct = Fetch_curl.v ~sw ~tls_verify:false () in
   Alcotest.(check string)

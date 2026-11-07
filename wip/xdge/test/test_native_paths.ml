@@ -1,35 +1,27 @@
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 let check why value = if not value then failwith why
 
 let () =
   let root = Filename.temp_file "xdge-native-" "" in
   Sys.remove root;
-  let variables =
+  let unset =
+    List.map
+      (fun name -> (name, None))
+      [
+        "NATIVE_TEST_CONFIG_DIR";
+        "NATIVE_TEST_DATA_DIR";
+        "NATIVE_TEST_CACHE_DIR";
+        "NATIVE_TEST_STATE_DIR";
+      ]
+  in
+  let bindings =
     [
-      "XDG_CONFIG_HOME";
-      "XDG_DATA_HOME";
-      "XDG_CACHE_HOME";
-      "XDG_STATE_HOME";
-      "NATIVE_TEST_CONFIG_DIR";
-      "NATIVE_TEST_DATA_DIR";
-      "NATIVE_TEST_CACHE_DIR";
-      "NATIVE_TEST_STATE_DIR";
+      ("XDG_CONFIG_HOME", Some (Filename.concat root "config"));
+      ("XDG_DATA_HOME", Some (Filename.concat root "data"));
+      ("XDG_CACHE_HOME", Some (Filename.concat root "cache"));
+      ("XDG_STATE_HOME", Some (Filename.concat root "state"));
     ]
   in
-  let previous = List.map (fun name -> (name, Sys.getenv_opt name)) variables in
-  Fun.protect
-    ~finally:(fun () ->
-      List.iter
-        (fun (name, value) -> Unix.putenv name (Option.value value ~default:""))
-        previous)
-    (fun () ->
-      List.iter (fun name -> Unix.putenv name "") variables;
-      Unix.putenv "XDG_CONFIG_HOME" (Filename.concat root "config");
-      Unix.putenv "XDG_DATA_HOME" (Filename.concat root "data");
-      Unix.putenv "XDG_CACHE_HOME" (Filename.concat root "cache");
-      Unix.putenv "XDG_STATE_HOME" (Filename.concat root "state");
+  Testenv.with_bindings (unset @ bindings) (fun () ->
       let compare () =
         Eio_main.run (fun env ->
             let native = Xdge.Paths.config_dir "native_test"
@@ -53,7 +45,8 @@ let () =
       check "XDG_STATE_HOME appends app name"
         (Xdge.Paths.state_dir "native_test"
         = Filename.concat root "state/native_test");
-      Unix.putenv "NATIVE_TEST_CONFIG_DIR" (Filename.concat root "override");
+      Testenv.set "NATIVE_TEST_CONFIG_DIR"
+        (Some (Filename.concat root "override"));
       compare ();
       check "application override appends app name"
         (Xdge.Paths.config_dir "native_test"
@@ -65,8 +58,8 @@ let () =
       check "home expansion preserves suffix"
         (Xdge.Paths.expand ~base:root "~/notes"
         = Filename.concat (Xdge.Paths.home ()) "notes");
-      Unix.putenv "NATIVE_TEST_CONFIG_DIR" "";
-      Unix.putenv "XDG_CONFIG_HOME" "relative";
+      Testenv.set "NATIVE_TEST_CONFIG_DIR" None;
+      Testenv.set "XDG_CONFIG_HOME" (Some "relative");
       (try
          ignore (Xdge.Paths.config_dir "native_test");
          failwith "relative XDG path accepted"

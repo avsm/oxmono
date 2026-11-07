@@ -46,4 +46,5 @@
   mirage-crypto-rng.unix
   eio.unix
   unix
-  http))
+  http
+  testenv))

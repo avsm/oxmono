@@ -6,7 +6,7 @@
 (executable
  (name test_paths)
  (modules test_paths)
- (libraries xdge eio eio_main))
+ (libraries xdge eio eio_main testenv))
 
 (cram
  (deps xdg_example.exe test_paths.exe))
@@ -14,4 +14,4 @@
 (test
  (name test_native_paths)
  (modules test_native_paths)
- (libraries xdge eio_main unix))
+ (libraries xdge eio_main testenv))

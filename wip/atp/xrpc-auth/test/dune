@@ -1,7 +1,7 @@
 (test
  (name test_session)
  (modules test_session)
- (libraries xrpc-auth fetch.mock eio_main unix jsont.bytesrw))
+ (libraries xrpc-auth fetch.mock eio_main unix jsont.bytesrw testenv))
 
 (test
  (name test_oauth)

@@ -1,7 +1,3 @@
-(* The test runs in one domain, so the environment it rewrites for the cache
-   and fake downloader checks is never read concurrently. *)
-[@@@alert "-unsafe_multidomain"]
-
 module M = Apple_mlx_embeddings.Model
 
 let check name condition = if not condition then failwith name
@@ -148,32 +144,33 @@ let cache_paths root =
       "HOME";
     ]
   in
-  List.iter (fun name -> Unix.putenv name "") variables;
+  Testenv.with_bindings (List.map (fun name -> (name, None)) variables)
+  @@ fun () ->
   let home = Filename.concat root "home" in
-  Unix.putenv "HOME" home;
+  Testenv.set "HOME" (Some home);
   check "HOME cache fallback"
     (M.cache_dir () = Filename.concat home ".cache/huggingface/hub");
   let xdg = Filename.concat root "xdg" in
-  Unix.putenv "XDG_CACHE_HOME" xdg;
+  Testenv.set "XDG_CACHE_HOME" (Some xdg);
   check "XDG cache precedes HOME"
     (M.cache_dir () = Filename.concat xdg "huggingface/hub");
   let hf_home = Filename.concat root "hf-home" in
-  Unix.putenv "HF_HOME" hf_home;
+  Testenv.set "HF_HOME" (Some hf_home);
   check "HF_HOME precedes XDG" (M.cache_dir () = Filename.concat hf_home "hub");
   let legacy = Filename.concat root "legacy" in
-  Unix.putenv "HUGGINGFACE_HUB_CACHE" legacy;
+  Testenv.set "HUGGINGFACE_HUB_CACHE" (Some legacy);
   check "legacy hub cache precedes HF_HOME" (M.cache_dir () = legacy);
   let current = Filename.concat root "current" in
-  Unix.putenv "HF_HUB_CACHE" current;
+  Testenv.set "HF_HUB_CACHE" (Some current);
   check "HF_HUB_CACHE has highest priority" (M.cache_dir () = current);
-  Unix.putenv "HF_HUB_CACHE" "";
+  Testenv.set "HF_HUB_CACHE" (Some "");
   check "empty overrides are ignored" (M.cache_dir () = legacy);
-  Unix.putenv "HF_HUB_CACHE" "relative-cache";
+  Testenv.set "HF_HUB_CACHE" (Some "relative-cache");
   check "relative environment paths resolve against cwd"
     (M.cache_dir () = Filename.concat (Sys.getcwd ()) "relative-cache");
-  Unix.putenv "HF_HUB_CACHE" "~/hub";
+  Testenv.set "HF_HUB_CACHE" (Some "~/hub");
   check "tilde prefix expands HOME" (M.cache_dir () = Filename.concat home "hub");
-  Unix.putenv "HF_HUB_CACHE" "~";
+  Testenv.set "HF_HUB_CACHE" (Some "~");
   check "bare tilde expands HOME" (M.cache_dir () = home)
 
 exception Cancel_download
@@ -182,28 +179,20 @@ let run () =
   let root = Filename.temp_file "mlx-model-test" "" in
   Sys.remove root;
   Unix.mkdir root 0o700;
-  let saved =
-    List.map
-      (fun name -> (name, Sys.getenv_opt name))
-      [
-        "PATH";
-        "HOME";
-        "XDG_CACHE_HOME";
-        "HF_HOME";
-        "HF_HUB_CACHE";
-        "HUGGINGFACE_HUB_CACHE";
-        "APPLE_MLX_MODEL_TEST_LOG";
-        "APPLE_MLX_MODEL_TEST_MODE";
-        "APPLE_MLX_MODEL_TEST_CHILD_PID";
-      ]
-  in
+  let bin = Filename.concat root "bin" in
+  let log = Filename.concat root "calls" in
+  let pid_file = Filename.concat root "child-pid" in
   Fun.protect
-    ~finally:(fun () ->
-      List.iter
-        (fun (name, value) -> Unix.putenv name (Option.value ~default:"" value))
-        saved;
-      remove root)
+    ~finally:(fun () -> remove root)
     (fun () ->
+      Testenv.with_bindings
+        [
+          ("PATH", Some bin);
+          ("APPLE_MLX_MODEL_TEST_LOG", Some log);
+          ("APPLE_MLX_MODEL_TEST_MODE", Some "complete");
+          ("APPLE_MLX_MODEL_TEST_CHILD_PID", Some pid_file);
+        ]
+      @@ fun () ->
       check "catalog has its default" (List.mem M.default M.all);
       List.iter
         (fun (model : M.t) ->
@@ -249,12 +238,7 @@ let run () =
         (not (M.present ~cache_dir:cache model));
       Unix.rmdir file;
       sparse file size;
-      let bin = Filename.concat root "bin" in
       Unix.mkdir bin 0o700;
-      let log = Filename.concat root "calls" in
-      Unix.putenv "PATH" bin;
-      Unix.putenv "APPLE_MLX_MODEL_TEST_LOG" log;
-      Unix.putenv "APPLE_MLX_MODEL_TEST_MODE" "complete";
       let self = Unix.realpath Sys.executable_name in
       let hf = Filename.concat bin "hf" and uvx = Filename.concat bin "uvx" in
       let install path = Unix.symlink self path in
@@ -269,7 +253,7 @@ let run () =
           let reset mode =
             remove log;
             Buffer.clear output;
-            Unix.putenv "APPLE_MLX_MODEL_TEST_MODE" mode
+            Testenv.set "APPLE_MLX_MODEL_TEST_MODE" (Some mode)
           in
           install hf;
           install uvx;
@@ -441,8 +425,6 @@ let run () =
           check "download recovers after cancellation" (ensure () = path);
           Sys.remove file;
           reset "uvx-child";
-          let pid_file = Filename.concat root "child-pid" in
-          Unix.putenv "APPLE_MLX_MODEL_TEST_CHILD_PID" pid_file;
           let child = ref None in
           let read_pid () =
             if Sys.file_exists pid_file then

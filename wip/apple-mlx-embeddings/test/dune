@@ -19,7 +19,7 @@
  (name test_model)
  (modules test_model)
  (modes native)
- (libraries apple-mlx-embeddings eio eio_main unix))
+ (libraries apple-mlx-embeddings eio eio_main unix testenv))
 
 (executable
  (name test_memory)

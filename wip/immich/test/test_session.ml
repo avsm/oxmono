@@ -71,16 +71,14 @@ let test_codec () =
   rejects {|{"type":"jwt"}|};
   rejects {|{"type":"api_key","jwt":{"access_token":"t","user_id":"u","email":"e"}}|}
 
-(* The test is single-domain, so changing HOME is safe here. *)
-let[@alert "-unsafe_multidomain"] with_home f =
+let with_home f =
   let home = Filename.temp_dir "immich-test-" "" in
-  let previous = Sys.getenv_opt "HOME" in
-  Unix.putenv "HOME" home;
   Fun.protect
     ~finally:(fun () ->
-      Option.iter (fun home -> Unix.putenv "HOME" home) previous;
       ignore (Sys.command (Filename.quote_command "rm" [ "-rf"; home ])))
-    (fun () -> Eio_main.run @@ fun env -> f home (Eio.Stdenv.fs env))
+    (fun () ->
+      Testenv.with_bindings [ ("HOME", Some home) ] @@ fun () ->
+      Eio_main.run @@ fun env -> f home (Eio.Stdenv.fs env))
 
 let test_profiles () =
   with_home @@ fun home fs ->

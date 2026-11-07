@@ -8,7 +8,7 @@ let test_path_validation () =
   (* Test absolute path validation for environment variables *)
   let test_relative_path_rejection env_var relative_path =
     Printf.printf "Testing rejection of relative path in %s...\n" env_var;
-    Unix.putenv env_var relative_path;
+    Testenv.with_bindings [ (env_var, Some relative_path) ] @@ fun () ->
     try
       Eio_main.run @@ fun env ->
       let _ = Xdge.create env#fs "test_validation" in
@@ -22,21 +22,12 @@ let test_path_validation () =
         Printf.printf "ERROR: Wrong exception: %s\n" (Printexc.to_string exn);
         false
   in
-  let old_config_home = Sys.getenv_opt "XDG_CONFIG_HOME" in
-  let old_data_dirs = Sys.getenv_opt "XDG_DATA_DIRS" in
   let success1 =
     test_relative_path_rejection "XDG_CONFIG_HOME" "relative/path"
   in
   let success2 =
     test_relative_path_rejection "XDG_DATA_DIRS" "rel1:rel2:/abs/path"
   in
-  (* Restore original env vars *)
-  (match old_config_home with
-  | Some v -> Unix.putenv "XDG_CONFIG_HOME" v
-  | None -> ( try Unix.putenv "XDG_CONFIG_HOME" "" with _ -> ()));
-  (match old_data_dirs with
-  | Some v -> Unix.putenv "XDG_DATA_DIRS" v
-  | None -> ( try Unix.putenv "XDG_DATA_DIRS" "" with _ -> ()));
   success1 && success2
 
 let test_file_search () =

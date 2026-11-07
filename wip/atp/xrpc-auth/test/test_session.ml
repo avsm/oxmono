@@ -7,9 +7,7 @@ let () =
   let root = Filename.temp_file "xrpc-session-" "" in
   Sys.remove root;
   Unix.mkdir root 0o700;
-  let previous = Sys.getenv_opt "XDG_CONFIG_HOME" in
-  Unix.putenv "XDG_CONFIG_HOME" root;
-  Fun.protect ~finally:(fun () -> Unix.putenv "XDG_CONFIG_HOME" (Option.value ~default:"" previous)) @@ fun () ->
+  Testenv.with_bindings [("XDG_CONFIG_HOME", Some root)] @@ fun () ->
   Eio_main.run @@ fun env ->
   Fun.protect ~finally:(fun () -> Eio.Path.rmtree Eio.Path.(env#fs / root)) @@ fun () ->
   let session : Xrpc_auth.Session.t = {access_jwt = "access"; refresh_jwt = "refresh";

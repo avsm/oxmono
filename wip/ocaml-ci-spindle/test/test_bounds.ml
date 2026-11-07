@@ -26,18 +26,18 @@ let git_group env =
        (Filename.quote pidfile));
   Unix.chmod (Filename.concat bin "git") 0o755;
   let path = Sys.getenv "PATH" in
-  (Unix.putenv [@alert "-unsafe_multidomain"]) "PATH" (bin ^ ":" ^ path);
-  let repo =
-    Opam_repo.v env#process_mgr env#mono_clock ~dir ~name:"r"
-      "https://example.invalid/r"
-  in
-  (match
-     Eio.Time.with_timeout env#clock 2. (fun () ->
-         Ok (Opam_repo.with_snapshot repo (fun ~commit:_ ~packages:_ -> ())))
-   with
-  | Error `Timeout -> ()
-  | Ok () -> assert false);
-  (Unix.putenv [@alert "-unsafe_multidomain"]) "PATH" path;
+  Testenv.with_bindings [ ("PATH", Some (bin ^ ":" ^ path)) ] (fun () ->
+      let repo =
+        Opam_repo.v env#process_mgr env#mono_clock ~dir ~name:"r"
+          "https://example.invalid/r"
+      in
+      match
+        Eio.Time.with_timeout env#clock 2. (fun () ->
+            Ok
+              (Opam_repo.with_snapshot repo (fun ~commit:_ ~packages:_ -> ())))
+      with
+      | Error `Timeout -> ()
+      | Ok () -> assert false);
   let read f = In_channel.with_open_bin f In_channel.input_all in
   let pid = int_of_string (String.trim (read pidfile)) in
   (* The kill is asynchronous, so the helper is given a moment to go. *)

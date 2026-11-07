@@ -1,7 +1,6 @@
 (* Spawning domains is what this test is for, so the OxCaml alerts that steer
    ordinary code away from [Domain.spawn] are off here. *)
 [@@@alert "-do_not_spawn_domains"]
-[@@@alert "-unsafe_multidomain"]
 
 open Fetch
 
@@ -34,9 +33,12 @@ let domain_count = 8
 
 let test_boundary_generator_is_domain_safe () =
   let parts = [ Form.field "a" "1" ] in
+  (* [Domain.Safe.spawn] needs a portable body, and [Form.multipart] is not
+     marked portable, so the unchecked spawn stays. The body only reads
+     immutable data and the per-domain generator under test. *)
   let domains =
     List.init domain_count (fun _ ->
-        Stdlib.Domain.spawn (fun () ->
+        (Stdlib.Domain.spawn [@alert "-unsafe_multidomain"]) (fun () ->
             List.init draws_per_domain (fun _ -> boundary_of parts)))
   in
   let results = List.concat_map Stdlib.Domain.join domains in

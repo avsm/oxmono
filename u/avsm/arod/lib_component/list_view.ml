@@ -83,7 +83,7 @@ let tags_meta ~ctx ent =
     El.a ~at:[At.href (Bushel.Entry.site_url ent);
               At.class' "text-sm text-secondary"] [El.txt "#"]
   in
-  let bullet = El.span ~at:[At.class' "mx-2 text-gray-400"] [El.txt "\u{2022}"] in
+  let bullet = El.span ~at:[At.class' "mx-2 text-faint"] [El.txt "\u{2022}"] in
   let tag_els = match all_tags with
     | [] -> El.void
     | tags ->

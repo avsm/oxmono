@@ -510,7 +510,7 @@ let links_list ~ctx =
   let group_els = List.map (render_group ~contact_by_domain ~doi_entries ~entries ~ctx) visible_groups in
 
   let intro =
-    El.p ~at:[At.class' "text-sm text-gray-600 dark:text-gray-400 mb-6"] [
+    El.p ~at:[At.class' "text-sm text-secondary mb-6"] [
       El.txt list_intro_before;
       El.a ~at:[At.href (snd list_intro_link);
                 At.class' "text-accent hover:underline"] [

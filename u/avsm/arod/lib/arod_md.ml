@@ -198,9 +198,9 @@ type sidenote = {
 }
 
 let sidenote_div_class =
-  "sidenote absolute right-0 w-full text-xs leading-snug text-gray-400 \
-   border-l-2 border-gray-200 pl-2 py-0.5 transition-colors duration-200 \
-   hover:border-green-500 hover:text-text sidenote-hidden"
+  "sidenote absolute right-0 w-full text-xs leading-snug text-secondary \
+   border-l-2 border-border-color pl-2 py-0.5 transition-colors duration-200 \
+   hover:border-accent hover:text-text sidenote-hidden"
 
 let sidenote_seen sidenotes slug =
   List.exists (fun sn -> sn.slug = slug) !sidenotes

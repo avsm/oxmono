@@ -122,7 +122,7 @@ let bar ~ctx ?(nopdf = false) paper =
                 At.class' "inline-flex items-center gap-1 text-secondary hover:text-link transition-colors whitespace-nowrap"]
         [El.unsafe_raw (I.outline ~size:14 I.external_link_o);
          El.txt "URL";
-         El.span ~at:[At.class' "text-xs italic text-gray-400"] [
+         El.span ~at:[At.class' "text-xs italic text-faint"] [
            El.txt (Printf.sprintf "(%s)" (host_without_www u))]])
   in
   let doi =

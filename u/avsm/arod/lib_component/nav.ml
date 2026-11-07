@@ -180,7 +180,7 @@ let header ?(current_page : string option) ctx =
         El.div ~at:[At.class' "mobile-menu-panel"]
           [
             (* Close button row *)
-            El.div ~at:[At.class' "flex items-center justify-between px-4 py-3 border-b border-gray-200"]
+            El.div ~at:[At.class' "flex items-center justify-between px-4 py-3 border-b border-border-color"]
               [
                 El.span ~at:[At.class' "text-sm font-semibold text-text"]
                   [ El.span ~at:[At.class' "nav-prompt"] [ El.txt ">_ " ];
@@ -236,7 +236,7 @@ let header ?(current_page : string option) ctx =
                     ];
 
                   (* Separator *)
-                  El.span ~at:[At.class' "hidden md:block text-gray-300 select-none"]
+                  El.span ~at:[At.class' "hidden md:block text-border-color select-none"]
                     [ El.txt "/" ];
 
                   (* Nav items — hidden on mobile, shown on md+ *)

@@ -84,7 +84,7 @@ let footer_el ~ctx ?url () =
          [El.txt "{} md"]]
     | None -> []
   in
-  El.footer ~at:[At.class' "max-w-6xl mx-auto px-2 md:px-6 py-3 border-t border-gray-200"]
+  El.footer ~at:[At.class' "max-w-6xl mx-auto px-2 md:px-6 py-3 border-t border-border-color"]
     [ El.div ~at:[At.class' "flex items-center justify-center md:justify-between text-xs text-secondary"]
         [ El.p ~at:[At.class' "hidden md:block"] [El.txt {|© 1998–2026 Anil Madhavapeddy.|}];
           El.div ~at:[At.class' "flex items-center gap-3"]

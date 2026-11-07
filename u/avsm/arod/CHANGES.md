@@ -10,6 +10,10 @@
 - Ship the highlight.js light and dark themes inside the site stylesheet
   instead of fetching two stylesheets from a CDN on every page.
 
+- Give sidenotes and their links readable contrast, and replace hard-coded
+  grey utilities with theme colours so the footer and menu rules match dark
+  mode.
+
 - Show the OCaml compiler version in the live dashboard headline and on
   the analytics page.
 

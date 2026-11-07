@@ -267,7 +267,7 @@ let network_page ~ctx =
   let month_els = List.map (render_month ~ctx ~entries ~idea_index) visible_sections in
 
   let intro =
-    El.p ~at:[At.class' "text-sm text-gray-600 dark:text-gray-400 mb-6"] [
+    El.p ~at:[At.class' "text-sm text-secondary mb-6"] [
       El.txt list_intro_first;
       El.a ~at:[At.href (snd list_intro_opml);
                 At.class' "text-accent hover:underline"] [

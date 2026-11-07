@@ -230,24 +230,12 @@ let run ~model ~workspace ~system ~thinking ~seed ~ctx_size ~max_ctx_size
       ~seed:(Cli.resolve_seed seed)
       ~tools:(tools ~vision:(Option.is_some vision) caps)
   in
-  (* Eio has no signal-waiting API. The handler is shared by every domain and
-     may hold nothing of this one, so it only writes a byte to a pipe, and a
-     fiber of this domain reads the byte and acts on it. *)
-  let woken, wake = Unix.pipe ~cloexec:true () in
-  Fun.protect ~finally:(fun () ->
-      Unix.close woken;
-      Unix.close wake)
-  @@ fun () ->
-  Eioext.Signals.with_handlers
-    [
-      ( Sys.sigint,
-        Sys.Signal_handle
-          (fun _ -> ignore (Unix.single_write_substring wake "." 0 1)) );
-    ]
-  @@ fun () ->
+  (* Eio has no signal-waiting API, and a handler runs on any domain, so the
+     wakeup travels over a pipe and a fiber of this domain acts on it. *)
+  Eio.Switch.run @@ fun sw ->
+  Eioext.Signals.with_wait ~sw [ Sys.sigint ] @@ fun wait ->
   let rec interrupts () =
-    Eio_unix.await_readable woken;
-    ignore (Unix.read woken (Bytes.create 1) 0 1);
+    wait ();
     on_interrupt ();
     interrupts ()
   in

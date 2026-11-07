@@ -12,6 +12,7 @@
   eio
   eio.unix
   eio_main
+  eioext
   fmt.cli
   fmt.tty
   jsont

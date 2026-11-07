@@ -25,27 +25,6 @@ let setup_logs style_renderer level =
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
-(* A signal handler runs between two instructions of whatever fiber the
-   scheduler happened to be in, on any domain, so the only thing it may
-   touch is a non-blocking write to a pipe. Everything the shutdown actually
-   does happens in the fiber waiting for the pipe to become readable. The
-   handlers and the pipe last for the rest of the process. *)
-let on_signals stop =
-  let rd, wr = Unix.pipe ~cloexec:true () in
-  Unix.set_nonblock wr;
-  let handler =
-    Sys.Signal_handle
-      (fun _ ->
-        try ignore (Unix.single_write_substring wr "s" 0 1)
-        with Unix.Unix_error _ -> ())
-  in
-  List.iter
-    (fun signal -> Sys.Safe.set_signal signal handler)
-    [ Sys.sigint; Sys.sigterm ];
-  fun () ->
-    Eio_unix.await_readable rd;
-    stop ()
-
 (* [with_context] is the common command-line envelope.  In particular, keep
    the profile and login handling here so a command that does not run a bot
    gets exactly the same authentication behaviour as [run]. *)
@@ -70,9 +49,13 @@ let run_bot ctx spec =
     stop_requested := true;
     Option.iter (fun bot -> Bot.stop bot) !running
   in
-  let wait = on_signals request_stop in
-  Eio.Fiber.fork_daemon ~sw:(Context.switch ctx) (fun () ->
+  let sw = Context.switch ctx in
+  (* The handlers run on any domain, so the wakeup travels over a pipe and
+     the shutdown happens in a fiber of this domain. *)
+  Eioext.Signals.with_wait ~sw [ Sys.sigint; Sys.sigterm ] @@ fun wait ->
+  Eio.Fiber.fork_daemon ~sw (fun () ->
       wait ();
+      request_stop ();
       `Stop_daemon);
   Bot.run
     ~on_start:(fun bot ->

@@ -17,20 +17,23 @@ let with_store f =
   Sys.remove root;
   Unix.mkdir root 0o700;
   Unix.mkdir (Filename.concat root "runtime") 0o700;
-  List.iter
-    (fun (name, subdir) -> Unix.putenv name (Filename.concat root subdir))
-    [
-      ("ZULIP_CONFIG_DIR", "config");
-      ("ZULIP_DATA_DIR", "data");
-      ("ZULIP_CACHE_DIR", "cache");
-      ("ZULIP_STATE_DIR", "state");
-      ("ZULIP_RUNTIME_DIR", "runtime");
-      ("XDG_CONFIG_HOME", "config-home");
-      ("XDG_DATA_HOME", "data-home");
-      ("XDG_CACHE_HOME", "cache-home");
-      ("XDG_STATE_HOME", "state-home");
-    ];
-  Unix.putenv "XDG_RUNTIME_DIR" root;
+  let bindings =
+    List.map
+      (fun (name, subdir) -> (name, Some (Filename.concat root subdir)))
+      [
+        ("ZULIP_CONFIG_DIR", "config");
+        ("ZULIP_DATA_DIR", "data");
+        ("ZULIP_CACHE_DIR", "cache");
+        ("ZULIP_STATE_DIR", "state");
+        ("ZULIP_RUNTIME_DIR", "runtime");
+        ("XDG_CONFIG_HOME", "config-home");
+        ("XDG_DATA_HOME", "data-home");
+        ("XDG_CACHE_HOME", "cache-home");
+        ("XDG_STATE_HOME", "state-home");
+      ]
+  in
+  Testenv.with_bindings (("XDG_RUNTIME_DIR", Some root) :: bindings)
+  @@ fun () ->
   Eio_main.run (fun env ->
       Fun.protect
         ~finally:(fun () -> Eio.Path.rmtree Eio.Path.(env#fs / root))

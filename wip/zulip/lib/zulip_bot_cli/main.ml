@@ -77,26 +77,17 @@ let run ~name ?version ?doc spec () =
   run_mode ~name ?version ?doc
     (fun sw context ->
       let running = ref None in
-      let stop_requested = Atomic.make false in
-      let stopped = Eio.Condition.create () in
-      let signal _ =
-        Atomic.set stop_requested true;
-        Eio.Condition.broadcast stopped
-      in
-      let previous_int = Sys.signal Sys.sigint (Sys.Signal_handle signal) in
-      let previous_term = Sys.signal Sys.sigterm (Sys.Signal_handle signal) in
-      Fun.protect ~finally:(fun () ->
-          Sys.set_signal Sys.sigint previous_int;
-          Sys.set_signal Sys.sigterm previous_term)
-      @@ fun () ->
+      let stop_requested = ref false in
+      Eioext.Signals.with_wait ~sw [ Sys.sigint; Sys.sigterm ] @@ fun wait ->
       Eio.Fiber.fork_daemon ~sw (fun () ->
-          Eio.Condition.await_no_mutex stopped;
+          wait ();
+          stop_requested := true;
           Option.iter Zulip_bot.Bot.stop !running;
           `Stop_daemon);
       Zulip_bot.Bot.run
         ~on_start:(fun bot ->
           running := Some bot;
-          if Atomic.get stop_requested then Zulip_bot.Bot.stop bot)
+          if !stop_requested then Zulip_bot.Bot.stop bot)
         context spec)
     ()
 

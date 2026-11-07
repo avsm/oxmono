@@ -2,4 +2,13 @@
  (public_name zulip.bot.cli)
  (name zulip_bot_cli)
  (wrapped true)
- (libraries zulip.bot zulip.eio eio eio_main cmdliner logs logs.fmt fmt))
+ (libraries
+  zulip.bot
+  zulip.eio
+  eio
+  eio_main
+  eioext
+  cmdliner
+  logs
+  logs.fmt
+  fmt))

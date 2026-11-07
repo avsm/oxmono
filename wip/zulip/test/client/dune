@@ -6,4 +6,4 @@
 (test
  (name test_profile)
  (modules test_profile)
- (libraries zulip.eio alcotest eio_main unix))
+ (libraries zulip.eio alcotest eio_main unix testenv))

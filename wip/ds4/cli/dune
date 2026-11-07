@@ -13,6 +13,7 @@
  (libraries
   hf
   cmdliner
+  digestif
   ds4
   ds4.dsml
   eio

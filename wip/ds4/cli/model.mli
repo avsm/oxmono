@@ -8,15 +8,22 @@
     Models are distributed as one or more GGUF files under named download
     targets, each with short aliases. *)
 
+(** How the files published in a repository make up a target's files. *)
+type parts =
+  | Whole  (** [files] are published as they are *)
+  | Concatenated of string list
+      (** the files published, in order, whose concatenation is the one file in
+          [files] *)
+  | Gguf_shards of string list
+      (** the GGUF split files published, in order, that {!Gguf_shards.merge}
+          restores to the one file in [files] *)
+
 type t = {
   name : string;  (** the target's name *)
   aliases : string list;  (** short forms accepted on the command line *)
   repo : string;  (** the Hugging Face repository the files come from *)
   files : string list;  (** the GGUF files that make up the model *)
-  parts : string list;
-      (** the files published in the repository, in order, whose concatenation
-          is the one file in [files], or empty when [files] are published as
-          they are *)
+  parts : parts;  (** how the published files make up [files] *)
   descr : string;  (** a one-line description *)
   deprecated : bool;  (** superseded by a newer build of the same model *)
 }
@@ -64,7 +71,14 @@ val download :
     published in parts is joined into its one file and the parts removed. An
     interrupted join resumes rather than fetching the first part again. It
     raises [Failure] when a join produces the wrong length, and leaves the parts
-    for a retry. *)
+    for a retry.
+
+    A target published as GGUF shards is first checked against the free space
+    under [dir], which must hold the shards and the merged file at once. Each
+    shard is verified against its published size and SHA-256 after it is
+    fetched, the shards are merged with {!Gguf_shards.merge}, and they are
+    removed once the merged file verifies. It raises [Failure] when space or a
+    verification is short, leaving what was downloaded for a retry. *)
 
 val others : dir:string -> string list
 (** [others ~dir] are the GGUF files under [dir] that belong to no target, in

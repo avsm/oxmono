@@ -51,8 +51,9 @@ Run `ds4-agent-metal <command> --help` for the options of each.
 ## Choosing a model
 
 DeepSeek V4.1 Flash 1017 is the preferred downloaded model. Fetch it with
-`ds4-agent-metal download ds41-q2`. Explicit `--model` and `DS4_MODEL`
-settings take precedence. Older downloaded models remain fallbacks.
+`ds4-agent-metal download mxfp4` on a 512 GB machine, or `download ds41-q2`
+on 256 GB. Explicit `--model` and `DS4_MODEL` settings take precedence. Older
+downloaded models remain fallbacks.
 
 For smaller machines, the V4 Flash 0731 build remains available. Pick
 the largest quantisation your machine has memory for.
@@ -67,10 +68,21 @@ DeepSeek V4.1 Flash is newer and larger. Its Engram tables stay on disk and are
 read as needed, so it uses less memory than its size on disk. It runs on Metal
 only.
 
-| Memory | Alias    | Target         | On disk | Resident |
-| ------ | -------- | -------------- | ------- | -------- |
-| 512 GB | `v41-q4` | `ds41-q4`      | 483 GB  | 294 GB   |
-| 256 GB | `v41-q2` | `ds41-q2-1017` | 341 GB  | 152 GB   |
+| Memory | Alias    | Target            | On disk | Resident |
+| ------ | -------- | ----------------- | ------- | -------- |
+| 512 GB | `mxfp4`  | `ds41-mxfp4-1017` | 467 GB  | 278 GB   |
+| 512 GB | `v41-q4` | `ds41-q4`         | 483 GB  | 294 GB   |
+| 256 GB | `v41-q2` | `ds41-q2-1017`    | 341 GB  | 152 GB   |
+
+The MXFP4 build keeps DeepSeek's released MXFP4 routed experts as they are,
+where the Q2 and Q4 requantise them with an imatrix. It and the Q2 carry the
+1017 checkpoint. The Q4 carries the earlier release.
+
+The MXFP4 is published as nine GGUF shards. `download` verifies each against
+its published checksum, merges them back into the one page-aligned file the
+engine loads, verifies that, and removes the shards. The shards and the merged
+file are on disk at once, so the merge needs about 935 GB free. An interrupted
+download or merge resumes when run again.
 
 The Q4 is published in two parts, which `download` fetches and joins into one
 file. Joining needs another 37 GB free.
@@ -112,7 +124,6 @@ builds a newer one has superseded.
 
 Two things affect the choice. The quantisations above are built with an
 imatrix, which weights the quantisation by measured activation statistics.
-`mxfp4-0731` is not, so despite being larger it is not necessarily better.
 Memory use is also more than the model's size, because the KV cache grows with
 the context, and on Apple Silicon the GPU can address only about 75% of memory
 by default. `sysctl iogpu.wired_limit_mb` reports that limit.

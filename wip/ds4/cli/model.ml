@@ -3,12 +3,14 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+type parts = Whole | Concatenated of string list | Gguf_shards of string list
+
 type t = {
   name : string;
   aliases : string list;
   repo : string;
   files : string list;
-  parts : string list;
+  parts : parts;
   descr : string;
   deprecated : bool;
 }
@@ -22,17 +24,68 @@ let qwen_repo = "antirez/qwen3.8-flash-next-gguf"
    the other two, whose repositories carry both. *)
 let qwen_vision_repo = "ggml-org/Qwen3.8-Flash-Next-GGUF"
 
+(* The V4.1 Flash 1017 MXFP4 build is published as nine standard GGUF split
+   files, which are merged back into the one page-aligned file it was built
+   as. The sizes and digests are those upstream verified the merge against. *)
+let ds41_mxfp4 = "DeepSeek-V4.1-Flash-1017-MXFP4-experts"
+let ds41_mxfp4_file = ds41_mxfp4 ^ ".gguf"
+
+let ds41_mxfp4_shards =
+  List.init 9 (fun i ->
+      Printf.sprintf "%s-%05d-of-00009.gguf" ds41_mxfp4 (i + 1))
+
+(* The published length and SHA-256 of the files that are verified after they
+   are downloaded or merged. *)
+let checksums =
+  ( ds41_mxfp4_file,
+    ( 501609136128,
+      "79608a69cd5bb919d8140c37105edc3a33419692d4e6caf4e68c901e4b359141" ) )
+  :: List.map2
+       (fun shard sum -> (shard, sum))
+       ds41_mxfp4_shards
+       [
+         ( 49353784544,
+           "636918b09de6253bf41af29f06aac3ceeda220e46379d8a2058ef92c4e433ed8" );
+         ( 49412635712,
+           "b26d3fc1e6ae1be6c52665542f3c1fee6a33791478f26e6cd90b5a75940a9f96" );
+         ( 49582960352,
+           "20c7fe7adb0578336d8a5e5f9eed521aeb88e8c119ba46e0916cdaab28931c80" );
+         ( 49418206432,
+           "67592ba15870c4292a615666adcc2736b53cc345b2cccb1c36710a0a6caf15b4" );
+         ( 49412829632,
+           "ecd04e0aa71bfab8cfe79ea7fef7f35b6be0b6772455139e2081d6ce1dcc18ed" );
+         ( 49257603776,
+           "88214e0cc80fbae578b80c114527e6ce725199684e0b6849475c7d00b3d0f54c" );
+         ( 2406482112,
+           "38939faf3e4258f3ae333f0fa1954ce89515b75ceee90d37bf4ebe5fafe285e6" );
+         ( 101377628544,
+           "a9d1634da2ac57459a64b10b69ddedfadda7dcde0e71ca6e55bea7c293c4a9f0" );
+         ( 101380404256,
+           "b9832b355288c005da6ef444d02424464dd27f6ebdefeadbec2244264eb65285" );
+       ]
+
 (* Targets are named for the build they carry. The short names are aliases on
    the newest build, so that asking for "q4" gets the current one, and an
    older build stays reachable under its own version. *)
 let all =
   [
     {
+      name = "ds41-mxfp4-1017";
+      aliases = [ "ds41-mxfp4"; "v41-mxfp4"; "mxfp4"; "ds41f-mxfp4" ];
+      repo = deepseek41_repo;
+      files = [ ds41_mxfp4_file ];
+      parts = Gguf_shards ds41_mxfp4_shards;
+      descr =
+        "V4.1 Flash 1017 MXFP4 experts, 467 GB on disk, 278 GB resident. For \
+         512 GB.";
+      deprecated = false;
+    };
+    {
       name = "ds41-q2-1017";
       aliases = [ "ds41-q2"; "v41-q2"; "ds41f-q2" ];
       repo = deepseek41_repo;
       files = [ "DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf" ];
-      parts = [];
+      parts = Whole;
       descr =
         "V4.1 Flash 1017 2-bit, 341 GB on disk, 152 GB resident. For 256 GB.";
       deprecated = false;
@@ -46,10 +99,11 @@ let all =
       repo = deepseek41_repo;
       files = [ "DeepSeek-V4.1-Flash-Q4.gguf" ];
       parts =
-        [
-          "DeepSeek-V4.1-Flash-Q4.gguf.part1";
-          "DeepSeek-V4.1-Flash-Q4.gguf.part2";
-        ];
+        Concatenated
+          [
+            "DeepSeek-V4.1-Flash-Q4.gguf.part1";
+            "DeepSeek-V4.1-Flash-Q4.gguf.part2";
+          ];
       descr = "V4.1 Flash 4-bit, 483 GB on disk, 294 GB resident. For 512 GB.";
       deprecated = false;
     };
@@ -58,7 +112,7 @@ let all =
       aliases = [];
       repo = deepseek41_repo;
       files = [ "DeepSeek-V4.1-Flash-Q2.gguf" ];
-      parts = [];
+      parts = Whole;
       descr =
         "V4.1 Flash original 2-bit, 341 GB on disk, 152 GB resident. For 256 \
          GB.";
@@ -72,7 +126,7 @@ let all =
         [
           "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "2-bit 0731 experts, 81 GB. For 96 to 128 GB.";
       deprecated = false;
     };
@@ -84,7 +138,7 @@ let all =
         [
           "DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed-0731.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "Mixed 0731 quant, 98 GB. Best for 128 GB.";
       deprecated = false;
     };
@@ -96,21 +150,8 @@ let all =
         [
           "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix-0731.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "4-bit 0731 experts, 153 GB. Best for 256 GB or more.";
-      deprecated = false;
-    };
-    {
-      (* No imatrix is published for this one, unlike those above. *)
-      name = "mxfp4-0731";
-      aliases = [ "mxfp4" ];
-      repo = deepseek_repo;
-      files =
-        [
-          "DeepSeek-V4-Flash-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-mxfp4-0731.gguf";
-        ];
-      parts = [];
-      descr = "MXFP4 0731 experts, 145 GB. No imatrix.";
       deprecated = false;
     };
     (* The first Flash release, which 0731 retrained. Same architecture and
@@ -123,7 +164,7 @@ let all =
         [
           "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "2-bit preview experts, 81 GB. Use q2 instead.";
       deprecated = true;
     };
@@ -135,7 +176,7 @@ let all =
         [
           "DeepSeek-V4-Flash-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-fixed.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "Mixed preview quant, 98 GB. Use q2q4 instead.";
       deprecated = true;
     };
@@ -147,7 +188,7 @@ let all =
         [
           "DeepSeek-V4-Flash-Q4KExperts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out-chat-v2-imatrix.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "4-bit preview experts, 153 GB. Use q4 instead.";
       deprecated = true;
     };
@@ -161,7 +202,7 @@ let all =
         [
           "DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix-0813.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "PRO 2-bit 0813 experts, 433 GB. For 512 GB.";
       deprecated = false;
     };
@@ -173,7 +214,7 @@ let all =
         [
           "DeepSeek-V4-Pro-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-Instruct-imatrix.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "PRO 2-bit, 430 GB. Use pro-q2 instead.";
       deprecated = true;
     };
@@ -182,7 +223,7 @@ let all =
       aliases = [ "pro-q4-a" ];
       repo = deepseek_repo;
       files = [ "DeepSeek-V4-Pro-Q4K-Layers00-30.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "PRO Q4 layers 0 to 30, 426 GB. Coordinator half.";
       deprecated = false;
     };
@@ -191,7 +232,7 @@ let all =
       aliases = [ "pro-q4-b" ];
       repo = deepseek_repo;
       files = [ "DeepSeek-V4-Pro-Q4K-Layers-31-output.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "PRO Q4 layers 31 to output, 412 GB. Worker half.";
       deprecated = false;
     };
@@ -204,7 +245,7 @@ let all =
           "DeepSeek-V4-Pro-Q4K-Layers00-30.gguf";
           "DeepSeek-V4-Pro-Q4K-Layers-31-output.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "Both PRO Q4 halves, 838 GB in total.";
       deprecated = false;
     };
@@ -215,7 +256,7 @@ let all =
       aliases = [ "glm-q2" ];
       repo = glm_repo;
       files = [ "GLM-5.3-Flash-Q2.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "GLM 5.3 Flash 2-bit, 90 GB. For 96 to 128 GB.";
       deprecated = false;
     };
@@ -224,7 +265,7 @@ let all =
       aliases = [ "glm-q4" ];
       repo = glm_repo;
       files = [ "GLM-5.3-Flash-Q4_K.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "GLM 5.3 Flash 4-bit, 178 GB. For 256 GB or more.";
       deprecated = false;
     };
@@ -235,7 +276,7 @@ let all =
       aliases = [ "qwen-q4" ];
       repo = qwen_repo;
       files = [ "Qwen3.8-Flash-Next-Q4.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "Qwen3.8 Flash Next 4-bit, 165 GB on disk, 70 GB resident.";
       deprecated = false;
     };
@@ -244,7 +285,7 @@ let all =
       aliases = [ "qwen-q2" ];
       repo = qwen_repo;
       files = [ "Qwen3.8-Flash-Next-Q2.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "Qwen3.8 Flash Next 2-bit, 137 GB on disk, 42 GB resident.";
       deprecated = false;
     };
@@ -256,7 +297,7 @@ let all =
       aliases = [ "v41-vision" ];
       repo = deepseek41_repo;
       files = [ "DeepSeek-V4.1-Flash-Vision.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "Vision sidecar for DeepSeek V4.1 Flash, 1 GB.";
       deprecated = false;
     };
@@ -265,7 +306,7 @@ let all =
       aliases = [ "glm-vision" ];
       repo = glm_repo;
       files = [ "GLM-5.3-Flash-Vision-Encoder.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "Vision sidecar for GLM 5.3 Flash, 1 GB.";
       deprecated = false;
     };
@@ -274,7 +315,7 @@ let all =
       aliases = [ "qwen-vision" ];
       repo = qwen_vision_repo;
       files = [ "mmproj-Qwen3.8-Flash-Next-Q8_0.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "Vision sidecar for Qwen3.8 Flash Next, 0.6 GB.";
       deprecated = false;
     };
@@ -289,7 +330,7 @@ let all =
         [
           "DeepSeek-V4-Flash-Vision-Exp-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "Vision Experimental 2-bit, 81 GB. For 96 to 128 GB.";
       deprecated = false;
     };
@@ -301,7 +342,7 @@ let all =
         [
           "DeepSeek-V4-Flash-Vision-Exp-Layers37-42Q4KExperts-OtherExpertLayersIQ2XXSGateUp-Q2KDown-AProjQ8-SExpQ8-OutQ8.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "Vision Experimental mixed quant, 91 GB. Best for 128 GB.";
       deprecated = false;
     };
@@ -313,7 +354,7 @@ let all =
         [
           "DeepSeek-V4-Flash-Vision-Exp-MXFP4Experts-F16HC-F16Compressor-F16Indexer-Q8Attn-Q8Shared-Q8Out.gguf";
         ];
-      parts = [];
+      parts = Whole;
       descr = "Vision Experimental MXFP4, 145 GB. No imatrix.";
       deprecated = false;
     };
@@ -322,7 +363,7 @@ let all =
       aliases = [ "vision-exp-encoder" ];
       repo = deepseek_repo;
       files = [ "DeepSeek-V4-Flash-Vision-Encoder.gguf" ];
-      parts = [];
+      parts = Whole;
       descr = "Vision sidecar shared by every Vision Experimental quant, 1 GB.";
       deprecated = false;
     };
@@ -358,10 +399,10 @@ let download_command =
    than by quality. *)
 let preferred =
   [
+    "ds41-mxfp4-1017";
     "ds41-q2-1017";
     "ds41-q4";
     "q4-imatrix-0731";
-    "mxfp4-0731";
     "ds41-q2-original";
     "q2-q4-imatrix-0731";
     "q2-imatrix-0731";
@@ -434,11 +475,10 @@ let file_size path = (Unix.LargeFile.stat path).Unix.LargeFile.st_size
 let join_parts ~dir ~out first rest =
   let path f = Filename.concat dir f in
   let joining = joining out and boundary_file = out ^ ".joining-length" in
-  if not (Sys.file_exists joining) then begin
+  if not (Sys.file_exists joining) then (
     Out_channel.with_open_text boundary_file (fun oc ->
         output_string oc (Int64.to_string (file_size (path first))));
-    Sys.rename (path first) joining
-  end;
+    Sys.rename (path first) joining);
   let boundary =
     In_channel.with_open_text boundary_file In_channel.input_all
     |> String.trim |> Int64.of_string
@@ -475,6 +515,61 @@ let join_parts ~dir ~out first rest =
   List.iter (fun part -> Sys.remove (path part)) rest;
   Sys.remove boundary_file
 
+let gib = 1024 * 1024 * 1024
+
+(* The bytes free on the filesystem holding [dir], read from POSIX [df]. None
+   when its output is not understood, which is reported rather than treated
+   as room. *)
+let free_bytes ~proc dir =
+  match Eioext.Process.capture ~process_mgr:proc [ "df"; "-Pk"; dir ] with
+  | exception Eio.Exn.Io (_, _) -> None
+  | { Eioext.Process.status = `Exited 0; stdout; _ } -> (
+      match List.rev (String.split_on_char '\n' (String.trim stdout)) with
+      | last :: _ -> (
+          match
+            String.split_on_char ' ' last |> List.filter (fun f -> f <> "")
+          with
+          | _ :: _ :: _ :: available :: _ -> (
+              match int_of_string_opt available with
+              | Some kib -> Some (kib * 1024)
+              | None -> None)
+          | _ -> None)
+      | [] -> None)
+  | _ -> None
+
+let expected file =
+  match List.assoc_opt file checksums with
+  | Some sum -> sum
+  | None ->
+      invalid_arg (Printf.sprintf "Model: no published checksum for %s" file)
+
+(* Refuse to start a download of hundreds of gigabytes that cannot finish.
+   [files] are the files still to be written under [dir], each with its final
+   size, of which whatever is already there counts as done. *)
+let check_space ~proc ~dir files =
+  let needed =
+    List.fold_left
+      (fun acc (file, size) ->
+        let path = Filename.concat dir file in
+        let have =
+          if Sys.file_exists path then Int64.to_int (file_size path) else 0
+        in
+        acc + max 0 (size - have))
+      gib files
+  in
+  match free_bytes ~proc dir with
+  | Some free when free < needed ->
+      failwith
+        (Printf.sprintf
+           "not enough disk space in %s: %d GiB are needed for the shards and \
+            the merged model and %d GiB are free. Nothing was downloaded."
+           dir (needed / gib) (free / gib))
+  | Some _ -> ()
+  | None ->
+      Printf.eprintf
+        "Could not read the free space in %s. About %d GiB are needed.\n%!" dir
+        (needed / gib)
+
 let download ~fs ~proc ~dir ?token m =
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(fs / dir);
   let hf_args file =
@@ -487,32 +582,68 @@ let download ~fs ~proc ~dir ?token m =
     Hf.run ~process_mgr:proc ?token (hf_args file)
   in
   match (m.files, m.parts) with
-  | _, [] -> List.iter fetch m.files
-  | [ file ], first :: rest ->
+  | _, Whole -> List.iter fetch m.files
+  | [ file ], Concatenated (first :: rest) ->
       let out = Filename.concat dir file in
       if Sys.file_exists out then Printf.eprintf "%s is already present\n%!" out
-      else begin
+      else (
         (* A join under way has already taken the first part. *)
         if not (Sys.file_exists (joining out)) then fetch first;
         List.iter fetch rest;
-        Printf.eprintf "Joining %d parts into %s\n%!" (List.length m.parts) out;
-        join_parts ~dir ~out first rest
-      end
-  | files, _ ->
+        Printf.eprintf "Joining %d parts into %s\n%!" (1 + List.length rest) out;
+        join_parts ~dir ~out first rest)
+  | [ file ], Gguf_shards shards ->
+      let out = Filename.concat dir file in
+      if Sys.file_exists out then Printf.eprintf "%s is already present\n%!" out
+      else
+        let bytes, sha256 = expected file in
+        check_space ~proc ~dir
+          ((file ^ ".assembling", bytes)
+          :: List.map (fun shard -> (shard, fst (expected shard))) shards);
+        (* A shard already of its published length is left alone. The merged
+           file's own checksum covers every byte of it. *)
+        List.iter
+          (fun shard ->
+            let path = Filename.concat dir shard in
+            let expected_bytes, sha256 = expected shard in
+            if
+              Sys.file_exists path
+              && Int64.to_int (file_size path) = expected_bytes
+            then Printf.eprintf "%s is already present\n%!" path
+            else (
+              fetch shard;
+              Gguf_shards.verify ~path ~expected_bytes ~sha256))
+          shards;
+        Printf.eprintf "Merging %d shards into %s\n%!" (List.length shards) out;
+        let reported = ref 0 in
+        let progress ~written ~total =
+          if written / (8 * gib) > !reported || written = total then (
+            reported := written / (8 * gib);
+            Printf.eprintf "  %d of %d GiB\n%!" (written / gib) (total / gib))
+        in
+        Gguf_shards.merge ~progress ~out ~expected_bytes:bytes ~sha256
+          (List.map (Filename.concat dir) shards);
+        List.iter (fun shard -> Sys.remove (Filename.concat dir shard)) shards
+  | files, (Concatenated _ | Gguf_shards _) ->
       invalid_arg
         (Printf.sprintf "Model %s: parts must join into one file, not %d" m.name
            (List.length files))
 
+let part_files = function
+  | Whole -> []
+  | Concatenated parts | Gguf_shards parts -> parts
+
 let others ~dir =
   let known =
-    List.concat_map (fun m -> m.files) all |> List.sort_uniq String.compare
+    List.concat_map (fun m -> m.files @ part_files m.parts) all
+    |> List.sort_uniq String.compare
   in
   match Sys.readdir dir with
   | exception Sys_error _ -> []
   | entries ->
       Array.to_list entries
       |> List.filter (fun f ->
-          Filename.check_suffix f ".gguf" && not (List.mem f known))
+             Filename.check_suffix f ".gguf" && not (List.mem f known))
       |> List.sort String.compare
 
 open Cmdliner
@@ -524,7 +655,7 @@ let arg =
     & info [ "m"; "model" ] ~docv:"MODEL"
         ~doc:
           "The model to use, given as a download target, an alias such as \
-           '0731', or the path of a .gguf file. When omitted, DS4_MODEL is \
+           'mxfp4', or the path of a .gguf file. When omitted, DS4_MODEL is \
            used, then downloaded DeepSeek V4.1 Flash 1017, older preferred \
            models, then the first .gguf in the data directory.")
 

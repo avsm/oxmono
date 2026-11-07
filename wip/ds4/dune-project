@@ -21,6 +21,7 @@ DS4 engine. It supports DeepSeek V4 and V4.1 Flash, GLM 5.3 Flash and
 Qwen3.8 Flash Next, with selectable Metal, CUDA or CPU backends.")
  (depends
   hf
+  digestif
   (ocaml (>= 5.2.0))
   (dune-configurator :build)
   (jsont (>= 0.3.0))

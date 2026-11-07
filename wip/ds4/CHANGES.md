@@ -1,5 +1,11 @@
 # unreleased
 
+- Add the `ds41-mxfp4-1017` target, alias `mxfp4`, for DeepSeek V4.1 Flash
+  1017 with its released MXFP4 experts. It is preferred when downloaded.
+  `download` fetches its nine GGUF shards, verifies their published checksums,
+  merges them into the page-aligned file the engine loads and resumes an
+  interrupted merge. The V4 `mxfp4-0731` target is removed.
+
 - Update the DS4 engine to upstream `b3f5018` (2026-11-03). Metal gains
   faster DeepSeek V4.1 decode and prefill, bounded SSD expert streaming for
   Qwen3.8 Flash Next, Qwen version 2 checkpoints, a `/ctx` session memory

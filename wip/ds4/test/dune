@@ -77,3 +77,11 @@
  (name test_model)
  (libraries ds4.cli unix)
  (modules test_model))
+
+; test_shards: merging GGUF split files into one page-aligned model, over
+; shards the test writes. Needs no model.
+
+(test
+ (name test_shards)
+ (libraries ds4.cli digestif unix)
+ (modules test_shards))

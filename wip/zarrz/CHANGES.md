@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Mark `Error.pp` and `Error.to_string` portable so exception printers
+  built on them can be registered with `Printexc.Safe`.
+
 - Clarify opam descriptions of package functionality and interfaces.
 
 - Update CLI rendering to the current Console View and terminal APIs.

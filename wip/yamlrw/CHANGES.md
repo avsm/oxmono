@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Mark `Span.pp` and `Span.to_string` portable and register the
+  `Yamlrw_error` printer with `Printexc.Safe`.
+
 - Clarify opam descriptions of package functionality and interfaces.
 
 v1.0.0 (dev)

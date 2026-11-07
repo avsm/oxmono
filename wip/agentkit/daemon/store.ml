@@ -37,7 +37,7 @@ let journalled_version root =
 exception Locked of { path : string; pid : int }
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Locked { path; pid } ->
         Some
           (Printf.sprintf

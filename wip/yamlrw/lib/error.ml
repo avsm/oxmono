@@ -229,7 +229,7 @@ exception Yamlrw_error of t
     exception with detailed error information. *)
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Yamlrw_error e ->
         let loc =
           match e.span with

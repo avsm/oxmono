@@ -85,14 +85,13 @@ exception No_entry of string
 exception Corrupt of { path : string; msg : string }
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Version_exists v ->
         Some (Printf.sprintf "memory version %06d is already written" v)
     | No_version v -> Some (Printf.sprintf "no memory version %06d" v)
     | No_entry id -> Some (Printf.sprintf "no memory entry %S" id)
     | Corrupt { path; msg } -> Some (Printf.sprintf "memory %s: %s" path msg)
     | _ -> None)
-  [@alert "-unsafe_multidomain"]
 
 let current_name = "current"
 let pending_name = "current.pending"

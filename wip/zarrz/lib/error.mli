@@ -24,8 +24,8 @@ exception E of t
 val raise_ : t -> 'a
 (** [raise_ e] raises {!E}[ e]. *)
 
-val pp : Format.formatter -> t -> unit
+val pp : Format.formatter -> t -> unit @@ portable
 (** [pp ppf e] prints a one line human readable rendering of [e]. *)
 
-val to_string : t -> string
+val to_string : t -> string @@ portable
 (** [to_string e] is [e] rendered by {!pp}. *)

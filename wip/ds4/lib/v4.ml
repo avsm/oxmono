@@ -10,8 +10,7 @@ type raw_vision
 exception Session_interrupted
 
 let () =
-  Callback.register_exception "ds4.session_interrupted" Session_interrupted
-  [@alert "-unsafe_multidomain"]
+  Callback.Safe.register_exception "ds4.session_interrupted" Session_interrupted
 
 type think = [ `None | `High | `Max ]
 

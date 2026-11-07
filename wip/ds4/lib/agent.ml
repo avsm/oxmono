@@ -52,7 +52,7 @@ let max_empty_attempts = 3
 let max_tool_error_attempts = 3
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Context_exhausted { needed; ctx } ->
         Some
           (Printf.sprintf
@@ -78,7 +78,6 @@ let () =
              "the model wrote malformed tool syntax on %d turns running: %s"
              attempts message)
     | _ -> None)
-  [@alert "-unsafe_multidomain"]
 
 (* The counters for one [send], which spans several turns when the model calls
    tools. They are always read together and always reset together, so they are

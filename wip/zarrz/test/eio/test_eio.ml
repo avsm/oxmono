@@ -27,7 +27,7 @@ module Ia = Stdlib_stable.Iarray
 
 (* Without this a failing test reports a bare [Zarrz__Error.E(_)]. *)
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Error.E e -> Some ("Zarrz.Error.E: " ^ Error.to_string e)
     | _ -> None)
 

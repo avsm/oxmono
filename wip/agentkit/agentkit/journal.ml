@@ -425,13 +425,12 @@ type t = {
 exception Locked of { path : string; pid : int }
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Locked { path; pid } ->
         Some
           (Printf.sprintf "another agent journal writer holds %s as process %d"
              path pid)
     | _ -> None)
-  [@alert "-unsafe_multidomain"]
 
 let held : (string, int) Hashtbl.t = Hashtbl.create 4
 
@@ -538,11 +537,10 @@ type next = { next_seq : int; next_run : int }
 exception Bad_record of { segment : string; line : int; msg : string }
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Bad_record { segment; line; msg } ->
         Some (Printf.sprintf "journal %s line %d: %s" segment line msg)
     | _ -> None)
-  [@alert "-unsafe_multidomain"]
 
 (* A segment is named for the UTC date it holds. Anything else in the
    directory belongs to somebody else and is left alone. *)

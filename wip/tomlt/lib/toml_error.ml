@@ -197,7 +197,7 @@ let to_string t =
 (** Exception for TOML errors *)
 exception Error of t
 
-let () = Printexc.register_printer (function
+let () = Printexc.Safe.register_printer (function
   | Error e -> Some (Format.asprintf "Tomlt.Error: %a" pp e)
   | _ -> None)
 

@@ -45,8 +45,12 @@ exception Jmap_client_error of error
 
 let ok_exn = function Ok v -> v | Error e -> raise (Jmap_client_error e)
 
+(* [error] carries a [Fetch.error], whose [Eio.Net.connection_failure] holds
+   an [exn] and so cannot cross portability, so the printer cannot be
+   portable. It is registered during module initialisation before any domain
+   is spawned. *)
 let () =
-  Printexc.register_printer (function
+  (Printexc.register_printer [@alert "-unsafe_multidomain"]) (function
     | Jmap_client_error error ->
         Some ("Jmap_eio.Client.Jmap_client_error: " ^ error_to_string error)
     | _ -> None)

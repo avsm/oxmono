@@ -31,7 +31,7 @@ let parse_error_to_string e = Format.asprintf "%a" pp_parse_error e
 exception Parse_error of parse_error
 
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Parse_error e ->
         Some ("Jmap.Chain.Parse_error: " ^ parse_error_to_string e)
     | _ -> None)

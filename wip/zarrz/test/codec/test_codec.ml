@@ -3,9 +3,6 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 (* Codec tests. Expectations come from the zarrs oracle, see
    ../fixtures/README.md for the provenance of every golden file. *)
 
@@ -30,7 +27,7 @@ module F32u = Stdlib_stable.Float32_u
 
 (* Without this a failing test reports a bare [Zarrz__Error.E(_)]. *)
 let () =
-  Printexc.register_printer (function
+  Printexc.Safe.register_printer (function
     | Error.E e -> Some ("Zarrz.Error.E: " ^ Error.to_string e)
     | _ -> None)
 

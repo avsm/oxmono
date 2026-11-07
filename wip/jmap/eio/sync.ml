@@ -464,8 +464,11 @@ let mailbox_id client ?capabilities ~account_id role =
 
 exception Sync_error of error
 
+(* [error] embeds [Client.error], which cannot cross portability, so the
+   printer cannot be portable. It is registered during module initialisation
+   before any domain is spawned. *)
 let () =
-  Printexc.register_printer (function
+  (Printexc.register_printer [@alert "-unsafe_multidomain"]) (function
     | Sync_error e -> Some ("Jmap_eio.Sync.Sync_error: " ^ error_to_string e)
     | _ -> None)
 

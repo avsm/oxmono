@@ -19,10 +19,10 @@ val merge : t -> t -> t
 val extend : t -> Position.t -> t
 (** Extend a span to a new stop position *)
 
-val pp : Format.formatter -> t -> unit
+val pp : Format.formatter -> t -> unit @@ portable
 (** Pretty-print a span *)
 
-val to_string : t -> string
+val to_string : t -> string @@ portable
 (** Convert span to string *)
 
 val compare : t -> t -> int

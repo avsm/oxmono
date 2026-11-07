@@ -151,6 +151,10 @@ let analyze db = exec db "PRAGMA analysis_limit=1000"; exec db "ANALYZE"
 
 let open_writer ~sw path =
   let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 path in
+  (* Takes effect only on a file whose header is not yet written, so it
+     comes before the journal mode, which writes it. An existing file
+     switches when [vacuum] rebuilds it. *)
+  exec db "PRAGMA auto_vacuum=INCREMENTAL";
   exec db "PRAGMA journal_mode=WAL";
   exec db "PRAGMA synchronous=NORMAL";
   init_schema db "main" ~role:"live";
@@ -402,7 +406,11 @@ let bound_strings db sql binds =
     rows)
 
 let rotate t ~before ?(batch = 20000) ?(progress = fun _ -> ()) () =
-  let db = t.db in
+  (* A writer connection of its own, so an insert through [t.db] during a
+     batch stays outside the batch transaction and waits only for its
+     delete. *)
+  Eio.Switch.run @@ fun sw ->
+  let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 t.path in
   let where = " WHERE id > ?1 AND id <= ?2 AND timestamp < ?3" in
   let year_where = where ^ " AND strftime('%Y', timestamp, 'unixepoch') = ?4" in
   let bounds =
@@ -416,75 +424,124 @@ let rotate t ~before ?(batch = 20000) ?(progress = fun _ -> ()) () =
           Some (Int64.to_int lo, Int64.to_int hi)
         | _ -> None)
   in
-  match bounds with
-  | None -> { moved = 0; written = [] }
-  | Some (lo, hi) ->
-    let attached = ref [] in
-    let ensure_archive year =
-      let file = archive_file t.stem year in
-      let alias = alias_of_file t.stem file in
-      if not (List.mem_assoc file !attached) then begin
-        attach db t.dir file alias;
-        exec db (Printf.sprintf "PRAGMA %s.journal_mode=WAL" alias);
-        init_schema db alias ~role:"archive";
-        attached := (file, alias) :: !attached
-      end;
-      alias
+  let result =
+    match bounds with
+    | None -> { moved = 0; written = [] }
+    | Some (lo, hi) ->
+      let attached = ref [] in
+      let ensure_archive year =
+        let file = archive_file t.stem year in
+        let alias = alias_of_file t.stem file in
+        if not (List.mem_assoc file !attached) then begin
+          attach db t.dir file alias;
+          exec db (Printf.sprintf "PRAGMA %s.journal_mode=WAL" alias);
+          init_schema db alias ~role:"archive";
+          attached := (file, alias) :: !attached
+        end;
+        alias
+      in
+      let moved = ref 0 in
+      let last = ref (lo - 1) in
+      Fun.protect
+        ~finally:(fun () -> List.iter (fun (_, alias) -> detach db alias) !attached)
+        (fun () ->
+          while !last < hi do
+            let top = !last + batch in
+            let binds =
+              Sqlite3.Data.[ INT (Int64.of_int !last); INT (Int64.of_int top);
+                             FLOAT before ]
+            in
+            let years =
+              bound_strings db
+                ("SELECT DISTINCT strftime('%Y', timestamp, 'unixepoch') \
+                  FROM main.requests" ^ where ^ " ORDER BY 1")
+                binds
+            in
+            (* An archive is attached outside the batch transaction, since
+               ATTACH is refused inside one. *)
+            let aliases = List.map (fun y -> (y, ensure_archive y)) years in
+            (* The copy and the delete share one predicate, so a row leaves
+               the live file only once it is in an archive. A timestamp that
+               yields no year matches neither and stays. *)
+            let n =
+              transaction db (fun () ->
+                List.fold_left
+                  (fun acc (year, alias) ->
+                    let binds = binds @ [ Sqlite3.Data.TEXT year ] in
+                    let copied =
+                      bound_count db
+                        (Printf.sprintf
+                           "INSERT INTO %s.requests (%s) SELECT %s \
+                            FROM main.requests%s"
+                           alias columns columns year_where)
+                        binds
+                    in
+                    let removed =
+                      bound_count db ("DELETE FROM main.requests" ^ year_where) binds
+                    in
+                    if copied <> removed then
+                      failwith
+                        (Printf.sprintf
+                           "Proffer_log.rotate: copied %d rows to %s but removed %d"
+                           copied alias removed);
+                    acc + copied)
+                  0 aliases)
+            in
+            moved := !moved + n;
+            last := top;
+            progress !moved
+          done);
+      { moved = !moved; written = List.sort compare (List.map fst !attached) }
+  in
+  if t.reader <> None then refresh t;
+  result
+
+(** {1 Space} *)
+
+(* Pages at a time, so each call holds the write lock briefly. *)
+let release_step = 1000
+
+let release_space t =
+  if query_int t.db "PRAGMA auto_vacuum" <> 2 then 0
+  else
+    let rec loop freed =
+      let before = query_int t.db "PRAGMA freelist_count" in
+      if before = 0 then freed
+      else begin
+        exec t.db (Printf.sprintf "PRAGMA incremental_vacuum(%d)" release_step);
+        let after = query_int t.db "PRAGMA freelist_count" in
+        if after < before then loop (freed + before - after) else freed
+      end
     in
-    let moved = ref 0 in
-    let last = ref (lo - 1) in
-    (try
-       while !last < hi do
-         let top = !last + batch in
-         let binds =
-           Sqlite3.Data.[ INT (Int64.of_int !last); INT (Int64.of_int top);
-                          FLOAT before ]
+    loop 0
+
+(** {1 Scheduling} *)
+
+let seconds_until ~now hour =
+  let day = 86400. in
+  let next = (Float.floor (now /. day) *. day) +. (Float.of_int hour *. 3600.) in
+  (if next <= now then next +. day else next) -. now
+
+let schedule ~sw ~clock ~mono t ~live_days ~hour
+    ?(on_done = fun _ ~freed:_ -> ()) ?(on_error = fun _ -> ()) () =
+  if live_days <= 0 then invalid_arg "Proffer_log.schedule: live_days";
+  if hour < 0 || hour > 23 then invalid_arg "Proffer_log.schedule: hour";
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+    let rec loop () =
+      Eio.Time.Mono.sleep mono (seconds_until ~now:(Eio.Time.now clock) hour);
+      (match
+         let before =
+           Eio.Time.now clock -. (Float.of_int live_days *. 86400.)
          in
-         let years =
-           bound_strings db
-             ("SELECT DISTINCT strftime('%Y', timestamp, 'unixepoch') \
-               FROM main.requests" ^ where ^ " ORDER BY 1")
-             binds
-         in
-         (* An archive is attached outside the batch transaction, since
-            ATTACH is refused inside one. *)
-         let aliases = List.map (fun y -> (y, ensure_archive y)) years in
-         (* The copy and the delete share one predicate, so a row leaves
-            the live file only once it is in an archive. A timestamp that
-            yields no year matches neither and stays. *)
-         let n =
-           transaction db (fun () ->
-             List.fold_left
-               (fun acc (year, alias) ->
-                 let binds = binds @ [ Sqlite3.Data.TEXT year ] in
-                 let copied =
-                   bound_count db
-                     (Printf.sprintf
-                        "INSERT INTO %s.requests (%s) SELECT %s \
-                         FROM main.requests%s"
-                        alias columns columns year_where)
-                     binds
-                 in
-                 let removed =
-                   bound_count db ("DELETE FROM main.requests" ^ year_where) binds
-                 in
-                 if copied <> removed then
-                   failwith
-                     (Printf.sprintf
-                        "Proffer_log.rotate: copied %d rows to %s but removed %d"
-                        copied alias removed);
-                 acc + copied)
-               0 aliases)
-         in
-         moved := !moved + n;
-         last := top;
-         progress !moved
-       done
-     with e ->
-       List.iter (fun (_, alias) -> detach db alias) !attached;
-       raise e);
-    List.iter (fun (_, alias) -> detach db alias) !attached;
-    { moved = !moved; written = List.sort compare (List.map fst !attached) }
+         let r = rotate t ~before () in
+         (r, release_space t)
+       with
+       | r, freed -> on_done r ~freed
+       | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+       | exception e -> on_error e);
+      loop ()
+    in
+    loop ())
 
 (** {1 Merge and vacuum} *)
 
@@ -510,4 +567,6 @@ let merge t ~from =
   in
   n
 
-let vacuum t = exec t.db "VACUUM"
+let vacuum t =
+  exec t.db "PRAGMA auto_vacuum=INCREMENTAL";
+  exec t.db "VACUUM"

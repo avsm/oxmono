@@ -4,8 +4,10 @@
   old rows into yearly archive files, reads the live file and every archive
   through one `requests_all` view, merges log files, and migrates older
   files in place. Statistics are sampled at open so a large file does not
-  delay a server start. `proffer-log.cmdliner` supplies `rotate`, `merge`,
-  `vacuum` and `ls` commands.
+  delay a server start. `schedule` rotates nightly from inside a server
+  and returns freed pages incrementally, so no routine maintenance command
+  is needed. `proffer-log.cmdliner` supplies `rotate`, `merge`, `vacuum`
+  and `ls` commands.
 
 - Add `proffer.session`: server-side browser sessions in `__Host-` cookies,
   stored by the hash of their ID, with CSRF tokens, `Sec-Fetch-Site` and

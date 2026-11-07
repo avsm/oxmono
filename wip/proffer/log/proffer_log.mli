@@ -25,7 +25,9 @@ val open_ : sw:Eio.Switch.t -> _ Eio.Path.t -> t
 (** [open_ ~sw path] is the log at [path], created when absent and migrated
     when it holds an older schema. The writer connection closes with [sw].
     Archives are files named [STEM-SUFFIX.db] in the same directory, where
-    [STEM.db] is the file name of [path].
+    [STEM.db] is the file name of [path]. A new file is created in
+    incremental auto-vacuum mode, so {!release_space} can return freed
+    pages without a rebuild.
 
     @raise Failure when the file holds a newer schema than this library. *)
 
@@ -83,9 +85,10 @@ val rotate :
     them from the live file in one transaction, so an interrupted rotation
     leaves every file consistent and resumes where it stopped when run
     again. A timestamp that yields no calendar year stays in the live
-    file. Call it from a maintenance process: another process inserting
-    into the same file waits only for the delete of one batch, whereas an
-    insert through [t] itself during a batch would join its transaction. *)
+    file. Rotation runs on a connection of its own, so {!record} through
+    [t] meanwhile waits only for the delete of one batch, and the reader
+    is refreshed when rotation ends. Nothing is deleted: every row moved
+    stays readable through {!reader}. *)
 
 val merge : t -> from:_ Eio.Path.t -> int
 (** [merge t ~from] copies every row of the log or archive at [from] into
@@ -93,6 +96,35 @@ val merge : t -> from:_ Eio.Path.t -> int
     reassigned. [from] may hold any schema version with the [requests]
     columns. *)
 
+val release_space : t -> int
+(** [release_space t] returns pages freed by rotation to the filesystem a
+    thousand at a time, each step a short transaction, and is the number
+    of pages released. It is zero for a file not yet in incremental
+    auto-vacuum mode, which {!vacuum} establishes. *)
+
 val vacuum : t -> unit
 (** [vacuum t] rebuilds the live file so that space freed by rotation
-    returns to the filesystem. Run it with no other connection open. *)
+    returns to the filesystem, and leaves it in incremental auto-vacuum
+    mode so that {!release_space} suffices from then on. It holds the
+    write lock for the whole rebuild, so run it with the server stopped. *)
+
+(** {1 Scheduling} *)
+
+val seconds_until : now:float -> int -> float
+(** [seconds_until ~now hour] is the delay from Unix time [now] to the next
+    time of day [hour], in UTC. It is a full day when [now] is exactly
+    [hour]. *)
+
+val schedule :
+  sw:Eio.Switch.t -> clock:_ Eio.Time.clock -> mono:_ Eio.Time.Mono.t -> t ->
+  live_days:int -> hour:int ->
+  ?on_done:(rotation -> freed:int -> unit) -> ?on_error:(exn -> unit) ->
+  unit -> unit
+(** [schedule ~sw ~clock ~mono t ~live_days ~hour ()] forks a daemon fiber
+    on [sw] that at [hour] UTC each day moves rows older than [live_days]
+    into archives with {!rotate}, then runs {!release_space}, calling
+    [on_done] with the result or [on_error] with the exception. The delay
+    is measured on [mono] from the time of day [clock] gives.
+
+    @raise Invalid_argument when [live_days] is not positive or [hour] is
+    not between 0 and 23. *)

@@ -59,9 +59,21 @@ val merge : t -> from:_ Eio.Path.t -> int
 (** [merge t ~from] copies every row of the log or archive at [from] into
     [t] and is the number of rows copied. Row ids are reassigned. *)
 
+val release_space : t -> int
+(** [release_space t] returns freed pages to the filesystem a thousand at
+    a time, and is the number released. *)
+
 val vacuum : t -> unit
-(** [vacuum t] rebuilds the live file so space freed by rotation returns
-    to the filesystem. Run it with the server stopped. *)
+(** [vacuum t] rebuilds the live file, which returns the space freed so
+    far and puts the file in incremental auto-vacuum mode. Run it with the
+    server stopped, once. *)
+
+val schedule :
+  sw:Eio.Switch.t -> clock:_ Eio.Time.clock -> mono:_ Eio.Time.Mono.t -> t ->
+  live_days:int -> hour:int -> ?on_done:(rotation -> freed:int -> unit) ->
+  ?on_error:(exn -> unit) -> unit -> unit
+(** [schedule] forks a daemon that rotates at [hour] UTC each day and then
+    releases space. *)
 
 val archives : t -> (string * float * float) list
 (** [archives t] lists each attached archive with the timestamp range it
@@ -139,8 +151,10 @@ is read-only. The writer attaches an archive only during `rotate` and
 
 ## Rotation
 
-`rotate` walks the live table in id order. Each batch is one transaction
-on the writer connection:
+`rotate` opens a writer connection of its own, so a server recording
+through the shared connection meanwhile is never pulled into a batch
+transaction. It walks the live table in id order. Each batch is one
+transaction:
 
 ```sql
 INSERT INTO a_2025.requests (timestamp, remote_addr, ...)
@@ -161,9 +175,22 @@ approaches. The archive's `range_end` is raised as rows land in it. A batch
 that fails leaves both files consistent because the insert and delete
 share a transaction.
 
-Freed pages are reused by later inserts, so the live file stops growing
-once rotation runs regularly. `vacuum` is a one-time step after the first
-rotation of a large file and needs the file quiet.
+## Scheduling and space
+
+A server calls `schedule` once at start. A daemon fiber sleeps on the
+monotonic clock until the configured UTC hour, rotates rows older than the
+live window, then calls `release_space`, which runs
+`PRAGMA incremental_vacuum` a thousand pages at a time so no step holds
+the write lock for long. Nothing is ever deleted: rotation moves rows and
+the reader shows every archive, so the live window only bounds the file
+the server writes to.
+
+`release_space` needs the file in incremental auto-vacuum mode. New files
+are created in it. A file from before this library needs one `VACUUM`,
+which rebuilds it and switches the mode, and which holds the write lock
+for the whole rebuild, so it is a one-time command run with the server
+stopped. A full `VACUUM` is never scheduled from the server for that
+reason.
 
 ## Merge and migration
 
@@ -185,9 +212,10 @@ through a temporary copy first, so merge accepts arod's current file.
   version before writing to it.
 
 Arod's `access.db` therefore needs no copy or conversion: the first start
-of a build with `proffer-log` upgrades it, and `arod log rotate --keep 90`
-moves its history into yearly archives while the server runs. A `vacuum`
-during a maintenance window then shrinks the live file.
+of a build with `proffer-log` upgrades it, and the first scheduled run, or
+`arod log rotate --keep 90` by hand, moves its history into yearly archives
+while the server runs. One `arod log vacuum` during a maintenance window
+then shrinks the live file and enables nightly space release.
 
 ## Arod changes
 
@@ -197,8 +225,10 @@ during a maintenance window then shrinks the live file.
   dashboard keeps `requests`, since its windows are an hour and a day.
 - The stats handler calls `refresh` when it finds an archive newer than
   its last scan, so a rotation needs no restart.
-- `arod log rotate`, `merge`, `vacuum` and `ls` come from
-  `Proffer_log_cmd` over the XDG data path.
+- `arod serve` schedules rotation from `server.log_rotate_days` and
+  `server.log_rotate_hour`, 90 days at 04:00 UTC by default, and logs each
+  run. `arod log rotate`, `merge`, `vacuum` and `ls` come from
+  `Proffer_log_cmd` over the XDG data path for use by hand.
 
 ## Open points
 

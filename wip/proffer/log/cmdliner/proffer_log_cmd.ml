@@ -83,7 +83,8 @@ let vacuum ~setup ~path =
       print_endline "Vacuumed";
       0)
   in
-  let doc = "Rebuild the live file to return freed space. Stop the server first." in
+  let doc = "Rebuild the live file to return freed space and let the server \
+             return it nightly from then on. Stop the server first." in
   Cmd.v (Cmd.info "vacuum" ~doc) Term.(const run $ setup_term setup)
 
 let ls ~setup ~path =

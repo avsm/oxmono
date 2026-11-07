@@ -81,8 +81,9 @@ let () =
     check "live rows" (Proffer_log.live_rows log = 301);
     let r = Proffer_log.reader log in
     check "view without archives" (query_int r "SELECT COUNT(*) FROM requests_all" = 301);
-    (* A second writer inserts between batches to show rotation does not
-       lock it out. *)
+    (* The server keeps recording through the same [t] while rotation
+       runs, as it does under [schedule]. *)
+    let pages_before = query_int r "PRAGMA page_count" in
     let other = ref 0 in
     let stop = ref false in
     let rot = ref None in
@@ -91,13 +92,11 @@ let () =
         rot := Some (Proffer_log.rotate log ~before:(jan1 2026) ~batch:30 ());
         stop := true)
       (fun () ->
-        Eio.Switch.run (fun sw2 ->
-          let w = Proffer_log.open_ ~sw:sw2 path in
-          while not !stop do
-            Proffer_log.record w ~timestamp:(jan1 2026 +. 1e6) (event "/live");
-            incr other;
-            Eio.Fiber.yield ()
-          done));
+        while not !stop do
+          Proffer_log.record log ~timestamp:(jan1 2026 +. 1e6) (event "/live");
+          incr other;
+          Eio.Fiber.yield ()
+        done);
     let rot = Option.get !rot in
     check "moved two years" (rot.moved = 200);
     check "two archives written"
@@ -105,8 +104,7 @@ let () =
     check "live keeps retained year, the unplaceable row and new inserts"
       (Proffer_log.live_rows log = 101 + !other);
     check "other writer progressed" (!other > 0);
-    Proffer_log.refresh log;
-    let r = Proffer_log.reader log in
+    (* Rotation refreshed the reader itself. *)
     check "view spans archives"
       (query_int r "SELECT COUNT(*) FROM requests_all" = 301 + !other);
     check "range query crosses files"
@@ -123,6 +121,11 @@ let () =
     (* Rotation again moves nothing. *)
     let again = Proffer_log.rotate log ~before:(jan1 2026) () in
     check "idempotent" (again.moved = 0);
+    (* The pages the moved rows occupied go back to the filesystem. *)
+    let freed = Proffer_log.release_space log in
+    check "pages released" (freed > 0);
+    check "file shrank" (query_int r "PRAGMA page_count" < pages_before);
+    check "nothing left to release" (Proffer_log.release_space log = 0);
     (* Merge an archive back. *)
     let n = Proffer_log.merge log ~from:Eio.Path.(dir / "access-2024.db") in
     check "merged rows" (n = 100);
@@ -180,7 +183,15 @@ let () =
          "SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_requests_status'" = 0);
     check "metrics index present"
       (query_int r
-         "SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_requests_metrics'" = 1));
+         "SELECT COUNT(*) FROM sqlite_master WHERE name = 'idx_requests_metrics'" = 1);
+    (* The one-time rebuild puts an old file in incremental mode. *)
+    check "old file not incremental" (query_int r "PRAGMA auto_vacuum" = 0);
+    Proffer_log.vacuum log;
+    (* The pragma answers from the header read by the last transaction, so
+       the reader looks at the file before asking. *)
+    ignore (Proffer_log.live_rows log : int);
+    ignore (query_int r "SELECT COUNT(*) FROM requests" : int);
+    check "vacuum switches mode" (query_int r "PRAGMA auto_vacuum" = 2));
   (* A newer file is refused. *)
   Eio.Switch.run (fun sw ->
     let a = Sqlite3_eio.open_path ~sw Eio.Path.(dir / "new.db") in
@@ -190,4 +201,17 @@ let () =
        ignore (Proffer_log.open_ ~sw Eio.Path.(dir / "new.db") : Proffer_log.t)) with
      | () -> false
      | exception Failure _ -> true);
+  (* The daily schedule: the delay to the next hour, in UTC. *)
+  check "schedule later today" (Proffer_log.seconds_until ~now:0. 4 = 4. *. 3600.);
+  check "schedule tomorrow"
+    (Proffer_log.seconds_until ~now:(5. *. 3600.) 4 = 23. *. 3600.);
+  check "schedule a full day when on the hour"
+    (Proffer_log.seconds_until ~now:(4. *. 3600.) 4 = 86400.);
+  check "schedule rejects a bad hour"
+    (match Eio.Switch.run (fun sw ->
+       let log = Proffer_log.open_ ~sw path in
+       Proffer_log.schedule ~sw ~clock:(Eio.Stdenv.clock env)
+         ~mono:(Eio.Stdenv.mono_clock env) log ~live_days:1 ~hour:24 ()) with
+     | () -> false
+     | exception Invalid_argument _ -> true);
   Printf.printf "test_log: %d checks passed\n" !checks

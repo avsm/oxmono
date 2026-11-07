@@ -7,6 +7,8 @@ them upstream to Eio. The library targets native Unix Eio backends.
   exclusive creation and file locking through Eio directory capabilities.
 - `Eioext.Process` provides bounded capture, streaming stdout and scoped process
   groups. It resolves commands against the child environment's `PATH`.
+- `Eioext.Signals` installs portable signal handlers for the extent of a
+  call through `Sys.Safe`, restoring the previous behaviours afterwards.
 - `Eioext.Native` supports existing synchronous Unix stores. These operations
   may block. Eio applications should use `Path` or offload native calls to a
   worker thread. This compatibility module is not an upstream API proposal.

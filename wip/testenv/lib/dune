@@ -1,0 +1,6 @@
+(library
+ (name testenv)
+ (public_name testenv)
+ (foreign_stubs
+  (language c)
+  (names testenv_stubs)))

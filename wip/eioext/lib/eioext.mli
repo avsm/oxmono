@@ -2,6 +2,7 @@
 
 module Path = Path
 module Process = Process
+module Signals = Signals
 
 module Native = Native
 (** Synchronous compatibility for stores that perform their own worker-thread

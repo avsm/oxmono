@@ -75,7 +75,7 @@
 
 (test
  (name test_unicode_normalization)
- (libraries uunf httpz.punycode.idna alcotest)
+ (libraries uunf httpz.punycode.idna alcotest eio eio_main)
  (modules test_unicode_normalization))
 
 (test

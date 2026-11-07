@@ -42,10 +42,13 @@ let test_domains () =
   let work () =
     List.init 1000 (fun _ -> normalize `NFC shared_input)
   in
-  let first = Domain.Safe.spawn work in
-  let second = Domain.Safe.spawn work in
-  let first = Domain.join first in
-  let second = Domain.join second in
+  let first, second =
+    Eio_main.run @@ fun env ->
+    let mgr = Eio.Stdenv.domain_mgr env in
+    Eio.Fiber.pair
+      (fun () -> Eio.Domain_manager.run mgr work)
+      (fun () -> Eio.Domain_manager.run mgr work)
+  in
   Alcotest.(check (list string)) "independent accumulators" first second;
   Alcotest.(check string) "shared table result"
     (text [0xe9; 0xac01]) (List.hd first)

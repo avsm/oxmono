@@ -233,10 +233,12 @@ let test_system_anchors () =
   | Error (`Msg message) -> Alcotest.fail message
 
 let test_system_client_is_portable () =
+  Eio_main.run @@ fun env ->
   let system = Httpz_tls.system in
   let worker : (unit -> Httpz_tls.client) @ portable = fun () -> system in
-  let domain = Domain.Safe.spawn worker in
-  let (_ : Httpz_tls.client) = Domain.join domain in
+  let (_ : Httpz_tls.client) =
+    Eio.Domain_manager.run (Eio.Stdenv.domain_mgr env) worker
+  in
   ()
 (* An authentication failure prints whole peer certificates across many lines,
    which the error message must not carry into a log. *)

@@ -62,7 +62,7 @@ let serve_cmd =
         + List.length (Arod.Ctx.all_links ctx))));
     let xdg = Xdge.create fs "arod" in
     let log_path = Eio.Path.(Xdge.data_dir xdg / "access.db") in
-    let log = Arod_log.create ~sw log_path in
+    let log = Proffer_log.open_ ~sw log_path in
     Log.info (fun m -> m "Access log: %a" Eio.Path.pp log_path);
     (* Retain only subtree capabilities for served files. *)
     let confined_dir dir =
@@ -93,7 +93,8 @@ let serve_cmd =
             Log.info (fun m -> m "Search API: %d results for %S" n query))
         ~read_image:(fun segs -> read_confined images_dir segs)
         ~read_paper:(fun name -> read_confined papers_dir [ name ])
-        ~reader:(fun () -> Arod_log.reader log)
+        (* A rotation may have written an archive since the last page. *)
+        ~reader:(fun () -> Proffer_log.refresh log; Proffer_log.reader log)
         ~now:(fun () -> Eio.Time.now clock)
     in
     let site = Arod_server.Site.build cfg in
@@ -144,7 +145,7 @@ let serve_cmd =
      | Some dash ->
        C.Theme.set Fmt.stderr theme;
        Arod_server.Dashboard.run ~sw ~clock:(Eio.Stdenv.mono_clock env)
-         ~reader:(Arod_log.reader log) dash serve_all);
+         ~reader:(Proffer_log.reader log) dash serve_all);
     0
   in
   let theme =
@@ -833,6 +834,12 @@ let standardsite_cmd =
   let info = Cmd.info "standardsite" ~doc in
   Cmd.group info [list_cmd; show_cmd]
 
+let log_cmd =
+  Proffer_log_cmd.group ~setup:logging_t ()
+    ~path:(fun env ->
+      let xdg = Xdge.create (Eio.Stdenv.fs env) "arod" in
+      Eio.Path.(Xdge.data_dir xdg / "access.db"))
+
 let stats_cmd =
   let run () hours =
     let range = match hours with
@@ -844,7 +851,7 @@ let stats_cmd =
     Eio.Switch.run @@ fun sw ->
     let xdg = Xdge.create fs "arod" in
     let log_path = Eio.Path.(Xdge.data_dir xdg / "access.db") in
-    Arod_stats.report ~sw log_path range;
+    Arod_stats.report (Proffer_log.reader_of_path ~sw log_path) range;
     0
   in
   let hours =
@@ -942,7 +949,7 @@ let main_cmd =
   let info = Cmd.info "arod" ~version:"0.1.0" ~doc ~man in
   Cmd.group info [ serve_cmd; init_cmd; config_cmd; pull_cmd; index_cmd; search_cmd;
                    annotate_cmd; publish_cmd; publish_bulk_cmd;
-                   standardsite_cmd; stats_cmd ]
+                   standardsite_cmd; stats_cmd; log_cmd ]
 
 let () =
   match Cmd.eval_value main_cmd with

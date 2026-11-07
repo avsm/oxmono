@@ -2,4 +2,4 @@
  (name arod_server)
  (public_name arod.server)
  (libraries arod arod.handlers arod.log base console console-eio eio eio.unix logs
-  mtime proffer proffer-httpz sqlite3-eio unix))
+  mtime proffer proffer-httpz proffer-log sqlite3-eio unix))

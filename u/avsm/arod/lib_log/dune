@@ -2,5 +2,4 @@
  (name arod_log)
  (public_name arod.log)
  (wrapped false)
- (libraries sqlite3-eio proffer proffer-httpz jsont jsont.bytesrw ptime base
-   unix))
+ (libraries sqlite3-eio proffer-log ptime unix))

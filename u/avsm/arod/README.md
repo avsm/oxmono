@@ -33,6 +33,24 @@ timer, so a quiet server draws nothing and computes nothing.
 log, which is also what a pipe or a service manager gets. Interrupting the
 server prints the last frame and leaves it in the scrollback.
 
+## Access log
+
+Every request is recorded in `$XDG_DATA_HOME/arod/access.db` through
+`proffer-log`. The file grows without bound unless it is rotated:
+
+```sh
+arod log rotate --keep 90
+arod log ls
+```
+
+`rotate` moves requests older than the retention window into
+`access-YYYY.db` beside the live file, one per calendar year, in small
+transactions, so it can run while the server serves. The analytics page and
+`arod stats` read the live file and every archive together, so nothing
+leaves the reports. After the first rotation of a large file, stop the
+server and run `arod log vacuum` once to return the freed space. `arod log
+merge FILE` copies another log or archive back into the live file.
+
 ## Stylesheet
 
 Pages link one stylesheet, `assets/tw.css`, which `tailwind/regen.sh` builds

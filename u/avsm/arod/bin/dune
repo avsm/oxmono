@@ -11,6 +11,8 @@
   arod.search
   arod.server
   proffer
+  proffer-log
+  proffer-log.cmdliner
   bushel
   bushel.eio
   cmarkit

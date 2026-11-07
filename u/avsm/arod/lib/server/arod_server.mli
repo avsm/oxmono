@@ -19,7 +19,7 @@ val run :
     mono_clock:_ Eio.Time.Mono.t;
     .. > ->
   config:Arod.Config.t ->
-  log:Arod_log.t ->
+  log:Proffer_log.t ->
   ?dashboard:Arod_dashboard.t ->
   env:'env ->
   'env Proffer.Site.t ->

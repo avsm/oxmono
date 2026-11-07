@@ -3,8 +3,10 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-(* Webstats analysis of the arod_log SQLite access log database.
-   All queries are read-only and operate on the existing requests table. *)
+(* Webstats analysis of the Proffer_log access log. Every query is
+   read-only and reads [requests_all], the view a Proffer_log reader defines
+   over the live table and its archives, so a report covers the whole
+   history whatever has been rotated out of the live file. *)
 
 type time_range =
   | All
@@ -73,12 +75,12 @@ let query_string_int_float db sql =
 
 let total_requests db range =
   query_int db
-    (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE 1=1%s"
+    (Printf.sprintf "SELECT COUNT(*) FROM requests_all WHERE 1=1%s"
        (time_clause range))
 
 let date_range db =
   let stmt = Sqlite3_eio.prepare db
-    {|SELECT MIN(timestamp), MAX(timestamp) FROM requests|} in
+    {|SELECT MIN(timestamp), MAX(timestamp) FROM requests_all|} in
   let _rc, (lo, hi) = Sqlite3_eio.fold db stmt ~init:(0.0, 0.0)
     ~f:(fun _acc row ->
       let lo = match row.(0) with Sqlite3.Data.FLOAT f -> f | _ -> 0.0 in
@@ -100,7 +102,7 @@ let status_code_breakdown db range =
              ELSE 'other'
            END AS bucket,
            COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY bucket ORDER BY bucket|}
        (time_clause range))
 
@@ -108,7 +110,7 @@ let top_paths db range n =
   query_string_int db
     (Printf.sprintf
        {|SELECT path, COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY path ORDER BY cnt DESC LIMIT %d|}
        (time_clause range) n)
 
@@ -116,7 +118,7 @@ let top_404s db range n =
   query_string_int db
     (Printf.sprintf
        {|SELECT path, COUNT(*) AS cnt
-         FROM requests WHERE status_code = 404%s
+         FROM requests_all WHERE status_code = 404%s
          GROUP BY path ORDER BY cnt DESC LIMIT %d|}
        (time_clause range) n)
 
@@ -127,7 +129,7 @@ let latency_overview db range =
            AVG(duration_us),
            MIN(duration_us),
            MAX(duration_us)
-         FROM requests WHERE 1=1%s|}
+         FROM requests_all WHERE 1=1%s|}
        (time_clause range)) in
   let _rc, (avg, mn, mx) = Sqlite3_eio.fold db stmt ~init:(0.0, 0, 0)
     ~f:(fun _acc row ->
@@ -143,7 +145,7 @@ let latency_overview db range =
 let latency_percentiles db range =
   let stmt = Sqlite3_eio.prepare db
     (Printf.sprintf
-       {|SELECT duration_us FROM requests WHERE 1=1%s
+       {|SELECT duration_us FROM requests_all WHERE 1=1%s
          ORDER BY duration_us ASC|}
        (time_clause range)) in
   let _rc, durations = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
@@ -162,7 +164,7 @@ let latency_by_path db range n =
   query_string_int_float db
     (Printf.sprintf
        {|SELECT path, COUNT(*) AS cnt, AVG(duration_us) AS avg_us
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY path HAVING cnt >= 2
          ORDER BY avg_us DESC LIMIT %d|}
        (time_clause range) n)
@@ -173,21 +175,21 @@ let cache_stats db range =
        {|SELECT
            COALESCE(cache_status, 'none') AS cs,
            COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY cs ORDER BY cnt DESC|}
        (time_clause range))
 
 let bandwidth db range =
   query_float db
     (Printf.sprintf
-       "SELECT COALESCE(SUM(response_body_size), 0) FROM requests WHERE 1=1%s"
+       "SELECT COALESCE(SUM(response_body_size), 0) FROM requests_all WHERE 1=1%s"
        (time_clause range))
 
 let top_user_agents db range n =
   query_string_int db
     (Printf.sprintf
        {|SELECT COALESCE(user_agent, '(none)') AS ua, COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY ua ORDER BY cnt DESC LIMIT %d|}
        (time_clause range) n)
 
@@ -195,7 +197,7 @@ let top_referers db range n =
   query_string_int db
     (Printf.sprintf
        {|SELECT COALESCE(referer, '(direct)') AS ref, COUNT(*) AS cnt
-         FROM requests WHERE referer IS NOT NULL AND referer != ''%s
+         FROM requests_all WHERE referer IS NOT NULL AND referer != ''%s
          GROUP BY ref ORDER BY cnt DESC LIMIT %d|}
        (time_clause range) n)
 
@@ -204,7 +206,7 @@ let requests_per_hour db range =
     (Printf.sprintf
        {|SELECT strftime('%%Y-%%m-%%d %%H:00', timestamp, 'unixepoch') AS hour,
               COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY hour ORDER BY hour DESC LIMIT 48|}
        (time_clause range))
 
@@ -212,7 +214,7 @@ let top_remote_addrs db range n =
   query_string_int db
     (Printf.sprintf
        {|SELECT remote_addr, COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY remote_addr ORDER BY cnt DESC LIMIT %d|}
        (time_clause range) n)
 
@@ -220,7 +222,7 @@ let content_type_breakdown db range =
   query_string_int db
     (Printf.sprintf
        {|SELECT COALESCE(response_content_type, '(none)') AS ct, COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY ct ORDER BY cnt DESC|}
        (time_clause range))
 
@@ -228,7 +230,7 @@ let method_breakdown db range =
   query_string_int db
     (Printf.sprintf
        {|SELECT method, COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY method ORDER BY cnt DESC|}
        (time_clause range))
 
@@ -237,7 +239,7 @@ let slowest_requests db range n =
     (Printf.sprintf
        {|SELECT method, path, status_code, duration_us,
                 strftime('%%Y-%%m-%%d %%H:%%M:%%S', timestamp, 'unixepoch')
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          ORDER BY duration_us DESC LIMIT %d|}
        (time_clause range) n) in
   let _rc, rows = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
@@ -308,8 +310,7 @@ let print_table header rows =
 
 (** {1 Report} *)
 
-let report ~sw path range =
-  let db = Sqlite3_eio.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path in
+let report db range =
   let total = total_requests db range in
   if total = 0 then
     Printf.printf "No requests logged yet.\n"

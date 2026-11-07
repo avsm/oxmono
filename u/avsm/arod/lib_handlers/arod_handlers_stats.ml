@@ -192,7 +192,7 @@ let overview_metrics db range =
              SUM(CASE WHEN cache_status IN ('hit', 'miss') THEN 1 ELSE 0 END),
              SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
              COALESCE(SUM(response_body_size), 0)
-       FROM requests WHERE 1=1%s|}
+       FROM requests_all WHERE 1=1%s|}
     (time_clause range) in
   let stmt = Sqlite3_eio.prepare db sql in
   let num i (row : Sqlite3.Data.t array) = match row.(i) with
@@ -222,7 +222,7 @@ let status_breakdown db range =
             ELSE 'other'
           END AS bucket,
           COUNT(*) AS cnt
-        FROM requests
+        FROM requests_all
         WHERE 1=1%s
         GROUP BY bucket ORDER BY bucket|}
       (time_clause range))
@@ -231,7 +231,7 @@ let content_type_breakdown db range =
   query_string_int db
     (Printf.sprintf
        {|SELECT COALESCE(response_content_type, '(none)') AS ct, COUNT(*) AS cnt
-         FROM requests WHERE 1=1%s
+         FROM requests_all WHERE 1=1%s
          GROUP BY ct ORDER BY cnt DESC|}
        (time_clause range))
 
@@ -253,7 +253,7 @@ let traffic_over_time db range =
   query_string_int db
     (Printf.sprintf
        {|SELECT %s AS bucket, COUNT(*) AS cnt
-         FROM requests
+         FROM requests_all
          WHERE 1=1%s
          GROUP BY bucket ORDER BY bucket ASC
          LIMIT %d|}
@@ -267,7 +267,7 @@ let latency_percentiles db range =
   let tc = time_clause range in
   let count =
     query_int db
-      (Printf.sprintf "SELECT COUNT(*) FROM requests WHERE 1=1%s" tc)
+      (Printf.sprintf "SELECT COUNT(*) FROM requests_all WHERE 1=1%s" tc)
   in
   if count = 0 then (0, 0, 0, 0)
   else begin
@@ -276,7 +276,7 @@ let latency_percentiles db range =
     let got = Array.make 4 0 in
     let stmt = Sqlite3_eio.prepare db
       (Printf.sprintf
-         "SELECT duration_us FROM requests WHERE 1=1%s ORDER BY duration_us ASC"
+         "SELECT duration_us FROM requests_all WHERE 1=1%s ORDER BY duration_us ASC"
          tc) in
     let _rc, _i = Sqlite3_eio.fold db stmt ~init:0 ~f:(fun i row ->
       let d = match row.(0) with Sqlite3.Data.INT n -> Int64.to_int n | _ -> 0 in
@@ -304,7 +304,7 @@ let latency_histogram db range =
             ELSE '>1s'
           END AS bucket,
           COUNT(*) AS cnt
-        FROM requests
+        FROM requests_all
         WHERE 1=1%s
         GROUP BY bucket
         ORDER BY MIN(duration_us) ASC|}
@@ -314,7 +314,7 @@ let all_referers db range =
   query_string_int db
     (Printf.sprintf
        {|SELECT COALESCE(referer, '(direct)') AS ref, COUNT(*) AS cnt
-         FROM requests WHERE referer IS NOT NULL AND referer <> ''%s
+         FROM requests_all WHERE referer IS NOT NULL AND referer <> ''%s
          GROUP BY ref ORDER BY cnt DESC LIMIT 100|}
        (time_clause range))
 
@@ -324,7 +324,7 @@ let recent_requests db =
         strftime('%Y-%m-%d %H:%M:%S', timestamp, 'unixepoch') AS ts,
         method, path, status_code, duration_us, cache_status,
         response_body_size
-      FROM requests
+      FROM requests_all
       ORDER BY timestamp DESC LIMIT 50|} in
   let _rc, rows = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
     let ts = match row.(0) with Sqlite3.Data.TEXT s -> s | _ -> "" in
@@ -343,7 +343,7 @@ let cache_breakdown db range =
   query_string_int db
     (Printf.sprintf
       {|SELECT COALESCE(cache_status, 'none') AS cs, COUNT(*) AS cnt
-        FROM requests WHERE 1=1%s GROUP BY cs ORDER BY cnt DESC|}
+        FROM requests_all WHERE 1=1%s GROUP BY cs ORDER BY cnt DESC|}
       (time_clause range))
 
 let cache_rate_over_time db range =
@@ -362,7 +362,7 @@ let cache_rate_over_time db range =
     {|SELECT %s AS bucket,
              SUM(CASE WHEN cache_status = 'hit' THEN 1 ELSE 0 END) * 100.0 /
                NULLIF(SUM(CASE WHEN cache_status IN ('hit','miss') THEN 1 ELSE 0 END), 0) AS rate
-      FROM requests
+      FROM requests_all
       WHERE 1=1%s
       GROUP BY bucket ORDER BY bucket ASC
       LIMIT %d|}
@@ -439,7 +439,7 @@ let recent_errors_with_referrer db =
                     PARTITION BY path
                     ORDER BY (referer IS NULL OR referer = ''), timestamp DESC
                   ) AS rn
-           FROM requests WHERE status_code >= 400%s
+           FROM requests_all WHERE status_code >= 400%s
          ) WHERE rn = 1
          ORDER BY cnt DESC LIMIT 200|}
        (time_clause range)) in
@@ -461,7 +461,7 @@ let feed_overview db range =
   let stmt = Sqlite3_eio.prepare db
     (Printf.sprintf
        {|SELECT path, COUNT(*) AS cnt, COUNT(DISTINCT user_agent) AS unique_uas
-         FROM requests WHERE path IN (%s)%s
+         FROM requests_all WHERE path IN (%s)%s
          GROUP BY path ORDER BY cnt DESC|}
        paths_sql (time_clause range)) in
   let _rc, rows = Sqlite3_eio.fold db stmt ~init:[] ~f:(fun acc row ->
@@ -478,7 +478,7 @@ let feed_top_readers db range =
   query_string_int db
     (Printf.sprintf
        {|SELECT COALESCE(user_agent, '(none)') AS ua, COUNT(*) AS cnt
-         FROM requests WHERE path IN (%s)%s
+         FROM requests_all WHERE path IN (%s)%s
          GROUP BY ua ORDER BY cnt DESC LIMIT 15|}
        paths_sql (time_clause range))
 
@@ -515,7 +515,7 @@ let top_content_by_type db range content_type n =
              COUNT(DISTINCT referer) AS unique_refs,
              COALESCE(SUM(response_body_size), 0) AS bw,
              AVG(duration_us) AS avg_us
-      FROM requests
+      FROM requests_all
       WHERE path LIKE '%s' AND path != '%s'
         AND status_code = 200%s
       GROUP BY path ORDER BY cnt DESC LIMIT %d|}
@@ -543,7 +543,7 @@ let traffic_classification db range =
     {|SELECT %s AS category,
              COUNT(*) AS cnt,
              COALESCE(SUM(response_body_size), 0) AS bw
-      FROM requests WHERE 1=1%s
+      FROM requests_all WHERE 1=1%s
       GROUP BY category ORDER BY cnt DESC|}
     ua_classify_sql (time_clause range) in
   let stmt = Sqlite3_eio.prepare db sql in
@@ -583,7 +583,7 @@ let header_sample = 100_000
    [range], for the header queries to read in place of the whole table. *)
 let header_sample_sql range =
   Printf.sprintf
-    {|(SELECT request_headers, user_agent, timestamp FROM requests
+    {|(SELECT request_headers, user_agent, timestamp FROM requests_all
        WHERE 1=1%s ORDER BY timestamp DESC LIMIT %d)|}
     (time_clause range) header_sample
 

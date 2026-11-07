@@ -25,7 +25,7 @@ let run ~sw ~stdenv ~(config : Arod.Config.t) ~log ?dashboard ~env site =
     (* Serving is single-domain, so the insert happens on the domain that
        owns the log database. Serving from several domains would need this
        to hand the event to a fiber on that domain through a queue. *)
-    Arod_log.log_request log ~timestamp:(Eio.Time.now clock) event;
+    Proffer_log.record log ~timestamp:(Eio.Time.now clock) event;
     (match dashboard with
      | Some d -> Arod_dashboard.record d event
      | None -> ());

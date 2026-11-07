@@ -1,5 +1,11 @@
 # unreleased
 
+- Update the DS4 engine to upstream `b3f5018` (2026-11-03). Metal gains
+  faster DeepSeek V4.1 decode and prefill, bounded SSD expert streaming for
+  Qwen3.8 Flash Next, Qwen version 2 checkpoints, a `/ctx` session memory
+  leak fix and a half-aligned Qwen Q2 row read fix. Vendor the new
+  `ds4_metal_device.h` header.
+
 - Clarify opam descriptions of package functionality and interfaces.
 
 - Share Hugging Face download handling. Keep tokens out of process arguments

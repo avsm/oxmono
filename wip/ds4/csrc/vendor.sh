@@ -34,7 +34,7 @@ fi
 # not vendored.
 FILES="ds4.c ds4.h \
        ds4_gpu.h ds4_gpu_mgpu.h ds4_gpu_copy.h \
-       ds4_metal.m \
+       ds4_metal.m ds4_metal_device.h \
        ds4_cuda.cu ds4_iq2_tables_cuda.inc ds4_glm53_vision_gpu.cuh \
        ds4_deepseek4_vision_gpu.cuh ds4_deepseek41_cuda.cuh \
        ds4_qwen4_cuda.cuh ds4_qwen4_vision.h \

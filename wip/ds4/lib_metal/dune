@@ -199,6 +199,7 @@
   (= %{system} macosx))
  (deps
   ../csrc/ds4_metal.m
+  ../csrc/ds4_metal_device.h
   ../csrc/ds4.h
   ../csrc/ds4_gpu.h
   ../csrc/ds4_deepseek41_dspark.h

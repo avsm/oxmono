@@ -631,6 +631,11 @@ Input, output, node count and nesting are bounded. Unsafe URLs, executable
 elements and source CSS are omitted. Unknown TEI elements retain readable
 text. Source repair remains separate from display formatting.
 
+`/docs` holds reference pages served by the website itself; `/docs/corpus`
+documents every column of a corpus export and its Parquet type, the
+provenance and acquisition records and the frozen source labels. A test
+keeps it equal to the keys of an exported row.
+
 The standalone browser has no account system. Keep its loopback listener
 or place an authenticated reverse proxy in front of it when sharing it.
 

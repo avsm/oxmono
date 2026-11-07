@@ -198,7 +198,7 @@ let nav label path = Sitekit.nav label (Sitekit.Url.path [path])
 
 let site = Sitekit.site ~name:"taposaur" ~brand:"tp" ~theme:`Light
   ~nav:[nav "Browse & search" "search"; nav "Reviews" "reviews";
-        nav "Jobs" "jobs"; nav "Activity" "activity"]
+        nav "Jobs" "jobs"; nav "Activity" "activity"; nav "Docs" "docs"]
   ~stylesheets:[stylesheet] ~scripts:[katex; script]
   ~footer:[El.v "details" ~at:[at "id" "server-debug"]
     [el "summary" [txt "Debug · server paths & capabilities"];

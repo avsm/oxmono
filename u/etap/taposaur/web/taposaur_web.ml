@@ -4,11 +4,12 @@ module A = Taposaur_archive
 module C = Taposaur_catalog
 module Reviews = Taposaur_review_store
 module Journal_links = Journal_links
+module Docs = struct let corpus_columns = Docs_view.corpus_columns end
 
 type page = Home | Search | Paper | Events | Download | Pdf | Read | Debug | Audit
   | Journals | Script | Katex | Reviews | Review | Review_definition
   | Review_snapshot | Review_papers | Review_export | Review_input | Review_compare
-  | Jobs | Job | Activity_page
+  | Jobs | Job | Activity_page | Docs | Docs_corpus
 
 type t = {
   handle : page -> (Req.t @ local -> Resp.respond @ local -> unit) @ local;
@@ -79,7 +80,7 @@ let page_name = function
   | Review_snapshot -> "review-snapshot" | Review_papers -> "review-papers"
   | Review_export -> "review-export" | Review_input -> "review-input"
   | Review_compare -> "review-compare" | Jobs -> "jobs" | Job -> "job"
-  | Activity_page -> "activity"
+  | Activity_page -> "activity" | Docs -> "docs" | Docs_corpus -> "docs/corpus"
 
 let create ?(publisher_lookup=fun _ -> None) ?(abstract_lookup=fun _ -> None)
     ?audit ?storage ?reviews ?jobs
@@ -297,6 +298,8 @@ let create ?(publisher_lookup=fun _ -> None) ?(abstract_lookup=fun _ -> None)
                "Pub2TEI",
                  "Publisher XML to TEI. Explicitly configured HTTP client; not called by the website."]);
           View.p "Fetches validate content and record provenance in a per-paper staging tree. Publisher requests are paced and busy responses retried. Staging is separate from the accepted archive."]))
+    else if page = Docs then html Docs_view.index
+    else if page = Docs_corpus then html Docs_view.corpus
     else if page = Reviews then
       (match reviews with
        | None -> html (View.page "Reviews"
@@ -531,6 +534,9 @@ let site =
     get root (fun env req respond -> env.handle Home req respond);
     get (s "debug") (fun env req respond -> env.handle Debug req respond);
     get (s "reviews") (fun env req respond -> env.handle Reviews req respond);
+    get (s "docs") (fun env req respond -> env.handle Docs req respond);
+    get (s "docs" / s "corpus")
+      (fun env req respond -> env.handle Docs_corpus req respond);
     get (s "jobs") (fun env req respond -> env.handle Jobs req respond);
     get (s "activity")
       (fun env req respond -> env.handle Activity_page req respond);

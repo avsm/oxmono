@@ -880,6 +880,15 @@ let website () = with_temp (fun env sw root ->
     W.request ?headers ~on_error:(fun ex -> raise ex) Taposaur_web.site state meth target in
   let code r = Proffer.Status.code (W.status r) in
   count "home" 200 (code (request "/"));
+  check "navigation links the docs" true (includes (W.body (request "/")) "href=\"/docs\"");
+  let docs = request "/docs" in
+  count "docs index" 200 (code docs);
+  check "docs index links the corpus schema" true (includes (W.body docs) "/docs/corpus");
+  let schema = request "/docs/corpus" in
+  count "corpus schema page" 200 (code schema);
+  List.iter (fun needle -> check ("schema page documents " ^ needle) true
+    (includes (W.body schema) needle))
+    ["title_provenance";"text_acquisition";"journal_openalex_match";"publisher_xml";"review_input"];
   let jobs_page = request "/jobs" in
   count "jobs page" 200 (code jobs_page);
   check "jobs page lists the queue" true

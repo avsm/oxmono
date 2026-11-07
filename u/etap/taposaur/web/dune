@@ -2,7 +2,7 @@
  (name taposaur_web)
  (public_name taposaur.web)
  (private_modules audit_view view artifact client review_view jobs_view
-  activity activity_view katex)
+  activity activity_view katex docs_view)
  (libraries
   taposaur.audit
   taposaur

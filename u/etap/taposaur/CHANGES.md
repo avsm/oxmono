@@ -1,5 +1,12 @@
 # Changes
 
+- The website serves reference pages at `/docs`; `/docs/corpus` documents
+  the corpus export schema (every column, its Parquet type, the provenance
+  and acquisition records, the kinds and the frozen labels) and is linked
+  from the navigation and from every snapshot's exports. A test checks the
+  documented columns against the keys of an encoded corpus row. The
+  roadmap gains a plan for running corpus exports as Duraml jobs submitted
+  from the website.
 - Abstract evidence schema 2 keeps the bibliography of every OpenAlex work
   it matches (title, authors, journal, publisher, dates, volume, issue,
   pages, ISSN, PubMed identifiers) as `Taposaur.Work_evidence`, whether or

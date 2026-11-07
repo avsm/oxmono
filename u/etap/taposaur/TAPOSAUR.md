@@ -808,6 +808,23 @@ Retrieval times are present on 579,795 title provenances (artifact times
 for TEI, response times for OpenAlex); digests only where the manifest
 or store records one (265,234).
 
+### Corpus schema page and the export-job plan (2026-11-07, 03:30 UTC)
+
+The user asked for the schema summary to live on the website and for a
+plan to run the Parquet export from the website as Duraml jobs. `/docs`
+and `/docs/corpus` are served by `Docs_view` (linked from the navigation
+and from each snapshot's exports); `Taposaur_web.Docs.corpus_columns`
+exposes the documented names and `test_reviews` checks them against the
+keys of an encoded row, so the page cannot drift from `row_jsont`. The
+plan is ROADMAP.md section 8. The short answer to "do we have everything":
+the export, the queue machinery, the immutable store, streaming responses
+and the job pages exist; missing are a Parquet writer in OCaml (none in
+the switch; duckdb can stand in as an external converter behind one
+interface), an export job family with a store descriptor, one audited
+write path on the otherwise read-only website, and a streamed download.
+The running website (pid 534287) is the old binary and does not serve
+`/docs` until restarted.
+
 ### Remaining before a bulk run
 
 Run the pilot. Confirm live publisher entitlements and converter health.

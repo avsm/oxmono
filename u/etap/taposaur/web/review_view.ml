@@ -118,7 +118,8 @@ let snapshot (s : S.snapshot) statistics =
   let exports = List.map (fun (format,label) ->
     link_to "/review-export" ["id",id s.id;"format",format] label)
     ["csv","Export CSV";"doi","DOI list";
-     "jsonl","Metadata JSONL";"manifest","Manifest"] in
+     "jsonl","Metadata JSONL";"manifest","Manifest"]
+    @ [link "/docs/corpus" "Corpus schema"] in
   let coverage = match statistics with
     | None -> [p "Coverage statistics have not been cached yet."]
     | Some (stats : R.Statistics.t) ->

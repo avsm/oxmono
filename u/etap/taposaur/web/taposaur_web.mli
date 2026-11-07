@@ -36,7 +36,13 @@ val create :
     without it durations read as zero.
     [storage] supplies explicitly selected host paths for the debug panel.
     No credentials or environment-variable values are inspected. *)
+module Docs : sig
+  val corpus_columns : string list
+  (** [corpus_columns] names every corpus export column the [/docs/corpus]
+      page documents, in page order. *)
+end
 val site : t Proffer.Site.t
 (** [site] serves review, overview, search, paper, event and TEI pages, plus
-    manifest-listed artifact streams. GET routes also support HEAD.
+    manifest-listed artifact streams, and the [/docs] reference pages.
+    GET routes also support HEAD.
     PDF streams support one byte range. No mutation routes are installed. *)

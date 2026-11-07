@@ -432,6 +432,15 @@ let corpus () = with_temp (fun env sw root _ ->
     (Printf.sprintf "\"snapshot\":%d" snap));
   let back = get (R.decode Taposaur_corpus.row_jsont line) in
   check "round trip" true (back = b);
+  let keys = Jsont.String_map.fold (fun k _ acc -> k :: acc)
+    (get (R.decode (Jsont.Object.as_string_map Jsont.json) line)) [] in
+  let documented = Taposaur_web.Docs.corpus_columns in
+  Alcotest.(check (list string)) "every row key is documented" []
+    (List.filter (fun k -> not (List.mem k documented)) keys);
+  Alcotest.(check (list string)) "every documented column is a row key" []
+    (List.filter (fun k -> not (List.mem k keys)) documented);
+  check "columns are documented once" true
+    (List.length documented = List.length (List.sort_uniq compare documented));
   load c [{ (make_index "10.1000/a") with title=Some "Updated title";
     abstract=Some ""; journal=Some "Live journal"}];
   let evidence = {Abstract_evidence.doi="10.1000/b";abstract="Evidence abstract";

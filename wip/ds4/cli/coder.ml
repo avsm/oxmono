@@ -161,7 +161,7 @@ let printer ~stdout =
 (* The prompt in flight, which Ctrl-C interrupts. With none, Ctrl-C leaves. *)
 let in_flight : Agent.t option ref = ref None
 
-let on_interrupt _ =
+let on_interrupt () =
   match !in_flight with Some agent -> Agent.cancel agent | None -> exit 130
 
 let send ~on_event agent prompt =
@@ -230,18 +230,33 @@ let run ~model ~workspace ~system ~thinking ~seed ~ctx_size ~max_ctx_size
       ~seed:(Cli.resolve_seed seed)
       ~tools:(tools ~vision:(Option.is_some vision) caps)
   in
-  (* Eio has no signal-waiting API. This handler is installed and restored on
-     the main domain, and [on_interrupt] only sets the session's C atomic. *)
-  let previous =
-    (Sys.signal Sys.sigint (Sys.Signal_handle on_interrupt)
-     [@alert "-unsafe_multidomain"])
-  in
+  (* Eio has no signal-waiting API. The handler is shared by every domain and
+     may hold nothing of this one, so it only writes a byte to a pipe, and a
+     fiber of this domain reads the byte and acts on it. *)
+  let woken, wake = Unix.pipe ~cloexec:true () in
   Fun.protect ~finally:(fun () ->
-      (Sys.set_signal Sys.sigint previous [@alert "-unsafe_multidomain"]))
+      Unix.close woken;
+      Unix.close wake)
   @@ fun () ->
-  match prompt with
-  | Some p -> send ~on_event:(printer ~stdout) agent p
-  | None -> repl ~stdin:(Eio.Stdenv.stdin env) ~stdout agent
+  Eioext.Signals.with_handlers
+    [
+      ( Sys.sigint,
+        Sys.Signal_handle
+          (fun _ -> ignore (Unix.single_write_substring wake "." 0 1)) );
+    ]
+  @@ fun () ->
+  let rec interrupts () =
+    Eio_unix.await_readable woken;
+    ignore (Unix.read woken (Bytes.create 1) 0 1);
+    on_interrupt ();
+    interrupts ()
+  in
+  Eio.Fiber.first
+    (fun () ->
+      match prompt with
+      | Some p -> send ~on_event:(printer ~stdout) agent p
+      | None -> repl ~stdin:(Eio.Stdenv.stdin env) ~stdout agent)
+    interrupts
 
 open Cmdliner
 

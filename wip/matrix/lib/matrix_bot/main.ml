@@ -26,19 +26,24 @@ let setup_logs style_renderer level =
   Logs.set_reporter (Logs_fmt.reporter ())
 
 (* A signal handler runs between two instructions of whatever fiber the
-   scheduler happened to be in, so the only thing it may touch is a
-   primitive that takes no lock: [Eio.Condition.broadcast]. Everything the
-   shutdown actually does happens in the fiber waiting on it. *)
+   scheduler happened to be in, on any domain, so the only thing it may
+   touch is a non-blocking write to a pipe. Everything the shutdown actually
+   does happens in the fiber waiting for the pipe to become readable. The
+   handlers and the pipe last for the rest of the process. *)
 let on_signals stop =
-  let condition = Eio.Condition.create () in
+  let rd, wr = Unix.pipe ~cloexec:true () in
+  Unix.set_nonblock wr;
   let handler =
-    Sys.Signal_handle (fun _ -> Eio.Condition.broadcast condition)
+    Sys.Signal_handle
+      (fun _ ->
+        try ignore (Unix.single_write_substring wr "s" 0 1)
+        with Unix.Unix_error _ -> ())
   in
   List.iter
-    (fun signal -> Sys.set_signal signal handler)
+    (fun signal -> Sys.Safe.set_signal signal handler)
     [ Sys.sigint; Sys.sigterm ];
   fun () ->
-    Eio.Condition.await_no_mutex condition;
+    Eio_unix.await_readable rd;
     stop ()
 
 (* [with_context] is the common command-line envelope.  In particular, keep

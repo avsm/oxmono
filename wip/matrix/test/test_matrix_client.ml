@@ -11,9 +11,6 @@
     points XDG at a temporary directory; the explicit-root test does not touch
     the XDG environment. *)
 
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 open Recording
 module Client = Matrix_client.Client
 module Auth = Matrix_client.Auth
@@ -3077,33 +3074,6 @@ let sample_session_file : Session.Session_file.t =
       };
   }
 
-let with_temp_xdg f =
-  let dir = Filename.temp_dir "matrix-test-" "" in
-  let saved =
-    List.map
-      (fun v -> (v, Sys.getenv_opt v))
-      [
-        "HOME";
-        "XDG_DATA_HOME";
-        "XDG_CONFIG_HOME";
-        "XDG_CACHE_HOME";
-        "XDG_STATE_HOME";
-        "XDG_RUNTIME_DIR";
-      ]
-  in
-  let restore () =
-    List.iter
-      (fun (v, old) ->
-        match old with Some s -> Unix.putenv v s | None -> Unix.putenv v "")
-      saved
-  in
-  List.iter (fun (v, _) -> Unix.putenv v dir) saved;
-  Fun.protect
-    ~finally:(fun () ->
-      restore ();
-      ignore (Sys.command (Filename.quote_command "rm" [ "-rf"; dir ])))
-    (fun () -> f dir)
-
 let with_temp_root f =
   let dir = Filename.temp_dir "matrix-profile-root-" "" in
   Fun.protect
@@ -3230,7 +3200,7 @@ let test_thread_subscriptions_failed_write_keeps_token () =
       Alcotest.failf "prior-state reload failed: %s" (Error.to_string error)
 
 let test_session_store () =
-  with_temp_xdg @@ fun dir ->
+  Testenv.with_xdg ~prefix:"matrix-test-" @@ fun root ->
   Eio_main.run @@ fun env ->
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix" in
   let store = Profile_store.create ~xdg ~profile:"testprofile" in
@@ -3251,9 +3221,8 @@ let test_session_store () =
   Alcotest.(check bool) "profile now exists" true (Profile_store.exists store);
   (* The file is named session.json and is mode 0600. *)
   let path =
-    Filename.concat
-      (Filename.concat (Filename.concat dir "matrix") "profiles")
-      "testprofile"
+    List.fold_left Filename.concat root
+      [ "data"; "matrix"; "profiles"; "testprofile" ]
   in
   let file = Filename.concat path "session.json" in
   let profile_st = Unix.stat path in

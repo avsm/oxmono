@@ -94,17 +94,8 @@ let test_driver_without_store () =
       Alcotest.failf "save without store: %s" (Error.to_string error)
 
 let with_store f =
+  Testenv.with_xdg ~prefix:"matrix-account-" @@ fun _root ->
   Eio_main.run @@ fun env ->
-  let base = Filename.temp_file "matrix-account-" "" in
-  Sys.remove base;
-  Unix.mkdir base 0o700;
-  Unix.putenv "XDG_DATA_HOME" (Filename.concat base "data");
-  Unix.putenv "XDG_CONFIG_HOME" (Filename.concat base "config");
-  Unix.putenv "XDG_CACHE_HOME" (Filename.concat base "cache");
-  Unix.putenv "XDG_STATE_HOME" (Filename.concat base "state");
-  let runtime = Filename.concat base "runtime" in
-  Unix.mkdir runtime 0o700;
-  Unix.putenv "XDG_RUNTIME_DIR" runtime;
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-account-test" in
   f xdg (Crypto_store.create ~xdg ~profile:"default")
 

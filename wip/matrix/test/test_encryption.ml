@@ -13,9 +13,6 @@
     system CSPRNG, so a failure reproduces exactly; each machine gets its own
     seed so that two "identical" devices do not accidentally share keys. *)
 
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
@@ -1883,17 +1880,8 @@ let test_secret_request_cancel_after_send () =
 
 (* The store tests need a real filesystem, so they run their own Eio_main. *)
 let with_store_xdg f =
+  Testenv.with_xdg ~prefix:"matrix-crypto-" @@ fun _root ->
   Eio_main.run @@ fun env ->
-  let base = Filename.temp_file "matrix-crypto-" "" in
-  Sys.remove base;
-  Unix.mkdir base 0o700;
-  Unix.putenv "XDG_DATA_HOME" (Filename.concat base "data");
-  Unix.putenv "XDG_CONFIG_HOME" (Filename.concat base "config");
-  Unix.putenv "XDG_CACHE_HOME" (Filename.concat base "cache");
-  Unix.putenv "XDG_STATE_HOME" (Filename.concat base "state");
-  let runtime = Filename.concat base "runtime" in
-  Unix.mkdir runtime 0o700;
-  Unix.putenv "XDG_RUNTIME_DIR" runtime;
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-test" in
   f xdg (Crypto_store.create ~xdg ~profile:"default")
 
@@ -4744,11 +4732,8 @@ let test_store_round_trip () =
               after_sent_restart))
 
 let test_crypto_store_stale_generation () =
+  Testenv.with_xdg ~prefix:"matrix-crypto-generation-" @@ fun _root ->
   Eio_main.run @@ fun env ->
-  let base = Filename.temp_file "matrix-crypto-generation-" "" in
-  Sys.remove base;
-  Unix.mkdir base 0o700;
-  Unix.putenv "XDG_DATA_HOME" (Filename.concat base "data");
   let fs = Eio.Stdenv.fs env in
   let xdg = Xdge.create fs "matrix-generation" in
   let first = Crypto_store.create ~xdg ~profile:"shared" in

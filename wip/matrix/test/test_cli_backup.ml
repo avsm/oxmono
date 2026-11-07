@@ -36,39 +36,21 @@ let contains text fragment =
   loop 0
 
 let with_fixture f =
+  Testenv.with_xdg ~prefix:"matrix-cli-backup-" @@ fun directory ->
   Eio_main.run @@ fun env ->
-  let directory = Filename.temp_dir "matrix-cli-backup-" "" in
   let fs = Eio.Stdenv.fs env in
-  let variables =
-    [
-      "XDG_DATA_HOME";
-      "XDG_CONFIG_HOME";
-      "XDG_CACHE_HOME";
-      "XDG_STATE_HOME";
-      "XDG_RUNTIME_DIR";
-    ]
+  let xdg = Xdge.create fs "matrix" in
+  let store = M.Crypto_store.create ~xdg ~profile:"default" in
+  let machine =
+    M.Encryption.create ~random:(random '\x12') ~user_id:user ~device_id:device
+      ()
   in
-  let previous = List.map (fun name -> (name, Sys.getenv_opt name)) variables in
-  List.iter (fun name -> Unix.putenv name directory) variables;
-  Fun.protect
-    ~finally:(fun () ->
-      List.iter
-        (fun (name, value) -> Unix.putenv name (Option.value value ~default:""))
-        previous;
-      Eio.Path.rmtree Eio.Path.(fs / directory))
-    (fun () ->
-      let xdg = Xdge.create fs "matrix" in
-      let store = M.Crypto_store.create ~xdg ~profile:"default" in
-      let machine =
-        M.Encryption.create ~random:(random '\x12') ~user_id:user
-          ~device_id:device ()
-      in
-      let old_key = key '\x23' in
-      M.Encryption.enable_backup machine ~version:"old" ~decryption_key:old_key
-        (B.Decryption_key.public old_key);
-      ok (M.Crypto_store.save store (M.Encryption.snapshot machine));
-      let profile = M.Profile_store.create ~xdg ~profile:"default" in
-      f env directory xdg profile)
+  let old_key = key '\x23' in
+  M.Encryption.enable_backup machine ~version:"old" ~decryption_key:old_key
+    (B.Decryption_key.public old_key);
+  ok (M.Crypto_store.save store (M.Encryption.snapshot machine));
+  let profile = M.Profile_store.create ~xdg ~profile:"default" in
+  f env directory xdg profile
 
 let snapshot profile =
   let dir = M.Profile_store.dir profile in
@@ -76,20 +58,14 @@ let snapshot profile =
   |> List.filter (fun name -> name <> ".profile.lock")
   |> List.map (fun name -> (name, Eio.Path.load Eio.Path.(dir / name)))
 
-let run ?(command = [ "backup"; "restore" ]) env directory args =
+(* The child inherits the XDG environment that [with_fixture] bound. *)
+let run ?(command = [ "backup"; "restore" ]) env args =
   let output = Buffer.create 256 in
   let status =
     Eio.Switch.run @@ fun sw ->
-    let child_env =
-      Unix.environment () |> Array.to_list
-      |> List.filter (fun entry ->
-          not (String.starts_with ~prefix:"XDG_DATA_HOME=" entry))
-      |> fun entries -> Array.of_list (("XDG_DATA_HOME=" ^ directory) :: entries)
-    in
     let process =
       Eio.Process.spawn ~sw
         (Eio.Stdenv.process_mgr env)
-        ~env:child_env
         ~stdin:(Eio.Flow.string_source "")
         ~stdout:(Eio.Flow.buffer_sink output)
         ~stderr:(Eio.Flow.buffer_sink output)
@@ -188,7 +164,7 @@ let reject_metadata name make_version =
   @@ fun homeserver ->
   save_session profile homeserver;
   let before = snapshot profile in
-  let status, output = run env directory [ "--recovery-key-file"; file ] in
+  let status, output = run env [ "--recovery-key-file"; file ] in
   Alcotest.(check bool) name true (status <> `Exited 0);
   Alcotest.(check bool)
     "key stays out of diagnostics" false (contains output recovery);
@@ -206,7 +182,7 @@ let test_invalid_input () =
         | Some value -> key_file env directory value
       in
       let before = snapshot profile in
-      let status, output = run env directory [ "--recovery-key-file"; file ] in
+      let status, output = run env [ "--recovery-key-file"; file ] in
       Alcotest.(check bool) name true (status <> `Exited 0);
       Alcotest.(check bool)
         "safe error" false
@@ -226,7 +202,7 @@ let test_positional () =
   List.iter
     (fun args ->
       let before = snapshot profile in
-      let status, output = run env directory args in
+      let status, output = run env args in
       Alcotest.(check bool) "positional rejected" true (status <> `Exited 0);
       Alcotest.(check bool)
         "positional secret not printed" false (contains output secret);
@@ -293,7 +269,7 @@ let test_restore populated =
       | _ -> Alcotest.failf "unexpected request: %s" request)
   @@ fun homeserver ->
   save_session profile homeserver;
-  let status, output = run env directory [ "--recovery-key-file"; file ] in
+  let status, output = run env [ "--recovery-key-file"; file ] in
   Alcotest.(check bool) "success" true (status = `Exited 0);
   Alcotest.(check bool)
     "import count" true
@@ -339,7 +315,7 @@ let test_login_retires_corrupt_marker () =
       {|{"access_token":"fresh-login","refresh_token":"fresh-refresh","user_id":"@backup:example.org","device_id":"BACKUP"}|})
   @@ fun homeserver ->
   let status, _ =
-    run ~command:[ "login" ] env directory
+    run ~command:[ "login" ] env
       [
         "-s";
         Uriz.to_string homeserver;

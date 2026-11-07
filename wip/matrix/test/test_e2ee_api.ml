@@ -11,9 +11,6 @@
     Python's [hashlib]/[cryptography], so they check this implementation against
     another rather than against itself. *)
 
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 open Recording
 module Client = Matrix_client.Client
 module Error = Matrix_client.Error
@@ -1781,17 +1778,8 @@ let test_import_backup_persistence_failure () =
      account-data and version validation still complete, proving that this
      path reports persistence failure rather than claiming the import was
      durable. *)
+  Testenv.with_xdg ~prefix:"matrix-backup-import-" @@ fun _root ->
   Eio_main.run @@ fun env ->
-  let base = Filename.temp_file "matrix-backup-import-" "" in
-  Sys.remove base;
-  Unix.mkdir base 0o700;
-  Unix.putenv "XDG_DATA_HOME" (Filename.concat base "data");
-  Unix.putenv "XDG_CONFIG_HOME" (Filename.concat base "config");
-  Unix.putenv "XDG_CACHE_HOME" (Filename.concat base "cache");
-  Unix.putenv "XDG_STATE_HOME" (Filename.concat base "state");
-  let runtime = Filename.concat base "runtime" in
-  Unix.mkdir runtime 0o700;
-  Unix.putenv "XDG_RUNTIME_DIR" runtime;
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-backup-import" in
   let current_store = Crypto_store.create ~xdg ~profile:"default" in
   let stale_store = Crypto_store.create ~xdg ~profile:"default" in
@@ -2409,17 +2397,8 @@ let test_driver_pickle_reset_and_put_remember () =
   check_string "failed upload attempted once" "PUT" (one_request fail_log).meth
 
 let test_dehydrated_cached_fields_restart () =
+  Testenv.with_xdg ~prefix:"matrix-dehydrated-cache-" @@ fun _root ->
   Eio_main.run @@ fun env ->
-  let base = Filename.temp_file "matrix-dehydrated-cache-" "" in
-  Sys.remove base;
-  Unix.mkdir base 0o700;
-  Unix.putenv "XDG_DATA_HOME" (Filename.concat base "data");
-  Unix.putenv "XDG_CONFIG_HOME" (Filename.concat base "config");
-  Unix.putenv "XDG_CACHE_HOME" (Filename.concat base "cache");
-  Unix.putenv "XDG_STATE_HOME" (Filename.concat base "state");
-  let runtime = Filename.concat base "runtime" in
-  Unix.mkdir runtime 0o700;
-  Unix.putenv "XDG_RUNTIME_DIR" runtime;
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-dehydrated-cache" in
   let store = Crypto_store.create ~xdg ~profile:"default" in
   let machine =

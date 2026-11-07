@@ -67,51 +67,32 @@ let stores env directory =
   (xdg, P.create ~xdg ~profile:"test", C.create ~xdg ~profile:"test")
 
 let with_fixture fn =
+  Testenv.with_xdg ~prefix:"matrix-profile-recovery-" @@ fun directory ->
   Eio_main.run @@ fun env ->
-  let directory = Filename.temp_dir "matrix-profile-recovery-" "" in
-  let variables =
-    [
-      "XDG_DATA_HOME";
-      "XDG_CONFIG_HOME";
-      "XDG_CACHE_HOME";
-      "XDG_STATE_HOME";
-      "XDG_RUNTIME_DIR";
-    ]
+  let xdg, profile, crypto = stores env directory in
+  ok (P.save_session profile session);
+  let machine =
+    M.Encryption.create ~random:(random ()) ~user_id:user ~device_id:device ()
   in
-  let previous = List.map (fun name -> (name, Sys.getenv_opt name)) variables in
-  List.iter (fun name -> Unix.putenv name directory) variables;
-  Fun.protect
-    ~finally:(fun () ->
-      List.iter
-        (fun (name, value) -> Unix.putenv name (Option.value value ~default:""))
-        previous;
-      Eio.Path.rmtree Eio.Path.(Eio.Stdenv.fs env / directory))
-    (fun () ->
-      let xdg, profile, crypto = stores env directory in
-      ok (P.save_session profile session);
-      let machine =
-        M.Encryption.create ~random:(random ()) ~user_id:user ~device_id:device
-          ()
-      in
-      let snapshot = M.Encryption.snapshot machine in
-      let room_id = Id.Room_id.of_string_exn "!recovery:example.org" in
-      let outbound = M.Megolm.Outbound.create ~random:(random ()) ~room_id () in
-      let inbound =
-        Result.get_ok
-          (M.Megolm.Inbound.of_session_key
-             ~sender_key:(M.Olm.Account.curve25519_key snapshot.account)
-             ~room_id
-             ~session_key:(M.Megolm.Outbound.session_key outbound)
-             ())
-      in
-      ok
-        (C.save crypto
-           {
-             snapshot with
-             megolm_inbound = [ inbound ];
-             megolm_outbound = [ outbound ];
-           });
-      fn env directory xdg profile crypto)
+  let snapshot = M.Encryption.snapshot machine in
+  let room_id = Id.Room_id.of_string_exn "!recovery:example.org" in
+  let outbound = M.Megolm.Outbound.create ~random:(random ()) ~room_id () in
+  let inbound =
+    Result.get_ok
+      (M.Megolm.Inbound.of_session_key
+         ~sender_key:(M.Olm.Account.curve25519_key snapshot.account)
+         ~room_id
+         ~session_key:(M.Megolm.Outbound.session_key outbound)
+         ())
+  in
+  ok
+    (C.save crypto
+       {
+         snapshot with
+         megolm_inbound = [ inbound ];
+         megolm_outbound = [ outbound ];
+       });
+  fn env directory xdg profile crypto
 
 let spawn ~sw env args =
   Eio.Process.spawn ~sw

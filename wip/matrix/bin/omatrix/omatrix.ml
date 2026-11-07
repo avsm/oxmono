@@ -1529,22 +1529,36 @@ let sync_count_action ~count responses =
 
 exception Sync_signal
 
+(* A signal handler may run on any domain, so it must be portable and may
+   only write a byte to a pipe. A fiber drains the pipe and broadcasts
+   [condition] from the scheduler. The handlers are removed before the pipe
+   is closed. *)
 let with_sync_signals condition f =
+  Eio.Switch.run @@ fun sw ->
+  let rd, wr = Unix.pipe ~cloexec:true () in
+  Eio.Switch.on_release sw (fun () ->
+      Unix.close rd;
+      Unix.close wr);
+  Unix.set_nonblock rd;
+  Unix.set_nonblock wr;
   let handler =
-    Sys.Signal_handle (fun _ -> Eio.Condition.broadcast condition)
+    Sys.Signal_handle
+      (fun _ ->
+        try ignore (Unix.single_write_substring wr "s" 0 1)
+        with Unix.Unix_error _ -> ())
   in
-  let previous = ref [] in
-  let install signal =
-    let old = Sys.signal signal handler in
-    previous := (signal, old) :: !previous
-  in
-  Fun.protect
-    ~finally:(fun () ->
-      List.iter (fun (signal, old) -> Sys.set_signal signal old) !previous)
-    (fun () ->
-      install Sys.sigint;
-      install Sys.sigterm;
-      f ())
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+      let buffer = Bytes.create 64 in
+      while true do
+        Eio_unix.await_readable rd;
+        (try ignore (Unix.read rd buffer 0 (Bytes.length buffer))
+         with Unix.Unix_error ((EAGAIN | EWOULDBLOCK | EINTR), _, _) -> ());
+        Eio.Condition.broadcast condition
+      done;
+      `Stop_daemon);
+  Eioext.Signals.with_handlers
+    [ (Sys.sigint, handler); (Sys.sigterm, handler) ]
+    f
 
 module Qr4108 = Matrix_eio.Qr_login.Msc4108
 module QrSession = Qr4108.Application_eio.Session

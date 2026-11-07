@@ -7,9 +7,12 @@
   matrix-chat.cli
   matrix-chat.client
   matrix-chat.proto
+  eio.unix
   eio_main
+  eioext
   jsont
   uriz
   xdge
   ptime.clock.os
+  unix
   cmdliner))

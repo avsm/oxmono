@@ -1,30 +1,23 @@
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 open Crow_test
 open Crowthebot
 
 let admin = "@admin:example.org"
 
+(* The environment is isolated before Eio or any worker domain starts. *)
 let () =
-  let root = Filename.temp_file "crow-knowledge-config" "" in
-  Sys.remove root;
-  Unix.mkdir root 0o700;
+  Testenv.with_xdg ~prefix:"crow-knowledge-config" @@ fun root ->
   let dir name =
     let path = Filename.concat root name in
     Unix.mkdir path 0o700;
     path
   in
-  let config = dir "config" in
+  let config = Filename.concat root "config"
+  and data = Filename.concat root "data" in
   let bushel_config = Filename.concat config "bushel" in
   Unix.mkdir bushel_config 0o700;
   let bushel = dir "bushel"
   and sortal = dir "sortal"
-  and data = dir "data"
   and profile = dir "profile" in
-  Unix.putenv "XDG_CONFIG_HOME" config;
-  Unix.putenv "XDG_DATA_HOME" data;
-  Unix.putenv "SORTAL_DATA_DIR" root;
   let config_file = Filename.concat bushel_config "config.toml" in
   let write text =
     Out_channel.with_open_bin config_file (fun oc -> output_string oc text)
@@ -48,16 +41,8 @@ let () =
     else if Filename.basename path = "knowledge.sqlite3" then [ path ]
     else []
   in
-  let rec remove path =
-    if Sys.is_directory path then (
-      Array.iter
-        (fun name -> remove (Filename.concat path name))
-        (Sys.readdir path);
-      Unix.rmdir path)
-    else Sys.remove path
-  in
-  Fun.protect
-    ~finally:(fun () -> remove root)
+  Testenv.with_bindings
+    [ ("SORTAL_DATA_DIR", Some root) ]
     (fun () ->
       configure bushel;
       Eio_main.run @@ fun env ->

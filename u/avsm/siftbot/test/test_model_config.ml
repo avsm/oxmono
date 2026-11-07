@@ -7,9 +7,9 @@ let member name = function
         fields
   | _ -> None
 
+(* The dune action binds SIFTBOT_OPENROUTER_API_KEY and clears
+   SIFTBOT_CHAT_API_KEY for this executable. *)
 let () =
-  Unix.putenv "SIFTBOT_OPENROUTER_API_KEY" "hosted-only-fixture";
-  Unix.putenv "SIFTBOT_CHAT_API_KEY" "";
   Eio_main.run (fun _ ->
       let profile =
         {

@@ -1,9 +1,5 @@
 (* Helpers shared by the knowledge store and image tests. *)
 
-(* The tests isolate the host environment before starting Eio or any worker
-   domains. *)
-[@@@alert "-unsafe_multidomain"]
-
 (* [S] wraps the store so status and search results are compared as JSON. *)
 module S = struct
   include Bushel_knowledge_store
@@ -49,5 +45,6 @@ let field name codec =
 
 let integer name json = J.decode (field name Jsont.int) json
 
-(* [setenv name value] sets [name], or clears it when [value] is [None]. *)
-let setenv name value = Unix.putenv name (Option.value ~default:"" value)
+(* [setenv name value] sets [name], or unsets it when [value] is [None]. The
+   tests call it before starting Eio or any worker domains. *)
+let setenv = Testenv.set

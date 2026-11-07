@@ -168,7 +168,15 @@
 (test
  (name test_pull)
  (modules test_pull)
- (libraries arod.setup arod bushel.config gitops tomlt.bytesrw eio_main unix))
+ (libraries
+  arod.setup
+  arod
+  bushel.config
+  gitops
+  testenv
+  tomlt.bytesrw
+  eio_main
+  unix))
 
 (test
  (name test_jsont_skip)

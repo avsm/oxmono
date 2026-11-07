@@ -1,6 +1,6 @@
 (test
  (name test_sortal)
- (libraries sortal eio eio_main jsont jsont.bytesrw))
+ (libraries sortal eio eio_main jsont jsont.bytesrw testenv))
 
 (test
  (name test_native_store)

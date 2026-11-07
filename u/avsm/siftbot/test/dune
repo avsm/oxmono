@@ -74,6 +74,7 @@
   fetch.mock
   http
   eio_main
+  testenv
   unix))
 
 (test
@@ -111,6 +112,14 @@
 (test
  (name test_model_config)
  (modules test_model_config)
+ (action
+  (setenv
+   SIFTBOT_OPENROUTER_API_KEY
+   hosted-only-fixture
+   (setenv
+    SIFTBOT_CHAT_API_KEY
+    ""
+    (run %{test}))))
  (libraries siftbot agentkit fetch.mock http eio_main unix))
 
 (test

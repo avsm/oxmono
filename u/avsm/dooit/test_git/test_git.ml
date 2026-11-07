@@ -1,6 +1,3 @@
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 open Dooit
 open Common
 
@@ -30,18 +27,15 @@ let author process_mgr store =
     (git process_mgr store.root
        [ "config"; "user.email"; "dooit@example.invalid" ])
 
-(* [with_base prefix ~env f] runs [f] in a fresh temporary directory, then
-   removes it and restores the environment variables named by [env]. *)
-let with_base ?(env = []) prefix f =
+(* [with_base prefix f] runs [f] in a fresh temporary directory, then removes
+   it. *)
+let with_base prefix f =
   let base = Filename.temp_dir prefix "" in
-  let saved =
-    List.map (fun k -> (k, Option.value (Sys.getenv_opt k) ~default:"")) env
-  in
-  Fun.protect
-    ~finally:(fun () ->
-      List.iter (fun (k, v) -> Unix.putenv k v) saved;
-      remove_tree base)
-    (fun () -> f base)
+  Fun.protect ~finally:(fun () -> remove_tree base) (fun () -> f base)
+
+(* [prepend_path dir] is [PATH] with [dir] searched first. *)
+let prepend_path dir =
+  dir ^ ":" ^ Option.value (Sys.getenv_opt "PATH") ~default:""
 
 let note =
   {|---
@@ -214,7 +208,7 @@ let test () =
             (read (Filename.concat a.root "unrelated.txt") = "unrelated")))
 
 let cancellation () =
-  with_base ~env:[ "PATH" ] "dooit-git-cancel-" (fun base ->
+  with_base "dooit-git-cancel-" (fun base ->
       let bin = Filename.concat base "bin" in
       mkdir bin;
       let script = Filename.concat bin "git" in
@@ -226,9 +220,12 @@ let cancellation () =
          printf '%s\\n' \"$child\" > \"$DOOIT_GIT_TEST_PID\"\n\
          wait\n";
       Unix.chmod script 0o700;
-      Unix.putenv "PATH"
-        (bin ^ ":" ^ Option.value (Sys.getenv_opt "PATH") ~default:"");
-      Unix.putenv "DOOIT_GIT_TEST_PID" pid_file;
+      Testenv.with_bindings
+        [
+          ("PATH", Some (prepend_path bin));
+          ("DOOIT_GIT_TEST_PID", Some pid_file);
+        ]
+      @@ fun () ->
       Eio_main.run (fun env ->
           let clock = Eio.Stdenv.clock env in
           let store = Store.init (Filename.concat base "store") in
@@ -256,7 +253,7 @@ let cancellation () =
           Store.with_lock store (fun () -> ())))
 
 let lost_notification () =
-  with_base ~env:[ "PATH" ] "dooit-git-notification-" (fun base ->
+  with_base "dooit-git-notification-" (fun base ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
           let git =
@@ -271,21 +268,20 @@ let lost_notification () =
             ("#!/bin/sh\n/bin/sleep 0.05\nexec " ^ Filename.quote git
            ^ " \"$@\"\n");
           Unix.chmod script 0o700;
-          Unix.putenv "PATH"
-            (bin ^ ":" ^ Option.value (Sys.getenv_opt "PATH") ~default:"");
-          let notifications = ref 0 in
-          let previous =
-            Sys.signal Sys.sigchld
-              (Sys.Signal_handle (fun _ -> incr notifications))
-          in
-          Fun.protect
-            ~finally:(fun () -> Sys.set_signal Sys.sigchld previous)
+          Testenv.with_bindings [ ("PATH", Some (prepend_path bin)) ]
+          @@ fun () ->
+          let notifications = Atomic.make 0 in
+          Eioext.Signals.with_handlers
+            [
+              ( Sys.sigchld,
+                Sys.Signal_handle (fun _ -> Atomic.incr notifications) );
+            ]
             (fun () ->
               let store = Store.init (Filename.concat base "store") in
               Eio.Time.with_timeout_exn (Eio.Stdenv.clock env) 10. (fun () ->
                   ignore (Git.setup ~process_mgr store Git.default));
               check "dropped notifications cannot strand Git completion"
-                (!notifications > 0);
+                (Atomic.get notifications > 0);
               Store.with_lock store (fun () -> ()))))
 
 let apply_retry () =
@@ -510,7 +506,7 @@ let full_sync () =
             && not (Git.status ~process_mgr c config).dirty)))
 
 let oversized_blob () =
-  with_base ~env:[ "GIT_TRACE" ] "dooit-git-large-" (fun base ->
+  with_base "dooit-git-large-" (fun base ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
           let source = Store.init (Filename.concat base "source") in
@@ -526,7 +522,7 @@ let oversized_blob () =
           git [ "add"; "store.json"; "notes" ];
           git [ "commit"; "-m"; "Oversized external note" ];
           let trace = Filename.concat base "trace" in
-          Unix.putenv "GIT_TRACE" trace;
+          Testenv.with_bindings [ ("GIT_TRACE", Some trace) ] @@ fun () ->
           refuses (fun () ->
               Git.clone ~process_mgr
                 ~root:(Filename.concat base "clone")
@@ -546,14 +542,14 @@ let oversized_blob () =
             (not (contains "cat-file --batch\n"))))
 
 let failure_redaction () =
-  with_base ~env:[ "PATH" ] "dooit-git-redaction-" (fun base ->
+  with_base "dooit-git-redaction-" (fun base ->
       let executable = Filename.concat base "git" in
       let secret = "FIXTURE-CREDENTIAL-MUST-NOT-LEAK" in
       atomic_write executable
         ("#!/bin/sh\nprintf '%s\\n' " ^ secret ^ "\nprintf '%s\\n' " ^ secret
        ^ " >&2\nexit 17\n");
       Unix.chmod executable 0o700;
-      Unix.putenv "PATH" base;
+      Testenv.with_bindings [ ("PATH", Some base) ] @@ fun () ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
           let store = Store.init (Filename.concat base "store") in

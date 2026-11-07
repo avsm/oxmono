@@ -1,6 +1,3 @@
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 open Crow_test
 open Crowthebot
 module C = Dooit.Common
@@ -10,29 +7,11 @@ let noop () = ()
 let admin = "@admin:example.org"
 let room = "!tasks:example.org"
 
-let rec remove path =
-  if Sys.is_directory path then (
-    Array.iter
-      (fun name -> remove (Filename.concat path name))
-      (Sys.readdir path);
-    Unix.rmdir path)
-  else Sys.remove path
-
+(* The environment is isolated before Eio or any worker domain starts. *)
 let () =
-  let root = Filename.temp_file "crow-dooit-test" "" in
-  Sys.remove root;
-  Unix.mkdir root 0o700;
-  let config = Filename.concat root "config"
-  and data = Filename.concat root "data" in
-  Unix.mkdir config 0o700;
-  Unix.mkdir data 0o700;
-  Unix.putenv "XDG_CONFIG_HOME" config;
-  Unix.putenv "XDG_DATA_HOME" data;
-  Unix.putenv "GIT_CONFIG_GLOBAL" "/dev/null";
-  Unix.putenv "GIT_CONFIG_NOSYSTEM" "1";
-  Fun.protect
-    ~finally:(fun () -> remove root)
-    (fun () ->
+  Testenv.with_xdg ~prefix:"crow-dooit-test" (fun root ->
+      let config = Filename.concat root "config"
+      and data = Filename.concat root "data" in
       Eio_main.run @@ fun env ->
       Eio.Switch.run @@ fun sw ->
       let fs = Eio.Stdenv.fs env in

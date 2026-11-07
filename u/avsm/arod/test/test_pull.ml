@@ -6,9 +6,6 @@
 module M = Arod_setup.Manifest
 module P = Arod_setup.Pull
 
-(* Environment isolation happens before starting Eio or any worker domains. *)
-[@@@alert "-unsafe_multidomain"]
-
 let check condition message = if not condition then failwith message
 let rejects f =
   match f () with
@@ -48,25 +45,11 @@ let rec snapshot path =
   | Unix.S_LNK -> [path, Unix.readlink path]
   | _ -> [path, M.read path]
 
-let rec remove path =
-  match (Unix.lstat path).st_kind with
-  | Unix.S_DIR ->
-      Array.iter (fun name -> remove (Filename.concat path name))
-        (Sys.readdir path);
-      Unix.rmdir path
-  | _ -> Unix.unlink path
-
+(* Environment isolation happens before starting Eio or any worker domains. *)
 let () =
-  let root = Filename.temp_file "arod-pull-test-" "" in
-  Unix.unlink root;
-  Unix.mkdir root 0o700;
-  Fun.protect ~finally:(fun () -> remove root) (fun () ->
-    Unix.putenv "HOME" root;
-    Unix.putenv "XDG_CONFIG_HOME" (root ^ "/config");
-    Unix.putenv "XDG_DATA_HOME" (root ^ "/data");
-    Unix.putenv "XDG_CACHE_HOME" (root ^ "/cache");
-    Unix.putenv "XDG_STATE_HOME" (root ^ "/state");
-    Unix.putenv "SORTAL_DATA_DIR" (root ^ "/data/sortal");
+  Testenv.with_xdg ~prefix:"arod-pull-test-" @@ fun root ->
+  Testenv.with_bindings ["SORTAL_DATA_DIR", Some (root ^ "/data/sortal")]
+    (fun () ->
     let t = M.defaults () in
     let text = M.encode t in
     check (M.decode text = t) "manifest round trip";

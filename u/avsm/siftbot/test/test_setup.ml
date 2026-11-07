@@ -13,21 +13,15 @@ let contains text needle =
   in
   loop 0
 
-let rec remove path =
-  if Sys.is_directory path then (
-    Array.iter (fun n -> remove (Filename.concat path n)) (Sys.readdir path);
-    Unix.rmdir path)
-  else Unix.unlink path
-
+(* The environment is isolated before Eio or any worker domain starts. *)
 let () =
-  let root = Filename.temp_file "siftbot-setup-" "" in
-  Unix.unlink root;
-  Unix.mkdir root 0o700;
-  Unix.putenv "XDG_CONFIG_HOME" root;
-  Unix.putenv "SEKRIT_STORE_DIR" (Filename.concat root "vault");
-  Unix.putenv "SEKRIT_KEY_FILE" (Filename.concat root "keys/master.key");
-  Fun.protect
-    ~finally:(fun () -> remove root)
+  Testenv.with_xdg ~prefix:"siftbot-setup-" @@ fun root ->
+  let config = Filename.concat root "config" in
+  Testenv.with_bindings
+    [
+      ("SEKRIT_STORE_DIR", Some (Filename.concat root "vault"));
+      ("SEKRIT_KEY_FILE", Some (Filename.concat root "keys/master.key"));
+    ]
     (fun () ->
       Eio_main.run (fun env ->
           let call = Siftbot.Setup.handle env in
@@ -48,7 +42,7 @@ let () =
           let store = ok (P.xdg_store env) in
           let credential () = P.credential (ok (P.load store "mail-work")) in
           check "stored token" (credential () = Bearer token);
-          let path = Filename.concat root "siftbot/work/profile.json" in
+          let path = Filename.concat config "siftbot/work/profile.json" in
           check "private local settings"
             ((Unix.stat path).st_perm land 0o077 = 0);
           let ic = open_in_bin path in

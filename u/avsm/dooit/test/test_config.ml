@@ -122,25 +122,7 @@ let () =
         && saved.jmap_profile = dav.jmap_profile
         && saved.jmap_account = dav.jmap_account
         && saved.jmap_service = dav.jmap_service);
-      let variables =
-        [ "HOME"; "XDG_CONFIG_HOME"; "XDG_DATA_HOME"; "XDG_RUNTIME_DIR" ]
-      in
-      let previous =
-        List.map (fun key -> (key, Sys.getenv_opt key)) variables
-      in
-      Fun.protect
-        ~finally:(fun () ->
-          List.iter
-            (fun (key, value) ->
-              Unix.putenv key (Option.value value ~default:""))
-            previous)
-        (fun () ->
-          Unix.putenv "HOME" base;
-          Unix.putenv "XDG_CONFIG_HOME" (Filename.concat base "xdg-config");
-          Unix.putenv "XDG_DATA_HOME" (Filename.concat base "xdg-data");
-          let runtime = Filename.concat base "runtime" in
-          Unix.mkdir runtime 0o700;
-          Unix.putenv "XDG_RUNTIME_DIR" runtime;
+      Testenv.with_xdg ~prefix:"dooit-config-xdg-" (fun _home ->
           let defaults = C.defaults ~fs () and loaded = C.load ~fs () in
           let worker_defaults =
             Eio_unix.run_in_systhread (fun () -> C.defaults ~fs ())

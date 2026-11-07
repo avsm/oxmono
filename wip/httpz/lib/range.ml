@@ -401,17 +401,12 @@ let write_multipart_final dst ~off ~boundary =
   Buf_write.crlf dst ~off
 ;;
 
-(* The default [Random] state is seeded identically in every process, which would make
-   every server's boundaries the same sequence from startup. A state seeded from the OS
-   per call keeps them per-process and shares nothing between domains, so there is no
-   state to race on. *)
-let generate_boundary () =
+let generate_boundary random =
   let chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" in
-  let state = Stdlib.Random.State.make_self_init () in
   let len = 24 in
   let buf = Bytes.create len in
   for i = 0 to len - 1 do
-    let idx = Stdlib.Random.State.int state (String.length chars) in
+    let idx = Stdlib.Random.State.int random (String.length chars) in
     Bytes.set buf i (String.get chars idx)
   done;
   Bytes.to_string buf

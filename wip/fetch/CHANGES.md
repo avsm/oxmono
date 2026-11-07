@@ -1,7 +1,8 @@
 # Changes
 
-- Seed the `Form.multipart` boundary generator from the system on each
-  call instead of keeping one `Random` state per domain.
+- `Form.multipart` takes an optional `random` flow for its boundary draw
+  and otherwise uses the domain's default `Random` generator, instead of a
+  `Random` state of its own shared across domains.
 
 - Borrow request bodies through middleware, retries, redirects and HTTPZ.
   Generate explicit owned request copies with ppx_globalize for asynchronous

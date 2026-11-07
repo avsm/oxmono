@@ -4,8 +4,9 @@
 
 ## Unreleased
 
-- Make `Range.generate_boundary` portable by seeding a fresh `Random`
-  state from the system on each call instead of keeping one per domain.
+- `Range.generate_boundary` draws from a `Random.State.t` the caller passes
+  instead of a generator of its own, so the caller decides how boundaries
+  are seeded and no state is shared between domains.
 
 - Install the media interface needed by its public re-export, preserving
   nested modules and portability guarantees for standalone consumers.

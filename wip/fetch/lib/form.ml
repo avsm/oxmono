@@ -149,17 +149,29 @@ let occurs b parts heads =
          | Streamed _ -> false)
        parts
 
-(* Two requests carrying the same parts must not expose a stable digest of
-   their immediate values in the Content-Type field, so a fresh boundary
-   seed is drawn per body: unpredictable, not cryptographic. The generator
-   is seeded from the OS for each body and shared with nothing, so two
-   domains building a boundary concurrently have no [Random.State.t] in
-   common to race on or to draw the same seed from. The occurrence scan
-   below, rather than a content digest, establishes the delimiter
-   invariant. *)
-let salt () =
-  let st = Stdlib.Random.State.make_self_init () in
-  String.init 32 (fun _ -> "0123456789abcdef".[Stdlib.Random.State.int st 16])
+(* A boundary carries no digest of the parts, so two requests with the same
+   parts are not framed alike and the Content-Type field reveals nothing
+   about their values. The occurrence scan below, rather than the draw,
+   establishes the delimiter invariant. Without [random] the draw comes from
+   the calling domain's default [Random] generator, which the application
+   seeds. *)
+let hex s =
+  let digits = "0123456789abcdef" in
+  String.init (2 * String.length s) (fun i ->
+      let c = Char.code s.[i / 2] in
+      digits.[if i land 1 = 0 then c lsr 4 else c land 15])
+
+let salt random =
+  match random with
+  | Some random ->
+      let buf = Cstruct.create 16 in
+      Eio.Flow.read_exact random buf;
+      hex (Cstruct.to_string buf)
+  | None ->
+      let b = Bytes.create 16 in
+      Bytes.set_int64_le b 0 (Stdlib.Random.bits64 ());
+      Bytes.set_int64_le b 8 (Stdlib.Random.bits64 ());
+      hex (Bytes.to_string b)
 
 let rec fresh parts heads digest n =
   let b = Printf.sprintf "form%sx%d" digest n in
@@ -386,12 +398,15 @@ let is_boundary b =
     b;
   !ok
 
-let multipart ?boundary parts =
+let multipart ?boundary ?random parts =
   let heads = List.map part_headers parts in
   let b =
     match boundary with
     | None ->
-        fresh parts heads (salt ()) 0
+        let random =
+          Option.map (fun r -> (r :> Eio.Flow.source_ty Eio.Resource.t)) random
+        in
+        fresh parts heads (salt random) 0
     | Some b ->
         if not (is_boundary b) then
           invalid_arg

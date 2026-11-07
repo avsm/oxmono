@@ -1137,16 +1137,15 @@ let test_write_content_range_unsatisfiable () =
 ;;
 
 let test_generate_boundary () =
-  (* Seeding the default generator the same way twice must not reproduce a
-     boundary: on the default state every process emitted the same sequence
-     from startup, so a restart reused boundaries an attacker had seen. *)
-  Random.init 42;
-  let first = Httpz.Range.generate_boundary () in
-  Random.init 42;
-  let second = Httpz.Range.generate_boundary () in
+  (* The boundary is a function of the generator the caller passes: the same
+     seed reproduces it and the default [Random] state plays no part. *)
+  let first = Httpz.Range.generate_boundary (Stdlib.Random.State.make [| 42 |]) in
+  let again = Httpz.Range.generate_boundary (Stdlib.Random.State.make [| 42 |]) in
+  let other = Httpz.Range.generate_boundary (Stdlib.Random.State.make [| 43 |]) in
   assert (String.length first = 24);
   assert (String.for_all first ~f:Char.is_alphanum);
-  assert (String.( <> ) first second);
+  assert (String.equal first again);
+  assert (String.( <> ) first other);
   Stdio.printf "test_generate_boundary: PASSED\n"
 ;;
 

@@ -163,17 +163,13 @@ val write_multipart_final :
 (** [write_multipart_final buf ~off ~boundary] is the next offset after writing
     the closing multipart delimiter. [boundary] is not validated. *)
 
-val generate_boundary : unit -> string @@ portable
-(** [generate_boundary ()] is a 24-character alphanumeric boundary drawn from a
-    [Random] state seeded from the operating system for this call alone, so
-    the sequence differs from process to process rather than repeating from
-    every start.
-
-    No state outlives the call and none is shared, so calls from several
-    domains or fibers neither race nor repeat one sequence. It is not
+val generate_boundary : Stdlib.Random.State.t -> string @@ portable
+(** [generate_boundary random] is a 24-character alphanumeric boundary drawn
+    from [random]. The caller owns [random] and chooses how it is seeded, so
+    boundaries are as unpredictable as that generator. They are not
     cryptographically random and must not be relied on as a secret. The
-    caller must ensure that it does not occur in the enclosed representation
-    data. *)
+    caller must ensure that the boundary does not occur in the enclosed
+    representation data. *)
 
 val empty_resolved : resolved @@ portable
 (** [empty_resolved] is a zero-length placeholder for array initialization and

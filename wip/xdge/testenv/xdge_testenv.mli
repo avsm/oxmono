@@ -1,4 +1,4 @@
-(** Scoped process environment changes for single-domain tests.
+(** Scoped process environment changes for single-domain tests of XDG code.
 
     Changing the process environment while another domain reads it is a data
     race. Every function in this module must be called from the main domain

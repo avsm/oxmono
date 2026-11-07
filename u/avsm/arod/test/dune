@@ -173,7 +173,7 @@
   arod
   bushel.config
   gitops
-  testenv
+  xdge.testenv
   tomlt.bytesrw
   eio_main
   unix))

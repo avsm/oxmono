@@ -1,0 +1,7 @@
+(library
+ (name xdge_testenv)
+ (public_name xdge.testenv)
+ (libraries unix)
+ (foreign_stubs
+  (language c)
+  (names xdge_testenv_stubs)))

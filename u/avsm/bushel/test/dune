@@ -73,6 +73,6 @@
   srcsetter
   fetch.mock
   jsont
-  testenv
+  xdge.testenv
   eio_main
   unix))

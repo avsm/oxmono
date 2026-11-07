@@ -3200,7 +3200,7 @@ let test_thread_subscriptions_failed_write_keeps_token () =
       Alcotest.failf "prior-state reload failed: %s" (Error.to_string error)
 
 let test_session_store () =
-  Testenv.with_xdg ~prefix:"matrix-test-" @@ fun root ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-test-" @@ fun root ->
   Eio_main.run @@ fun env ->
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix" in
   let store = Profile_store.create ~xdg ~profile:"testprofile" in

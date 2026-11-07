@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Add the `xdge.testenv` library, which scopes environment bindings around a
+  test, unsets variables for real and binds `HOME` and the XDG base
+  directories to a throwaway root.
+
 - Clarify opam descriptions of package functionality and interfaces.
 
 v1.1.0 (dev)

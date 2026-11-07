@@ -414,7 +414,7 @@ let test_named_secret_refresh () =
   let fs = Eio.Stdenv.fs env in
   Fun.protect ~finally:(fun () -> Eio.Path.rmtree Eio.Path.(fs / root))
   @@ fun () ->
-  Testenv.with_bindings
+  Xdge_testenv.with_bindings
     [
       ("SEKRIT_STORE_DIR", Some (Filename.concat root "vault"));
       ("SEKRIT_KEY_FILE", Some (Filename.concat root "key/master.key"));
@@ -606,7 +606,7 @@ let vars =
 (* [with_env bindings f] is [f ()] with every variable in [vars] unset except
    those in [bindings]. *)
 let with_env bindings f =
-  Testenv.with_bindings
+  Xdge_testenv.with_bindings
     (List.map (fun v -> (v, None)) vars
     @ List.map (fun (name, value) -> (name, Some value)) bindings)
     f

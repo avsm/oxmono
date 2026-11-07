@@ -335,7 +335,7 @@ let test_connect_error_context () =
 
 let test_xdg_store () =
   Eio_main.run @@ fun env ->
-  Testenv.with_xdg ~prefix:"jmap-profile-xdg-" @@ fun root ->
+  Xdge_testenv.with_xdg ~prefix:"jmap-profile-xdg-" @@ fun root ->
   let store = Profile.xdg_store env |> get_ok "resolve XDG store" in
   Alcotest.(check string)
     "shared directory"
@@ -373,8 +373,8 @@ let test_cli_profile () =
       "JMAP_PROFILE";
     ]
   in
-  Testenv.with_xdg ~prefix:"jmap-profile-cli-" @@ fun _root ->
-  Testenv.with_bindings
+  Xdge_testenv.with_xdg ~prefix:"jmap-profile-cli-" @@ fun _root ->
+  Xdge_testenv.with_bindings
     (List.map (fun name -> (name, None)) vars)
     (fun () ->
       let store = Profile.xdg_store env |> get_ok "CLI XDG store" in
@@ -454,7 +454,7 @@ let test_cli_profile () =
         "direct URL wins" "https://direct.example/jmap" direct.session_url;
       Alcotest.(check string) "direct key wins" "DIRECT" direct.api_key;
       Alcotest.(check bool) "direct auth default" true (direct.auth = Cli.Bearer);
-      Testenv.set "JMAP_PROFILE" (Some "shared");
+      Xdge_testenv.set "JMAP_PROFILE" (Some "shared");
       let from_env = cli_config "environment profile" [] in
       Alcotest.(check bool)
         "environment source" true

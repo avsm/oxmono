@@ -7,7 +7,7 @@ let () =
   let root = Filename.temp_file "apub-session-" "" in
   Sys.remove root;
   Unix.mkdir root 0o700;
-  Testenv.with_bindings [("XDG_CONFIG_HOME", Some root)] @@ fun () ->
+  Xdge_testenv.with_bindings [("XDG_CONFIG_HOME", Some root)] @@ fun () ->
   Eio_main.run @@ fun env ->
   Fun.protect ~finally:(fun () -> Eio.Path.rmtree Eio.Path.(env#fs / root)) @@ fun () ->
   let session = Apub_auth_session.create ~actor_uri:"https://example.com/alice"

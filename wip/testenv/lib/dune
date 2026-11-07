@@ -1,7 +1,0 @@
-(library
- (name testenv)
- (public_name testenv)
- (libraries unix)
- (foreign_stubs
-  (language c)
-  (names testenv_stubs)))

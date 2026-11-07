@@ -1,4 +1,5 @@
 (alias
  (name default)
  (deps
-  (alias_rec lib/all)))
+  (alias_rec lib/all)
+  (alias_rec xdge.testenv/all)))

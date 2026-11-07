@@ -1,5 +1,5 @@
 let with_lmtp spec f =
-  Testenv.with_bindings [ ("JMAP_ORACLE_LMTP", Some spec) ] f
+  Xdge_testenv.with_bindings [ ("JMAP_ORACLE_LMTP", Some spec) ] f
 
 let valid_lmtp () =
   List.iter

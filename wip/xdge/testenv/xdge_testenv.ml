@@ -1,7 +1,7 @@
 type binding = string * string option
 
-external setenv : string -> string -> unit = "testenv_setenv"
-external unsetenv : string -> unit = "testenv_unsetenv"
+external setenv : string -> string -> unit = "xdge_testenv_setenv"
+external unsetenv : string -> unit = "xdge_testenv_unsetenv"
 
 let set name = function Some v -> setenv name v | None -> unsetenv name
 

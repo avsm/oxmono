@@ -15,9 +15,9 @@ let contains text needle =
 
 (* The environment is isolated before Eio or any worker domain starts. *)
 let () =
-  Testenv.with_xdg ~prefix:"siftbot-setup-" @@ fun root ->
+  Xdge_testenv.with_xdg ~prefix:"siftbot-setup-" @@ fun root ->
   let config = Filename.concat root "config" in
-  Testenv.with_bindings
+  Xdge_testenv.with_bindings
     [
       ("SEKRIT_STORE_DIR", Some (Filename.concat root "vault"));
       ("SEKRIT_KEY_FILE", Some (Filename.concat root "keys/master.key"));

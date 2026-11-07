@@ -32,7 +32,7 @@ let with_store f =
         ("XDG_STATE_HOME", "state-home");
       ]
   in
-  Testenv.with_bindings (("XDG_RUNTIME_DIR", Some root) :: bindings)
+  Xdge_testenv.with_bindings (("XDG_RUNTIME_DIR", Some root) :: bindings)
   @@ fun () ->
   Eio_main.run (fun env ->
       Fun.protect

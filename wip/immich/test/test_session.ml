@@ -77,7 +77,7 @@ let with_home f =
     ~finally:(fun () ->
       ignore (Sys.command (Filename.quote_command "rm" [ "-rf"; home ])))
     (fun () ->
-      Testenv.with_bindings [ ("HOME", Some home) ] @@ fun () ->
+      Xdge_testenv.with_bindings [ ("HOME", Some home) ] @@ fun () ->
       Eio_main.run @@ fun env -> f home (Eio.Stdenv.fs env))
 
 let test_profiles () =

@@ -26,7 +26,7 @@ let git_group env =
        (Filename.quote pidfile));
   Unix.chmod (Filename.concat bin "git") 0o755;
   let path = Sys.getenv "PATH" in
-  Testenv.with_bindings [ ("PATH", Some (bin ^ ":" ^ path)) ] (fun () ->
+  Xdge_testenv.with_bindings [ ("PATH", Some (bin ^ ":" ^ path)) ] (fun () ->
       let repo =
         Opam_repo.v env#process_mgr env#mono_clock ~dir ~name:"r"
           "https://example.invalid/r"

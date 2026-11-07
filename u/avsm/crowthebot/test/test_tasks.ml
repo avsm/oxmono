@@ -9,7 +9,7 @@ let room = "!tasks:example.org"
 
 (* The environment is isolated before Eio or any worker domain starts. *)
 let () =
-  Testenv.with_xdg ~prefix:"crow-dooit-test" (fun root ->
+  Xdge_testenv.with_xdg ~prefix:"crow-dooit-test" (fun root ->
       let config = Filename.concat root "config"
       and data = Filename.concat root "data" in
       Eio_main.run @@ fun env ->

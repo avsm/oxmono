@@ -47,4 +47,4 @@
   eio.unix
   unix
   http
-  testenv))
+  xdge.testenv))

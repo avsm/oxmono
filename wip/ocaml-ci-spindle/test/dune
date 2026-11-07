@@ -28,4 +28,4 @@
 (test
  (name test_bounds)
  (modules test_bounds)
- (libraries ocaml-ci-spindle eio eio_main fetch-httpz unix testenv))
+ (libraries ocaml-ci-spindle eio eio_main fetch-httpz unix xdge.testenv))

@@ -3646,7 +3646,7 @@ let cli_vars =
 (* [with_cli_env bindings f] is [f ()] with every variable in [cli_vars]
    unset except those in [bindings]. *)
 let with_cli_env bindings f =
-  Testenv.with_bindings
+  Xdge_testenv.with_bindings
     (List.map (fun v -> (v, None)) cli_vars
     @ List.map (fun (name, value) -> (name, Some value)) bindings)
     f

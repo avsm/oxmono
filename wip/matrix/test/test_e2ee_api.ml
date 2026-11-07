@@ -1778,7 +1778,7 @@ let test_import_backup_persistence_failure () =
      account-data and version validation still complete, proving that this
      path reports persistence failure rather than claiming the import was
      durable. *)
-  Testenv.with_xdg ~prefix:"matrix-backup-import-" @@ fun _root ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-backup-import-" @@ fun _root ->
   Eio_main.run @@ fun env ->
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-backup-import" in
   let current_store = Crypto_store.create ~xdg ~profile:"default" in
@@ -2397,7 +2397,7 @@ let test_driver_pickle_reset_and_put_remember () =
   check_string "failed upload attempted once" "PUT" (one_request fail_log).meth
 
 let test_dehydrated_cached_fields_restart () =
-  Testenv.with_xdg ~prefix:"matrix-dehydrated-cache-" @@ fun _root ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-dehydrated-cache-" @@ fun _root ->
   Eio_main.run @@ fun env ->
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-dehydrated-cache" in
   let store = Crypto_store.create ~xdg ~profile:"default" in

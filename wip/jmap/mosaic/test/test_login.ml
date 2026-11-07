@@ -10,7 +10,7 @@ module Model = Jmap_mosaic.Model
 let permissions path = (Unix.stat path).st_perm land 0o777
 
 let test_profiles () =
-  Testenv.with_xdg ~prefix:"jmap-mosaic-profiles-" @@ fun _root ->
+  Xdge_testenv.with_xdg ~prefix:"jmap-mosaic-profiles-" @@ fun _root ->
   Eio_main.run @@ fun env ->
   let profiles_dir = Login.profiles_path env in
   let profile_file = Filename.concat profiles_dir "work" in
@@ -65,7 +65,7 @@ let test_profiles () =
     (List.length (Login.profiles env))
 
 let test_public_shared_store_is_ignored () =
-  Testenv.with_xdg ~prefix:"jmap-mosaic-public-store-" @@ fun root ->
+  Xdge_testenv.with_xdg ~prefix:"jmap-mosaic-public-store-" @@ fun root ->
   Eio_main.run @@ fun env ->
   let directory =
     List.fold_left Filename.concat root [ "config"; "jmap"; "profiles" ]

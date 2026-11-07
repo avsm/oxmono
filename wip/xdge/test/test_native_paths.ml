@@ -21,7 +21,7 @@ let () =
       ("XDG_STATE_HOME", Some (Filename.concat root "state"));
     ]
   in
-  Testenv.with_bindings (unset @ bindings) (fun () ->
+  Xdge_testenv.with_bindings (unset @ bindings) (fun () ->
       let compare () =
         Eio_main.run (fun env ->
             let native = Xdge.Paths.config_dir "native_test"
@@ -45,7 +45,7 @@ let () =
       check "XDG_STATE_HOME appends app name"
         (Xdge.Paths.state_dir "native_test"
         = Filename.concat root "state/native_test");
-      Testenv.set "NATIVE_TEST_CONFIG_DIR"
+      Xdge_testenv.set "NATIVE_TEST_CONFIG_DIR"
         (Some (Filename.concat root "override"));
       compare ();
       check "application override appends app name"
@@ -58,8 +58,8 @@ let () =
       check "home expansion preserves suffix"
         (Xdge.Paths.expand ~base:root "~/notes"
         = Filename.concat (Xdge.Paths.home ()) "notes");
-      Testenv.set "NATIVE_TEST_CONFIG_DIR" None;
-      Testenv.set "XDG_CONFIG_HOME" (Some "relative");
+      Xdge_testenv.set "NATIVE_TEST_CONFIG_DIR" None;
+      Xdge_testenv.set "XDG_CONFIG_HOME" (Some "relative");
       (try
          ignore (Xdge.Paths.config_dir "native_test");
          failwith "relative XDG path accepted"

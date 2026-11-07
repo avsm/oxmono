@@ -47,8 +47,8 @@ let rec snapshot path =
 
 (* Environment isolation happens before starting Eio or any worker domains. *)
 let () =
-  Testenv.with_xdg ~prefix:"arod-pull-test-" @@ fun root ->
-  Testenv.with_bindings ["SORTAL_DATA_DIR", Some (root ^ "/data/sortal")]
+  Xdge_testenv.with_xdg ~prefix:"arod-pull-test-" @@ fun root ->
+  Xdge_testenv.with_bindings ["SORTAL_DATA_DIR", Some (root ^ "/data/sortal")]
     (fun () ->
     let t = M.defaults () in
     let text = M.encode t in

@@ -122,7 +122,7 @@ let () =
         && saved.jmap_profile = dav.jmap_profile
         && saved.jmap_account = dav.jmap_account
         && saved.jmap_service = dav.jmap_service);
-      Testenv.with_xdg ~prefix:"dooit-config-xdg-" (fun _home ->
+      Xdge_testenv.with_xdg ~prefix:"dooit-config-xdg-" (fun _home ->
           let defaults = C.defaults ~fs () and loaded = C.load ~fs () in
           let worker_defaults =
             Eio_unix.run_in_systhread (fun () -> C.defaults ~fs ())

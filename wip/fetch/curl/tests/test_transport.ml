@@ -192,7 +192,7 @@ let test_proxy_ignores_environment () =
   with_fixture @@ fun _env sw ~active:_ ~proxy_hits ~http ~https ~proxy ->
   List.iter
     (fun (name, value) ->
-      Testenv.with_bindings
+      Xdge_testenv.with_bindings
         [ ("NO_PROXY", None); ("no_proxy", None); (name, Some value) ]
       @@ fun () ->
       let before = !proxy_hits in
@@ -205,7 +205,7 @@ let test_proxy_ignores_environment () =
         (Fetch.read client (https ^ "/"));
       Alcotest.(check int) (name ^ " used proxy twice") (before + 2) !proxy_hits)
     [ ("NO_PROXY", "*"); ("no_proxy", "localhost") ];
-  Testenv.with_bindings
+  Xdge_testenv.with_bindings
     [
       ("NO_PROXY", None);
       ("no_proxy", None);

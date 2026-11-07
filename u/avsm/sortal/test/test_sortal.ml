@@ -240,7 +240,7 @@ let test_links () =
 
 (* The environment is isolated before Eio or any worker domain starts. *)
 let () =
-  Testenv.with_xdg ~prefix:"sortal-test-" @@ fun _root ->
+  Xdge_testenv.with_xdg ~prefix:"sortal-test-" @@ fun _root ->
   traceln "\n=== Running Sortal Tests ===\n";
 
   test_contact_creation ();

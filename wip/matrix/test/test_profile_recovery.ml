@@ -67,7 +67,7 @@ let stores env directory =
   (xdg, P.create ~xdg ~profile:"test", C.create ~xdg ~profile:"test")
 
 let with_fixture fn =
-  Testenv.with_xdg ~prefix:"matrix-profile-recovery-" @@ fun directory ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-profile-recovery-" @@ fun directory ->
   Eio_main.run @@ fun env ->
   let xdg, profile, crypto = stores env directory in
   ok (P.save_session profile session);

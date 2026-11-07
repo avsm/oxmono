@@ -47,4 +47,4 @@ let integer name json = J.decode (field name Jsont.int) json
 
 (* [setenv name value] sets [name], or unsets it when [value] is [None]. The
    tests call it before starting Eio or any worker domains. *)
-let setenv = Testenv.set
+let setenv = Xdge_testenv.set

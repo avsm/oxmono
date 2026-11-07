@@ -220,7 +220,7 @@ let cancellation () =
          printf '%s\\n' \"$child\" > \"$DOOIT_GIT_TEST_PID\"\n\
          wait\n";
       Unix.chmod script 0o700;
-      Testenv.with_bindings
+      Xdge_testenv.with_bindings
         [
           ("PATH", Some (prepend_path bin));
           ("DOOIT_GIT_TEST_PID", Some pid_file);
@@ -268,7 +268,7 @@ let lost_notification () =
             ("#!/bin/sh\n/bin/sleep 0.05\nexec " ^ Filename.quote git
            ^ " \"$@\"\n");
           Unix.chmod script 0o700;
-          Testenv.with_bindings [ ("PATH", Some (prepend_path bin)) ]
+          Xdge_testenv.with_bindings [ ("PATH", Some (prepend_path bin)) ]
           @@ fun () ->
           let notifications = Atomic.make 0 in
           Eioext.Signals.with_handlers
@@ -522,7 +522,7 @@ let oversized_blob () =
           git [ "add"; "store.json"; "notes" ];
           git [ "commit"; "-m"; "Oversized external note" ];
           let trace = Filename.concat base "trace" in
-          Testenv.with_bindings [ ("GIT_TRACE", Some trace) ] @@ fun () ->
+          Xdge_testenv.with_bindings [ ("GIT_TRACE", Some trace) ] @@ fun () ->
           refuses (fun () ->
               Git.clone ~process_mgr
                 ~root:(Filename.concat base "clone")
@@ -549,7 +549,7 @@ let failure_redaction () =
         ("#!/bin/sh\nprintf '%s\\n' " ^ secret ^ "\nprintf '%s\\n' " ^ secret
        ^ " >&2\nexit 17\n");
       Unix.chmod executable 0o700;
-      Testenv.with_bindings [ ("PATH", Some base) ] @@ fun () ->
+      Xdge_testenv.with_bindings [ ("PATH", Some base) ] @@ fun () ->
       Eio_main.run (fun env ->
           let process_mgr = Eio.Stdenv.process_mgr env in
           let store = Store.init (Filename.concat base "store") in

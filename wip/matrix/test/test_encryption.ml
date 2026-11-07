@@ -1880,7 +1880,7 @@ let test_secret_request_cancel_after_send () =
 
 (* The store tests need a real filesystem, so they run their own Eio_main. *)
 let with_store_xdg f =
-  Testenv.with_xdg ~prefix:"matrix-crypto-" @@ fun _root ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-crypto-" @@ fun _root ->
   Eio_main.run @@ fun env ->
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-test" in
   f xdg (Crypto_store.create ~xdg ~profile:"default")
@@ -4732,7 +4732,7 @@ let test_store_round_trip () =
               after_sent_restart))
 
 let test_crypto_store_stale_generation () =
-  Testenv.with_xdg ~prefix:"matrix-crypto-generation-" @@ fun _root ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-crypto-generation-" @@ fun _root ->
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
   let xdg = Xdge.create fs "matrix-generation" in

@@ -22,4 +22,4 @@
 (test
  (name test_session)
  (modules test_session)
- (libraries apubt.auth eio_main unix jsont.bytesrw testenv))
+ (libraries apubt.auth eio_main unix jsont.bytesrw xdge.testenv))

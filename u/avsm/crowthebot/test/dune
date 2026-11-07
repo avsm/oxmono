@@ -319,7 +319,7 @@
 (test
  (name test_knowledge_config)
  (modules test_knowledge_config)
- (libraries crow_test crowthebot sqlite3-eio eio_main fetch.mock testenv unix))
+ (libraries crow_test crowthebot sqlite3-eio eio_main fetch.mock xdge.testenv unix))
 
 (test
  (name test_tasks)
@@ -332,4 +332,4 @@
     GIT_CONFIG_NOSYSTEM
     1
     (run %{test}))))
- (libraries crow_test fake_model crowthebot dooit.agent sqlite3-eio eio_main testenv unix))
+ (libraries crow_test fake_model crowthebot dooit.agent sqlite3-eio eio_main xdge.testenv unix))

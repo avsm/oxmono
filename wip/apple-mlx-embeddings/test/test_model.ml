@@ -144,33 +144,33 @@ let cache_paths root =
       "HOME";
     ]
   in
-  Testenv.with_bindings (List.map (fun name -> (name, None)) variables)
+  Xdge_testenv.with_bindings (List.map (fun name -> (name, None)) variables)
   @@ fun () ->
   let home = Filename.concat root "home" in
-  Testenv.set "HOME" (Some home);
+  Xdge_testenv.set "HOME" (Some home);
   check "HOME cache fallback"
     (M.cache_dir () = Filename.concat home ".cache/huggingface/hub");
   let xdg = Filename.concat root "xdg" in
-  Testenv.set "XDG_CACHE_HOME" (Some xdg);
+  Xdge_testenv.set "XDG_CACHE_HOME" (Some xdg);
   check "XDG cache precedes HOME"
     (M.cache_dir () = Filename.concat xdg "huggingface/hub");
   let hf_home = Filename.concat root "hf-home" in
-  Testenv.set "HF_HOME" (Some hf_home);
+  Xdge_testenv.set "HF_HOME" (Some hf_home);
   check "HF_HOME precedes XDG" (M.cache_dir () = Filename.concat hf_home "hub");
   let legacy = Filename.concat root "legacy" in
-  Testenv.set "HUGGINGFACE_HUB_CACHE" (Some legacy);
+  Xdge_testenv.set "HUGGINGFACE_HUB_CACHE" (Some legacy);
   check "legacy hub cache precedes HF_HOME" (M.cache_dir () = legacy);
   let current = Filename.concat root "current" in
-  Testenv.set "HF_HUB_CACHE" (Some current);
+  Xdge_testenv.set "HF_HUB_CACHE" (Some current);
   check "HF_HUB_CACHE has highest priority" (M.cache_dir () = current);
-  Testenv.set "HF_HUB_CACHE" (Some "");
+  Xdge_testenv.set "HF_HUB_CACHE" (Some "");
   check "empty overrides are ignored" (M.cache_dir () = legacy);
-  Testenv.set "HF_HUB_CACHE" (Some "relative-cache");
+  Xdge_testenv.set "HF_HUB_CACHE" (Some "relative-cache");
   check "relative environment paths resolve against cwd"
     (M.cache_dir () = Filename.concat (Sys.getcwd ()) "relative-cache");
-  Testenv.set "HF_HUB_CACHE" (Some "~/hub");
+  Xdge_testenv.set "HF_HUB_CACHE" (Some "~/hub");
   check "tilde prefix expands HOME" (M.cache_dir () = Filename.concat home "hub");
-  Testenv.set "HF_HUB_CACHE" (Some "~");
+  Xdge_testenv.set "HF_HUB_CACHE" (Some "~");
   check "bare tilde expands HOME" (M.cache_dir () = home)
 
 exception Cancel_download
@@ -185,7 +185,7 @@ let run () =
   Fun.protect
     ~finally:(fun () -> remove root)
     (fun () ->
-      Testenv.with_bindings
+      Xdge_testenv.with_bindings
         [
           ("PATH", Some bin);
           ("APPLE_MLX_MODEL_TEST_LOG", Some log);
@@ -253,7 +253,7 @@ let run () =
           let reset mode =
             remove log;
             Buffer.clear output;
-            Testenv.set "APPLE_MLX_MODEL_TEST_MODE" (Some mode)
+            Xdge_testenv.set "APPLE_MLX_MODEL_TEST_MODE" (Some mode)
           in
           install hf;
           install uvx;

@@ -8,7 +8,7 @@
  (name test_login)
  (package jmap-mosaic)
  (modules test_login)
- (libraries jmap.eio jmap-mosaic fetch.mock alcotest eio_main unix testenv))
+ (libraries jmap.eio jmap-mosaic fetch.mock alcotest eio_main unix xdge.testenv))
 
 (executable
  (name headless)

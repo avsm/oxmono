@@ -5,7 +5,7 @@ let admin = "@admin:example.org"
 
 (* The environment is isolated before Eio or any worker domain starts. *)
 let () =
-  Testenv.with_xdg ~prefix:"crow-knowledge-config" @@ fun root ->
+  Xdge_testenv.with_xdg ~prefix:"crow-knowledge-config" @@ fun root ->
   let dir name =
     let path = Filename.concat root name in
     Unix.mkdir path 0o700;
@@ -41,7 +41,7 @@ let () =
     else if Filename.basename path = "knowledge.sqlite3" then [ path ]
     else []
   in
-  Testenv.with_bindings
+  Xdge_testenv.with_bindings
     [ ("SORTAL_DATA_DIR", Some root) ]
     (fun () ->
       configure bushel;

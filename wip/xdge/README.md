@@ -64,6 +64,26 @@ let () =
   (* Respects MYAPP_CONFIG_DIR > XDG_CONFIG_HOME > default *)
 ```
 
+## Testing
+
+The `xdge.testenv` library gives a test a throwaway home. `Xdge_testenv.with_xdg`
+binds `HOME` and the XDG base directories to fresh subdirectories of a
+temporary root for the duration of a call, then restores the environment and
+deletes the root. `Xdge_testenv.with_bindings` scopes any other environment
+variables the same way, and can unset a variable, which `Unix.putenv` cannot.
+
+```ocaml
+let () =
+  Xdge_testenv.with_xdg @@ fun _root ->
+  Eio_main.run @@ fun env ->
+  let xdg = Xdge.create env#fs "myapp" in
+  (* every directory is under the temporary root *)
+```
+
+Changing the environment while another domain reads it is a data race. Call
+these functions from the main domain before any other domain starts, or
+between tests once every domain has finished.
+
 ## Installation
 
 ```

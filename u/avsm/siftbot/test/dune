@@ -74,7 +74,7 @@
   fetch.mock
   http
   eio_main
-  testenv
+  xdge.testenv
   unix))
 
 (test

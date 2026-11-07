@@ -6,7 +6,7 @@
 (test
  (name test_config)
  (modules test_config)
- (libraries dooit eio_main sekrit testenv))
+ (libraries dooit eio_main sekrit xdge.testenv))
 
 (test
  (name test_client)

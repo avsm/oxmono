@@ -36,7 +36,7 @@ let contains text fragment =
   loop 0
 
 let with_fixture f =
-  Testenv.with_xdg ~prefix:"matrix-cli-backup-" @@ fun directory ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-cli-backup-" @@ fun directory ->
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
   let xdg = Xdge.create fs "matrix" in

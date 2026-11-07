@@ -8,7 +8,7 @@ let test_path_validation () =
   (* Test absolute path validation for environment variables *)
   let test_relative_path_rejection env_var relative_path =
     Printf.printf "Testing rejection of relative path in %s...\n" env_var;
-    Testenv.with_bindings [ (env_var, Some relative_path) ] @@ fun () ->
+    Xdge_testenv.with_bindings [ (env_var, Some relative_path) ] @@ fun () ->
     try
       Eio_main.run @@ fun env ->
       let _ = Xdge.create env#fs "test_validation" in

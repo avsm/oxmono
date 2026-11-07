@@ -94,7 +94,7 @@ let test_driver_without_store () =
       Alcotest.failf "save without store: %s" (Error.to_string error)
 
 let with_store f =
-  Testenv.with_xdg ~prefix:"matrix-account-" @@ fun _root ->
+  Xdge_testenv.with_xdg ~prefix:"matrix-account-" @@ fun _root ->
   Eio_main.run @@ fun env ->
   let xdg = Xdge.create (Eio.Stdenv.fs env) "matrix-account-test" in
   f xdg (Crypto_store.create ~xdg ~profile:"default")

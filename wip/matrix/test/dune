@@ -248,7 +248,7 @@
   ptime
   unix
   uriz
-  testenv
+  xdge.testenv
   xdge))
 
 (rule
@@ -629,7 +629,7 @@
   jsont.bytesrw
   uriz
   unix
-  testenv
+  xdge.testenv
   xdge))
 
 (rule
@@ -749,7 +749,7 @@
   jsont.bytesrw
   unix
   uriz
-  testenv
+  xdge.testenv
   xdge))
 
 (rule
@@ -771,7 +771,7 @@
   alcotest
   eio
   eio_main
-  testenv
+  xdge.testenv
   xdge))
 
 (rule
@@ -1006,7 +1006,7 @@
 (executable
  (name test_cli_backup)
  (modules test_cli_backup)
- (libraries matrix-chat.client matrix-chat.proto alcotest eio eio.unix eio_main jsont jsont.bytesrw testenv uriz xdge))
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio eio.unix eio_main jsont jsont.bytesrw xdge.testenv uriz xdge))
 
 (rule
  (alias runtest)
@@ -1298,7 +1298,7 @@
 (executable
  (name test_profile_recovery)
  (modules test_profile_recovery)
- (libraries matrix-chat.client matrix-chat.proto alcotest eio eio.unix eio_main jsont jsont.bytesrw testenv uriz xdge))
+ (libraries matrix-chat.client matrix-chat.proto alcotest eio eio.unix eio_main jsont jsont.bytesrw xdge.testenv uriz xdge))
 
 (rule
  (alias runtest)

@@ -1,11 +1,5 @@
 let with_lmtp spec f =
-  let previous = Sys.getenv_opt "JMAP_ORACLE_LMTP" in
-  Fun.protect
-    ~finally:(fun () ->
-      Unix.putenv "JMAP_ORACLE_LMTP" (Option.value ~default:"" previous))
-    (fun () ->
-      Unix.putenv "JMAP_ORACLE_LMTP" spec;
-      f ())
+  Testenv.with_bindings [ ("JMAP_ORACLE_LMTP", Some spec) ] f
 
 let valid_lmtp () =
   List.iter

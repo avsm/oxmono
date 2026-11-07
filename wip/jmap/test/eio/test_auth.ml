@@ -3,9 +3,6 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
-(* The test runs in one domain, so mutating process-global state is safe. *)
-[@@@alert "-unsafe_multidomain"]
-
 (** Tests for {!Jmap_eio.Auth} and {!Jmap_eio.Transport}: what a credential puts
     on the wire, where it comes from, and how a deadline ends an exchange. *)
 
@@ -415,19 +412,14 @@ let test_named_secret_refresh () =
   Eio.Switch.run @@ fun sw ->
   let root = Filename.temp_dir "jmap-named-secret-" "" in
   let fs = Eio.Stdenv.fs env in
-  let variables = [ "SEKRIT_STORE_DIR"; "SEKRIT_KEY_FILE" ] in
-  let saved =
-    List.map
-      (fun name -> (name, Option.value (Sys.getenv_opt name) ~default:""))
-      variables
-  in
-  Fun.protect
-    ~finally:(fun () ->
-      List.iter (fun (name, value) -> Unix.putenv name value) saved;
-      Eio.Path.rmtree Eio.Path.(fs / root))
+  Fun.protect ~finally:(fun () -> Eio.Path.rmtree Eio.Path.(fs / root))
+  @@ fun () ->
+  Testenv.with_bindings
+    [
+      ("SEKRIT_STORE_DIR", Some (Filename.concat root "vault"));
+      ("SEKRIT_KEY_FILE", Some (Filename.concat root "key/master.key"));
+    ]
     (fun () ->
-      Unix.putenv "SEKRIT_STORE_DIR" (Filename.concat root "vault");
-      Unix.putenv "SEKRIT_KEY_FILE" (Filename.concat root "key/master.key");
       let store = Sekrit.Store.v () in
       Sekrit.Store.init store;
       let put value =
@@ -611,16 +603,13 @@ let vars =
     "ORACLE_API_KEY";
   ]
 
-(* [Unix.putenv] cannot unset, and {!Auth.of_env} treats an empty setting as
-   absent, so "" is how a variable is cleared here. *)
+(* [with_env bindings f] is [f ()] with every variable in [vars] unset except
+   those in [bindings]. *)
 let with_env bindings f =
-  let saved =
-    List.map (fun v -> (v, Option.value ~default:"" (Sys.getenv_opt v))) vars
-  in
-  let set = List.iter (fun (name, value) -> Unix.putenv name value) in
-  set (List.map (fun v -> (v, "")) vars);
-  set bindings;
-  Fun.protect ~finally:(fun () -> set saved) f
+  Testenv.with_bindings
+    (List.map (fun v -> (v, None)) vars
+    @ List.map (fun (name, value) -> (name, Some value)) bindings)
+    f
 
 let of_env_exn ?prefix ?fs () =
   match Auth.of_env ?prefix ?fs () with

@@ -335,20 +335,11 @@ let test_connect_error_context () =
 
 let test_xdg_store () =
   Eio_main.run @@ fun env ->
-  let root = Filename.temp_dir "jmap-profile-" "-xdg" in
-  let previous = Sys.getenv_opt "XDG_CONFIG_HOME" in
-  let restore () =
-    (match previous with
-    | Some value -> Unix.putenv "XDG_CONFIG_HOME" value
-    | None -> Unix.putenv "XDG_CONFIG_HOME" "");
-    Eio.Path.rmtree ~missing_ok:true Eio.Path.(Eio.Stdenv.fs env / root)
-  in
-  Fun.protect ~finally:restore @@ fun () ->
-  Unix.putenv "XDG_CONFIG_HOME" root;
+  Testenv.with_xdg ~prefix:"jmap-profile-xdg-" @@ fun root ->
   let store = Profile.xdg_store env |> get_ok "resolve XDG store" in
   Alcotest.(check string)
     "shared directory"
-    (List.fold_left Filename.concat root [ "jmap"; "profiles" ])
+    (List.fold_left Filename.concat root [ "config"; "jmap"; "profiles" ])
     (Profile.directory store)
 
 let cli_eval args =
@@ -372,10 +363,8 @@ let cli_config label args =
 
 let test_cli_profile () =
   Eio_main.run @@ fun env ->
-  let root = Filename.temp_dir "jmap-profile-" "-cli" in
   let vars =
     [
-      "XDG_CONFIG_HOME";
       "JMAP_SESSION_URL";
       "JMAP_API_KEY";
       "JMAP_API_KEY_FILE";
@@ -384,20 +373,10 @@ let test_cli_profile () =
       "JMAP_PROFILE";
     ]
   in
-  let saved =
-    List.map
-      (fun name -> (name, Option.value ~default:"" (Sys.getenv_opt name)))
-      vars
-  in
-  let set = List.iter (fun (name, value) -> Unix.putenv name value) in
-  let root_path = Eio.Path.(Eio.Stdenv.fs env / root) in
-  Fun.protect
-    ~finally:(fun () ->
-      set saved;
-      Eio.Path.rmtree ~missing_ok:true root_path)
+  Testenv.with_xdg ~prefix:"jmap-profile-cli-" @@ fun _root ->
+  Testenv.with_bindings
+    (List.map (fun name -> (name, None)) vars)
     (fun () ->
-      set (List.map (fun name -> (name, "")) vars);
-      Unix.putenv "XDG_CONFIG_HOME" root;
       let store = Profile.xdg_store env |> get_ok "CLI XDG store" in
       let profile =
         Profile.v ~name:"shared" ~session_url:"https://profile.example/jmap"
@@ -475,7 +454,7 @@ let test_cli_profile () =
         "direct URL wins" "https://direct.example/jmap" direct.session_url;
       Alcotest.(check string) "direct key wins" "DIRECT" direct.api_key;
       Alcotest.(check bool) "direct auth default" true (direct.auth = Cli.Bearer);
-      Unix.putenv "JMAP_PROFILE" "shared";
+      Testenv.set "JMAP_PROFILE" (Some "shared");
       let from_env = cli_config "environment profile" [] in
       Alcotest.(check bool)
         "environment source" true

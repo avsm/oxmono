@@ -10,17 +10,10 @@ module Model = Jmap_mosaic.Model
 let permissions path = (Unix.stat path).st_perm land 0o777
 
 let test_profiles () =
-  let config = Filename.temp_dir "jmap-mosaic-" "-profiles" in
-  let previous = Sys.getenv_opt "XDG_CONFIG_HOME" in
-  Unix.putenv "XDG_CONFIG_HOME" config;
+  Testenv.with_xdg ~prefix:"jmap-mosaic-profiles-" @@ fun _root ->
   Eio_main.run @@ fun env ->
   let profiles_dir = Login.profiles_path env in
   let profile_file = Filename.concat profiles_dir "work" in
-  let cleanup () =
-    Unix.putenv "XDG_CONFIG_HOME" (Option.value previous ~default:"");
-    Eio.Path.rmtree ~missing_ok:true Eio.Path.(Eio.Stdenv.fs env / config)
-  in
-  Fun.protect ~finally:cleanup @@ fun () ->
   let login =
     Model.
       {
@@ -72,41 +65,31 @@ let test_profiles () =
     (List.length (Login.profiles env))
 
 let test_public_shared_store_is_ignored () =
-  let config = Filename.temp_dir "jmap-mosaic-" "-public-store" in
-  let old_config = Sys.getenv_opt "XDG_CONFIG_HOME" in
-  Fun.protect
-    ~finally:(fun () ->
-      Unix.putenv "XDG_CONFIG_HOME" (Option.value ~default:"" old_config))
-    (fun () ->
-      Unix.putenv "XDG_CONFIG_HOME" config;
-      Eio_main.run @@ fun env ->
-      let directory =
-        List.fold_left Filename.concat config [ "jmap"; "profiles" ]
-      in
-      Eio.Path.mkdirs ~exists_ok:true ~perm:0o755
-        Eio.Path.(Eio.Stdenv.fs env / directory);
-      Unix.chmod directory 0o755;
-      Fun.protect
-        ~finally:(fun () ->
-          Eio.Path.rmtree ~missing_ok:true Eio.Path.(Eio.Stdenv.fs env / config))
-        (fun () ->
-          let login =
-            Model.
-              {
-                blank with
-                profile = "work";
-                url = "https://example.test/.well-known/jmap";
-                secret = "TOKEN";
-              }
-          in
-          Login.write_profile env login;
-          Alcotest.(check int) "mode unchanged" 0o755 (permissions directory);
-          Alcotest.(check bool)
-            "profile not written" false
-            (Sys.file_exists (Filename.concat directory "work"));
-          Alcotest.(check int)
-            "public store not listed" 0
-            (List.length (Login.profiles env))))
+  Testenv.with_xdg ~prefix:"jmap-mosaic-public-store-" @@ fun root ->
+  Eio_main.run @@ fun env ->
+  let directory =
+    List.fold_left Filename.concat root [ "config"; "jmap"; "profiles" ]
+  in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o755
+    Eio.Path.(Eio.Stdenv.fs env / directory);
+  Unix.chmod directory 0o755;
+  let login =
+    Model.
+      {
+        blank with
+        profile = "work";
+        url = "https://example.test/.well-known/jmap";
+        secret = "TOKEN";
+      }
+  in
+  Login.write_profile env login;
+  Alcotest.(check int) "mode unchanged" 0o755 (permissions directory);
+  Alcotest.(check bool)
+    "profile not written" false
+    (Sys.file_exists (Filename.concat directory "work"));
+  Alcotest.(check int)
+    "public store not listed" 0
+    (List.length (Login.profiles env))
 
 let test_dispatch_exception () =
   Eio_main.run @@ fun env ->

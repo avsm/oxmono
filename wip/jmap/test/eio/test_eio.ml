@@ -3643,18 +3643,13 @@ let cli_vars =
     "JMAP_PROFILE";
   ]
 
-(* [Unix.putenv] cannot unset, and the configuration treats an empty setting
-   as absent, so "" is how a variable is cleared here. *)
+(* [with_cli_env bindings f] is [f ()] with every variable in [cli_vars]
+   unset except those in [bindings]. *)
 let with_cli_env bindings f =
-  let saved =
-    List.map
-      (fun v -> (v, Option.value ~default:"" (Sys.getenv_opt v)))
-      cli_vars
-  in
-  let set = List.iter (fun (name, value) -> Unix.putenv name value) in
-  set (List.map (fun v -> (v, "")) cli_vars);
-  set bindings;
-  Fun.protect ~finally:(fun () -> set saved) f
+  Testenv.with_bindings
+    (List.map (fun v -> (v, None)) cli_vars
+    @ List.map (fun (name, value) -> (name, Some value)) bindings)
+    f
 
 let cli_eval args =
   let buf = Buffer.create 256 in

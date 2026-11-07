@@ -401,12 +401,14 @@ let write_multipart_final dst ~off ~boundary =
   Buf_write.crlf dst ~off
 ;;
 
-let generate_boundary random =
+let generate_boundary ~(random @ local) =
   let chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" in
   let len = 24 in
   let buf = Bytes.create len in
   for i = 0 to len - 1 do
-    let idx = Stdlib.Random.State.int random (String.length chars) in
+    let idx = random (String.length chars) in
+    if idx < 0 || idx >= String.length chars
+    then invalid_arg "Httpz.Range.generate_boundary: random drew out of range";
     Bytes.set buf i (String.get chars idx)
   done;
   Bytes.to_string buf

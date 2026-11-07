@@ -76,12 +76,13 @@ val multipart :
     of a [multipart/form-data] request carrying [parts] in order. A boundary
     not given is drawn freshly and checked against the parts, so that it
     occurs neither in a part's content nor in the headers a part serializes.
-    No digest of part contents appears in the boundary. [random] is the
-    source of the draw, 16 bytes per body. Pass [env#secure_random] for a
-    boundary a sender of a streamed part cannot predict. Without [random]
-    the draw comes from the calling domain's default [Random] generator,
-    which the application seeds with [Random.self_init]. The boundary is
-    not a secret.
+    No digest of part contents appears in the boundary. The boundary is
+    {!Httpz.Range.generate_boundary} drawn through [random], which is read
+    four bytes per character with rejection sampling, so about 96 bytes per
+    body. Pass [env#secure_random] for a boundary a sender of a streamed
+    part cannot predict. Without [random] the draw comes from the calling
+    domain's default [Random] generator, which the application seeds with
+    [Random.self_init]. The boundary is not a secret.
 
     A [name] or [filename] is written into the [Content-Disposition]
     quoted-string with a double quote as [%22], CR as [%0D] and LF as

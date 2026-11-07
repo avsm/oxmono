@@ -15,12 +15,12 @@ open Fetch
    smoke test rather than a proof: it exercises many domains drawing many
    boundaries at once and checks every result is well-formed and distinct. *)
 
-let is_boundary_hex s =
-  String.length s = String.length "form" + 32 + 2
+let is_boundary s =
+  String.length s = String.length "form" + 24 + 2
   && String.sub s 0 4 = "form"
   && String.for_all
-       (function '0' .. '9' | 'a' .. 'f' -> true | _ -> false)
-       (String.sub s 4 32)
+       (function '0' .. '9' | 'a' .. 'z' | 'A' .. 'Z' -> true | _ -> false)
+       (String.sub s 4 24)
 
 let boundary_of parts =
   let headers, _ = Form.multipart parts in
@@ -47,7 +47,7 @@ let test_boundary_generator_is_domain_safe () =
     (domain_count * draws_per_domain)
     (List.length results);
   Alcotest.(check bool) "every boundary is well-formed" true
-    (List.for_all is_boundary_hex results);
+    (List.for_all is_boundary results);
   Alcotest.(check int) "no two draws collided" (List.length results)
     (List.length (List.sort_uniq compare results))
 
@@ -61,14 +61,24 @@ let test_boundary_comes_from_random () =
         Option.get (Httpz_media.Multipart.boundary_of_content_type content_type)
     | [] -> Alcotest.fail "multipart body carries no Content-Type"
   in
+  (* Four zero bytes draw index 0, so every character is '0'. *)
   Alcotest.(check string)
-    "the boundary is the hex of the 16 bytes read from random"
-    ("form" ^ String.make 32 '0' ^ "x0")
-    (boundary_of_bytes (String.make 16 '\000'));
+    "each character is one four-byte draw from random"
+    ("form" ^ String.make 24 '0' ^ "x0")
+    (boundary_of_bytes (String.make 96 '\000'));
+  (* A draw of 61 selects the last letter of the alphabet, and bytes beyond
+     the 96 the boundary needs are left unread. *)
+  let sixty_one = String.concat "" (List.init 24 (fun _ -> "\000\000\000\061")) in
   Alcotest.(check string)
-    "only 16 bytes are read"
-    ("form" ^ String.make 32 'f' ^ "x0")
-    (boundary_of_bytes (String.make 20 '\255'))
+    "the alphabet ends at Z and extra bytes are not consumed"
+    ("form" ^ String.make 24 'Z' ^ "x0")
+    (boundary_of_bytes (sixty_one ^ String.make 8 '\255'));
+  (* Values at or above the largest multiple of 62 below 2^30 are drawn
+     again rather than folded, so this first word of all ones is skipped. *)
+  Alcotest.(check string)
+    "out-of-range words are rejected"
+    ("form" ^ String.make 24 '0' ^ "x0")
+    (boundary_of_bytes ("\255\255\255\255" ^ String.make 96 '\000'))
 
 let () =
   Alcotest.run "fetch-form-boundary"

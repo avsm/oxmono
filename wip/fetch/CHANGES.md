@@ -1,8 +1,8 @@
 # Changes
 
-- `Form.multipart` takes an optional `random` flow for its boundary draw
-  and otherwise uses the domain's default `Random` generator, instead of a
-  `Random` state of its own shared across domains.
+- `Form.multipart` draws its boundary through `Httpz.Range.generate_boundary`
+  from an optional `random` flow, or from the domain's default `Random`
+  generator, instead of a `Random` state of its own shared across domains.
 
 - Borrow request bodies through middleware, retries, redirects and HTTPZ.
   Generate explicit owned request copies with ppx_globalize for asynchronous

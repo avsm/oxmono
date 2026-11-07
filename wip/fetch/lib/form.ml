@@ -152,30 +152,36 @@ let occurs b parts heads =
 (* A boundary carries no digest of the parts, so two requests with the same
    parts are not framed alike and the Content-Type field reveals nothing
    about their values. The occurrence scan below, rather than the draw,
-   establishes the delimiter invariant. Without [random] the draw comes from
-   the calling domain's default [Random] generator, which the application
-   seeds. *)
-let hex s =
-  let digits = "0123456789abcdef" in
-  String.init (2 * String.length s) (fun i ->
-      let c = Char.code s.[i / 2] in
-      digits.[if i land 1 = 0 then c lsr 4 else c land 15])
+   establishes the delimiter invariant. *)
 
-let salt random =
-  match random with
-  | Some random ->
-      let buf = Cstruct.create 16 in
-      Eio.Flow.read_exact random buf;
-      hex (Cstruct.to_string buf)
-  | None ->
-      let b = Bytes.create 16 in
-      Bytes.set_int64_le b 0 (Stdlib.Random.bits64 ());
-      Bytes.set_int64_le b 8 (Stdlib.Random.bits64 ());
-      hex (Bytes.to_string b)
+(* [uniform flow n] is an integer uniformly drawn from [0, n) out of the
+   bytes of [flow]. Each draw takes the low 30 bits of four bytes and
+   rejects the values above the largest multiple of [n], so no residue is
+   favoured. *)
+let uniform flow =
+  let buf = Cstruct.create 4 in
+  fun n ->
+    if n <= 0 || n > 0x3fffffff then
+      invalid_arg "Fetch.Form.multipart: random bound out of range";
+    let limit = 0x40000000 - (0x40000000 mod n) in
+    let rec draw () =
+      Eio.Flow.read_exact flow buf;
+      let v = Int32.to_int (Cstruct.BE.get_uint32 buf 0) land 0x3fffffff in
+      if v < limit then v mod n else draw ()
+    in
+    draw ()
 
-let rec fresh parts heads digest n =
-  let b = Printf.sprintf "form%sx%d" digest n in
-  if occurs b parts heads then fresh parts heads digest (n + 1) else b
+let draw random =
+  let random =
+    match random with
+    | Some flow -> uniform (flow :> Eio.Flow.source_ty Eio.Resource.t)
+    | None -> Stdlib.Random.int
+  in
+  Httpz.Range.generate_boundary ~random
+
+let rec fresh parts heads seed n =
+  let b = Printf.sprintf "form%sx%d" seed n in
+  if occurs b parts heads then fresh parts heads seed (n + 1) else b
 
 let part_headers p =
   let buf = Buffer.create 128 in
@@ -402,11 +408,7 @@ let multipart ?boundary ?random parts =
   let heads = List.map part_headers parts in
   let b =
     match boundary with
-    | None ->
-        let random =
-          Option.map (fun r -> (r :> Eio.Flow.source_ty Eio.Resource.t)) random
-        in
-        fresh parts heads (salt random) 0
+    | None -> fresh parts heads (draw random) 0
     | Some b ->
         if not (is_boundary b) then
           invalid_arg

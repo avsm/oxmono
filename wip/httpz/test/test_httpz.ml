@@ -1137,15 +1137,30 @@ let test_write_content_range_unsatisfiable () =
 ;;
 
 let test_generate_boundary () =
-  (* The boundary is a function of the generator the caller passes: the same
-     seed reproduces it and the default [Random] state plays no part. *)
-  let first = Httpz.Range.generate_boundary (Stdlib.Random.State.make [| 42 |]) in
-  let again = Httpz.Range.generate_boundary (Stdlib.Random.State.make [| 42 |]) in
-  let other = Httpz.Range.generate_boundary (Stdlib.Random.State.make [| 43 |]) in
+  (* The boundary is a function of the draws [random] makes: the same seed
+     reproduces it and the default [Random] state plays no part. *)
+  let of_seed seed =
+    let state = Stdlib.Random.State.make [| seed |] in
+    Httpz.Range.generate_boundary ~random:(fun n -> Stdlib.Random.State.int state n)
+  in
+  let first = of_seed 42 in
   assert (String.length first = 24);
   assert (String.for_all first ~f:Char.is_alphanum);
-  assert (String.equal first again);
-  assert (String.( <> ) first other);
+  assert (String.equal first (of_seed 42));
+  assert (String.( <> ) first (of_seed 43));
+  (* Every character is one uniform draw below the alphabet size. *)
+  let bounds = ref [] in
+  let constant =
+    Httpz.Range.generate_boundary ~random:(fun n ->
+      bounds := n :: !bounds;
+      n - 1)
+  in
+  assert (String.equal constant (String.make 24 'Z'));
+  assert (List.length !bounds = 24 && List.for_all !bounds ~f:(fun n -> n = 62));
+  assert (
+    match Httpz.Range.generate_boundary ~random:(fun n -> n) with
+    | exception Invalid_argument _ -> true
+    | _ -> false);
   Stdio.printf "test_generate_boundary: PASSED\n"
 ;;
 

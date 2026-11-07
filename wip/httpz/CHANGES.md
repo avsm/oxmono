@@ -4,9 +4,9 @@
 
 ## Unreleased
 
-- `Range.generate_boundary` draws from a `Random.State.t` the caller passes
-  instead of a generator of its own, so the caller decides how boundaries
-  are seeded and no state is shared between domains.
+- `Range.generate_boundary` draws each character through a `random` closure
+  the caller passes instead of a generator of its own, so the caller decides
+  where boundaries come from and no state is shared between domains.
 
 - Install the media interface needed by its public re-export, preserving
   nested modules and portability guarantees for standalone consumers.

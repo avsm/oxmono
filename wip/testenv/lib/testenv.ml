@@ -27,15 +27,17 @@ let xdg_variables =
     "XDG_DATA_DIRS";
   ]
 
+(* Entries are classified with [lstat], so a symbolic link is unlinked and
+   never followed, including links that point outside [root]. *)
 let rec remove_tree path =
-  match Sys.is_directory path with
-  | true ->
+  match (Unix.lstat path).Unix.st_kind with
+  | Unix.S_DIR ->
       Array.iter
         (fun entry -> remove_tree (Filename.concat path entry))
         (Sys.readdir path);
       Sys.rmdir path
-  | false -> Sys.remove path
-  | exception Sys_error _ -> ()
+  | _ -> Sys.remove path
+  | exception Unix.Unix_error _ -> ()
 
 let with_xdg ?(prefix = "testenv-") f =
   let root = Filename.temp_dir ~perms:0o700 prefix "" in

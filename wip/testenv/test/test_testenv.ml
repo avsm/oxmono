@@ -38,3 +38,21 @@ let () =
   check "home restored" (Sys.getenv_opt "HOME" = previous_home);
   check "root removed" (not (Sys.file_exists root));
   print_endline "testenv: ok"
+
+let () =
+  let outside = Filename.temp_dir "testenv-outside-" "" in
+  let keep = Filename.concat outside "keep" in
+  Out_channel.with_open_bin keep (fun oc -> output_string oc "x");
+  let root =
+    Testenv.with_xdg (fun root ->
+        Unix.symlink outside (Filename.concat root "data/link");
+        Unix.symlink
+          (Filename.concat root "missing")
+          (Filename.concat root "data/dangling");
+        root)
+  in
+  check "root with links removed" (not (Sys.file_exists root));
+  check "link target kept" (Sys.file_exists keep);
+  Sys.remove keep;
+  Sys.rmdir outside;
+  print_endline "testenv: links ok"

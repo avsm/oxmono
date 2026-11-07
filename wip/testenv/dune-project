@@ -25,4 +25,5 @@ roots. It is for tests that run in a single domain.")
  (depends
   (ocaml
    (>= 5.2))
+  base-unix
   (odoc :with-doc)))

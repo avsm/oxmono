@@ -13,6 +13,7 @@ bug-reports: "https://github.com/avsm/oxmono/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2"}
+  "base-unix"
   "odoc" {with-doc}
 ]
 build: [

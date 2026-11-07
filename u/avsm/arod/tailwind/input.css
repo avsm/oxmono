@@ -4,4 +4,5 @@
 @import "tailwindcss/base";
 @import "tailwindcss/components";
 @import "./site.css";
+@import "./hljs-github.css";
 @import "tailwindcss/utilities";

@@ -414,16 +414,6 @@ let links_modal_js = {|
 
 let hljs_init = {|
 (function() {
-  function updateHljsTheme() {
-    var isDark = document.documentElement.classList.contains('dark');
-    var light = document.getElementById('hljs-light');
-    var dark = document.getElementById('hljs-dark');
-    if (light && dark) {
-      if (isDark) { light.disabled = true; dark.disabled = false; }
-      else { light.disabled = false; dark.disabled = true; }
-    }
-  }
-  updateHljsTheme();
   // Untagged blocks are shell sessions when they start with a prompt and
   // plain text otherwise, because auto-detection mislabels both.
   document.querySelectorAll('pre code').forEach(function(c) {
@@ -466,13 +456,6 @@ let hljs_init = {|
     wrapper.appendChild(toolbar);
     wrapper.appendChild(pre);
   });
-
-  var observer = new MutationObserver(function(mutations) {
-    mutations.forEach(function(m) {
-      if (m.attributeName === 'class') updateHljsTheme();
-    });
-  });
-  observer.observe(document.documentElement, { attributes: true });
 })();
 |}
 

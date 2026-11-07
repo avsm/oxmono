@@ -36,8 +36,8 @@ server prints the last frame and leaves it in the scrollback.
 ## Stylesheet
 
 Pages link one stylesheet, `assets/tw.css`, which `tailwind/regen.sh` builds
-from `tailwind/site.css` and the utility classes found in the OCaml
-sources. Edit `site.css` for site rules and rerun the
+from `tailwind/site.css`, the highlight.js themes and the utility classes
+found in the OCaml sources. Edit `site.css` for site rules and rerun the
 script, then commit the regenerated file. The build places `site.css`
 between Tailwind's components and utilities layers, so a utility class on an
 element overrides a site rule and site rules override the preflight reset.

@@ -172,13 +172,11 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       (* Run before stylesheets to prevent a theme flash. *)
       El.script [El.unsafe_raw Theme.theme_init_js];
 
+      (* The one stylesheet carries Tailwind, the site rules and both
+         highlight.js themes, so no other stylesheet is fetched. *)
       El.link ~at:[ At.rel "stylesheet";
                  At.href ("/tw.css?v=" ^ tw_version) ] ();
 
-      El.link ~at:[ At.rel "stylesheet"; At.id "hljs-light";
-                 At.href "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" ] ();
-      El.link ~at:[ At.rel "stylesheet"; At.id "hljs-dark"; At.disabled;
-                 At.href "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" ] ();
       El.script ~at:[ At.defer;
                  At.src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" ] [];
       (* The default bundle has no OCaml grammar. *)

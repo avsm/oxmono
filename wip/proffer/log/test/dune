@@ -1,0 +1,5 @@
+(test
+ (name test_log)
+ (package proffer-log)
+ (libraries httpz proffer proffer-httpz proffer-log sqlite3 sqlite3-eio eio
+  eio_main unix))

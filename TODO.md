@@ -16,6 +16,9 @@ not promises that historical test runs still apply.
   explicit ownership and dispatch design before adding domains. Start with
   [the backend contract](wip/proffer/httpz/proffer_httpz.mli) and
   [Arod's server](u/avsm/arod/lib/server/arod_server.ml).
+- [Proffer access log](wip/proffer/ACCESS_LOG_DESIGN.md): a `proffer-log`
+  library with rotation into yearly archives, a union view for analytics,
+  merge, and in-place migration of Arod's 4.6GB `access.db`.
 - Replace Sortal's handwritten HTML builders with Htmlit if the reduction
   justifies the change. Preserve escaping and rendering behavior with explicit
   comparisons, including `&#39;` versus `&apos;`. See

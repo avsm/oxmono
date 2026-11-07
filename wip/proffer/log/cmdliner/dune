@@ -1,0 +1,4 @@
+(library
+ (name proffer_log_cmd)
+ (public_name proffer-log.cmdliner)
+ (libraries proffer-log sqlite3-eio cmdliner eio eio_main eio.unix unix))

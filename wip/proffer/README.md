@@ -30,6 +30,11 @@ sets `Secure` cookies, since its browsers use HTTPS, and it takes its origin
 from configuration. `Host` and `X-Forwarded-Proto` are chosen by the client
 and must not decide what requests are checked against.
 
+The [`proffer-log`](log/proffer_log.mli) package records every request
+event in a SQLite file, rotates old rows into yearly archives beside it and
+reads the whole history through one view. [ACCESS_LOG_DESIGN.md](ACCESS_LOG_DESIGN.md)
+describes the files and the schema.
+
 Start with the [server and client examples](../../examples/README.md).
 The [first Proffer lesson](../../examples/proffer/1-hello/README.md)
 contains a complete program and its run command.

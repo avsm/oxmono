@@ -1,0 +1,4 @@
+(library
+ (name proffer_log)
+ (public_name proffer-log)
+ (libraries proffer proffer-httpz sqlite3 sqlite3-eio jsont jsont.bytesrw eio))

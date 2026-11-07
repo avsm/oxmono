@@ -1,5 +1,12 @@
 # Changes
 
+- Serve the site stylesheet as one cached file instead of inlining it in
+  every page, and build it through Tailwind so its rules sit between the
+  preflight reset and the utility classes. Borders on sidebar boxes, cards,
+  chips, pills and code blocks that the reset had been dropping are drawn
+  again, paper action pills follow the site theme toggle rather than the
+  system scheme, and smooth scrolling honours reduced-motion preferences.
+
 - Show the OCaml compiler version in the live dashboard headline and on
   the analytics page.
 

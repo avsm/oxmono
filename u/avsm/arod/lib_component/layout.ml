@@ -184,8 +184,6 @@ let head_elements ~ctx ~config ~title ~description ?url ?image ?(jsonld=[]) ?sta
       (* The default bundle has no OCaml grammar. *)
       El.script ~at:[ At.defer;
                  At.src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/ocaml.min.js" ] [];
-
-      El.style [El.unsafe_raw Theme.custom_css];
     ]
   in
   let head_els =

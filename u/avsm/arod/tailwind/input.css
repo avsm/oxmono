@@ -1,3 +1,7 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Build order. site.css sits between the components and utilities layers,
+   so its rules beat Tailwind's preflight reset and the typography plugin,
+   and a utility class on an element beats them. See regen.sh. */
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "./site.css";
+@import "tailwindcss/utilities";

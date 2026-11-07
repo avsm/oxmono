@@ -167,7 +167,7 @@ function setupSidenoteNumbers() {
     const anchor = ref.closest('.sidenote-anchor');
     if (!anchor) return;
     // U+2060 WORD JOINER forbids a line break between the last letter of
-    // the ref text and the marker. The .sidenote-toggle rule in theme.ml
+    // the ref text and the marker. The .sidenote-toggle rule in site.css
     // keeps the marker display: inline so it is not an atomic inline,
     // which would reintroduce the break. Either half alone still lets
     // the marker wrap on to a line of its own.

@@ -1,6 +1,7 @@
 #!/bin/sh
-# Regenerates ../assets/tw.css from the OCaml sources. Run after adding or
-# removing utility classes in the markup, then commit the result.
+# Regenerates ../assets/tw.css from the OCaml sources and site.css. Run
+# after changing site.css or adding or removing utility classes in the
+# markup, then commit the result.
 set -e
 cd "$(dirname "$0")"
 npm install --no-audit --no-fund

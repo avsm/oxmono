@@ -33,6 +33,15 @@ timer, so a quiet server draws nothing and computes nothing.
 log, which is also what a pipe or a service manager gets. Interrupting the
 server prints the last frame and leaves it in the scrollback.
 
+## Stylesheet
+
+Pages link one stylesheet, `assets/tw.css`, which `tailwind/regen.sh` builds
+from `tailwind/site.css` and the utility classes found in the OCaml
+sources. Edit `site.css` for site rules and rerun the
+script, then commit the regenerated file. The build places `site.css`
+between Tailwind's components and utilities layers, so a utility class on an
+element overrides a site rule and site rules override the preflight reset.
+
 ## Restore a website
 
 `arod pull` restores repositories, local configuration, service logins and

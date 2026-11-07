@@ -1,10 +1,11 @@
 /* Tailwind v3 config for the prebuilt arod stylesheet. Mirrors the config
    the site previously passed to the Play CDN, plus content globs over the
-   OCaml sources that emit every class the site uses. Regenerate tw.css with
-   ./regen.sh after changing markup classes or this config. */
+   OCaml sources that emit every class the site uses. input.css inlines
+   site.css between the components and utilities layers. Regenerate tw.css
+   with ./regen.sh after changing site.css, markup classes or this config. */
 module.exports = {
   content: [
-    '../lib/*.ml',
+    '../lib/**/*.ml',
     '../lib_component/*.ml',
     '../lib_handlers/*.ml',
   ],

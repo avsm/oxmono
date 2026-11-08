@@ -75,6 +75,7 @@ depends: [
   "conf-pkg-config"
   "conf-zlib"
   "conf-zstd"
+  "conf-python-3" {with-test}
 ]
 depexts: [
   ["libproj-dev" "proj-data" "libblosc-dev" "libopenblas-dev"

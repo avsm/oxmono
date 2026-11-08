@@ -121,9 +121,10 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
                 (Filename.quote ("git+" ^ url ^ "#" ^ commit))))
          remotes)
   in
+  let phase name = Printf.sprintf "(comment %s)" (atom name) in
   let ops =
     [
-      Printf.sprintf "(comment %s)" (atom variant.name);
+      phase "opam init";
       "(user (uid 1000) (gid 1000))";
       env "CLICOLOR_FORCE" "1";
       env "OPAMCOLOR" "always";
@@ -138,6 +139,7 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
               --oneline"
              opam_repository opam_repository);
         run "opam init --reinit -ni";
+        phase "opam repositories";
       ]
     @ oxcaml
     @ remotes
@@ -147,6 +149,7 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
       | Windows -> [])
     @ [
         run ~network:true ~cache (no_redirects ^ "opam update -u");
+        phase "opam install";
         Printf.sprintf "(copy (src %s) (dst %s))"
           (String.concat " " (List.map atom opam_files))
           (atom pin_dir);
@@ -166,12 +169,84 @@ let v ~(variant : Variant.t) ~opam_repository ?oxcaml_repository
              "opam update --depexts && opam install --depext-only -y %s $DEPS"
              (String.concat " " root_versions));
         run ~network:true ~cache "opam install $DEPS";
+        phase "build";
         Printf.sprintf "(copy (src .) (dst %s))" (atom src);
         run build;
       ]
   in
   Printf.sprintf "((from %s)\n %s)\n" (atom variant.image)
     (String.concat "\n " ops)
+
+type sexp = Atom of string | List of sexp list
+
+(* Quoted atoms keep their quotes and escapes, as [pretty] prints them as
+   written. Unbalanced input ends where it stands. *)
+let parse s =
+  let n = String.length s in
+  let rec atom i j =
+    if j < n then
+      match s.[j] with
+      | ' ' | '\t' | '\n' | '\r' | '(' | ')' | '"' -> j
+      | _ -> atom i (j + 1)
+    else j
+  in
+  let rec quoted j =
+    if j >= n then n
+    else if s.[j] = '\\' then quoted (j + 2)
+    else if s.[j] = '"' then j + 1
+    else quoted (j + 1)
+  in
+  let rec items acc i =
+    if i >= n then (List.rev acc, n)
+    else
+      match s.[i] with
+      | ' ' | '\t' | '\n' | '\r' -> items acc (i + 1)
+      | ')' -> (List.rev acc, i + 1)
+      | '(' ->
+          let inner, next = items [] (i + 1) in
+          items (List inner :: acc) next
+      | '"' ->
+          let j = quoted (i + 1) in
+          items (Atom (String.sub s i (j - i)) :: acc) j
+      | _ ->
+          let j = atom i (i + 1) in
+          items (Atom (String.sub s i (j - i)) :: acc) j
+  in
+  fst (items [] 0)
+
+let width = 80
+
+let rec flat = function
+  | Atom a -> a
+  | List l -> "(" ^ String.concat " " (List.map flat l) ^ ")"
+
+let pretty s =
+  let b = Buffer.create (String.length s * 2) in
+  let rec pp indent e =
+    match e with
+    | Atom a -> Buffer.add_string b a
+    | List [] -> Buffer.add_string b "()"
+    | List (x :: rest) ->
+        let one = flat e in
+        if indent + String.length one <= width then Buffer.add_string b one
+        else (
+          Buffer.add_char b '(';
+          pp (indent + 1) x;
+          List.iter
+            (fun y ->
+              Buffer.add_char b '\n';
+              Buffer.add_string b (String.make (indent + 1) ' ');
+              pp (indent + 1) y)
+            rest;
+          Buffer.add_char b ')')
+  in
+  List.iteri
+    (fun i e ->
+      if i > 0 then Buffer.add_char b '\n';
+      pp 0 e)
+    (parse s);
+  Buffer.add_char b '\n';
+  Buffer.contents b
 
 (* A day10 build solves and builds the project itself, against the same
    opam-repository commit and for the same platform as the OBuilder one. *)

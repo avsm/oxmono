@@ -8,6 +8,10 @@ val operation : string -> string option
     [(run (shell "make"))], or [None] for a line of output. OBuilder prints
     [(from IMAGE)], then [DIR: OP] before each later operation. *)
 
+val phase : string -> string option
+(** [phase op] is the name a comment operation [(comment NAME)] gives the
+    phase of the build it begins, or [None] for any other operation. *)
+
 val step_name : string -> string
 (** [step_name op] is a short name for operation [op]: a [run] operation's shell
     command, or else the operation, at most 72 bytes. *)

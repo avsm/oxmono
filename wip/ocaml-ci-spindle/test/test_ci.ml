@@ -194,6 +194,37 @@ let () =
   assert (contains "(workdir /src)");
   assert (not (contains "oxcaml"));
   assert (not (contains "opam repository add"));
+  (* Comments mark the phases, in the order the log reader opens them. *)
+  let index s =
+    let n = String.length s in
+    let rec at i = if String.sub spec i n = s then i else at (i + 1) in
+    at 0
+  in
+  let phases =
+    List.map index
+      [
+        "(comment \"opam init\")";
+        "(comment \"opam repositories\")";
+        "(comment \"opam install\")";
+        "(comment build)";
+      ]
+  in
+  assert (List.sort compare phases = phases);
+  assert (index "opam init --reinit" < List.nth phases 1);
+  assert (List.nth phases 1 < index "opam update -u");
+  assert (List.nth phases 2 < index "opam install $DEPS");
+  assert (List.nth phases 3 < index "(copy (src .)");
+  (* The spec is laid out for reading, with the elements that do not fit on
+     a line each on their own. *)
+  let pretty = Spec.pretty spec in
+  assert (
+    String.starts_with
+      ~prefix:
+        "((from ocaml/opam:debian-13-ocaml-5.4)\n (comment \"opam init\")\n"
+      pretty);
+  assert (within pretty "\n  (network host)\n  (shell \"opam update -u\"))");
+  assert (
+    Spec.pretty "(a (b c) \"d ) e\")" = "(a (b c) \"d ) e\")\n");
   (* A project's remotes go above opam-repository, the first highest, each at
      the commit solved against. *)
   let rspec =
@@ -267,6 +298,14 @@ let () =
     Obuilder_log.operation "\027[01;34m(from busybox)\027[0m"
     = Some "(from busybox)");
   assert (Obuilder_log.operation "-> installed dune.3.20.2" = None);
+  (* Comment operations name the phases of a build. *)
+  assert (
+    Obuilder_log.operation "\027[01;34m/: (comment \"opam init\")\027[0m"
+    = Some "(comment \"opam init\")");
+  assert (Obuilder_log.phase "(comment \"opam init\")" = Some "opam init");
+  assert (Obuilder_log.phase "(comment build)" = Some "build");
+  assert (Obuilder_log.phase "(comment \"a \\\"b\\\"\")" = Some "a \"b\"");
+  assert (Obuilder_log.phase "(run (shell \"comment\"))" = None);
   (* A long operation spans lines until its brackets close. *)
   assert (Obuilder_log.depth "(run (cache (x (target /y)))" = 1);
   assert (Obuilder_log.depth "(run (shell \"echo ) (\\\" (\"))" = 0);

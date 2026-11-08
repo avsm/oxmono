@@ -13,12 +13,19 @@ val v :
 (** [v ~variant ~opam_repository ~opam_files ~packages ()] is the spec, as an
     S-expression, that resets [~/opam-repository] to commit [opam_repository],
     pins the project's [opam_files], installs the solved [packages] and runs
-    [dune build @install @check @runtest] on the source. An OxCaml [variant]
+    [dune build @install @check @runtest] on the source. Comment operations
+    name its phases [opam init], [opam repositories], [opam install] and
+    [build], which {!Obuilder_log.phase} reads back. An OxCaml [variant]
     first adds [oxcaml_repository], a URL and commit, and creates its switch.
     [remotes], URLs and commits, none by default, are then added above every
     other repository, the first highest. Git follows no redirects when it
     fetches them, and the steps from their addition on mount a download cache
     named for their URLs rather than the shared one. *)
+
+val pretty : string -> string
+(** [pretty spec] is the S-expression [spec] laid out one element per line
+    where it does not fit in 80 columns, ending in a newline. Atoms are kept
+    as written. *)
 
 val day10 :
   variant:Variant.t ->

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Stream a build's log as the steps `start`, `opam init`,
+  `opam repositories`, `opam install` and `build` rather than one step per
+  OBuilder operation, and show the spec, laid out for reading, at the start.
 - Build the OxCaml variant with OxCaml 5.4.0-ox9.
 - Fetch `x-opam-repositories` remotes only at a public address, checked when
   each is fetched and pinned for git, with no redirects, no explicit port,

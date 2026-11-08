@@ -39,10 +39,35 @@ let operation line =
         if
           (not (String.contains dir ' '))
           && List.exists (is op)
-               [ "run"; "copy"; "workdir"; "env"; "user"; "shell" ]
+               [ "run"; "copy"; "workdir"; "env"; "user"; "shell"; "comment" ]
         then Some op
         else None
     | _ -> None
+
+(* A quoted atom is read as [Spec.atom] wrote it. *)
+let unquote s =
+  let n = String.length s in
+  if n < 2 || s.[0] <> '"' || s.[n - 1] <> '"' then s
+  else
+    let b = Buffer.create n in
+    let rec go i =
+      if i < n - 1 then
+        if s.[i] = '\\' && i + 1 < n - 1 then (
+          Buffer.add_char b (if s.[i + 1] = 'n' then '\n' else s.[i + 1]);
+          go (i + 2))
+        else (
+          Buffer.add_char b s.[i];
+          go (i + 1))
+    in
+    go 1;
+    Buffer.contents b
+
+let phase op =
+  let prefix = "(comment " in
+  if String.starts_with ~prefix op && String.ends_with ~suffix:")" op then
+    let n = String.length prefix in
+    Some (unquote (String.trim (String.sub op n (String.length op - n - 1))))
+  else None
 
 (* A step's name is its shell command, or the operation, kept short. *)
 let step_name op =

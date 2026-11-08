@@ -84,8 +84,11 @@ image's opam-repository to the solved commit, pins the project, installs the
 solution and runs `dune build @install @check @runtest`, as OCaml-CI's
 builds do. Windows builds use the `ocaml/opam` mingw-w64 images, with the
 solve requiring `host-system-mingw`, and build from Cygwin's shell. The
-job's log streams into Tangled with each OBuilder operation as a step of its
-own, and the workflow succeeds or fails with the job.
+job's log streams into Tangled as five steps. `start` shows the spec laid
+out for reading, the submission and the image, and `opam init`,
+`opam repositories`, `opam install` and `build` each hold the OBuilder
+operations of that phase, every operation heading its own output. The
+workflow succeeds or fails with the job.
 Cancelling the workflow cancels the job.
 
 Builds wait in the pool's queue, so `--concurrency` should allow every
@@ -127,8 +130,8 @@ the job as JSON.
 
 day10 reads a single opam repository, so OxCaml builds, which layer the
 OxCaml repository over opam-repository, stay OBuilder specs, as Windows
-builds do. day10's output has no OBuilder operations, so its log is one
-step.
+builds do. day10's output has no OBuilder operations, so its log is the
+`start` step alone, which begins with the job as indented JSON.
 
 ## Diagnosing failures
 

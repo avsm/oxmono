@@ -636,11 +636,15 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
     in
     go (Obuilder_log.depth op) 0
   in
-  (* Each section of the log is a step, until the log ends with the job's
-     result. *)
-  let rec section ~kind ?command name job =
+  (* Each phase of the log is a step, until the log ends with the job's
+     result. A spec names its phases with comment operations, and the
+     operations within a phase head their output. A log without them, such
+     as a day10 build's, has a step for each operation after [from]. *)
+  let phased = ref false in
+  let rec section ~kind ?command ?intro name job =
     let next = ref None in
     ctx.step ~kind ?command name (fun () ->
+        Option.iter (ctx.log `Stdout) intro;
         let rec loop () =
           match Eio.Stream.take lines with
           | End -> (
@@ -651,15 +655,26 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                   failwith message)
           | Line l -> (
               match Obuilder_log.operation l with
-              | Some op -> next := Some (rest_of op)
               | None ->
                   ctx.log `Stdout (l ^ "\n");
-                  loop ())
+                  loop ()
+              | Some op -> (
+                  let op = rest_of op in
+                  match Obuilder_log.phase op with
+                  | Some phase ->
+                      phased := true;
+                      next := Some (phase, op)
+                  | None
+                    when (not !phased)
+                         && not (String.starts_with ~prefix:"(from " op) ->
+                      next := Some (Obuilder_log.step_name op, op)
+                  | None ->
+                      ctx.log `Stdout (op ^ "\n");
+                      loop ()))
         in
         loop ());
     Option.iter
-      (fun op ->
-        section ~kind:`User ~command:op (Obuilder_log.step_name op) job)
+      (fun (name, op) -> section ~kind:`User ~command:op name job)
       !next
   in
   let submission = Ocluster_client.submission config.scheduler in
@@ -667,12 +682,25 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
   @@ fun () ->
   let cache_hint = r.repo ^ "/" ^ r.workflow
   and src = (r.source, [ r.commit ]) in
-  let ticket =
+  (* The start step shows the build as submitted, laid out to read. *)
+  let ticket, intro =
     if List.mem_assoc day10_var r.env then
       match Jsont_bytesrw.decode_string Spec.day10_jsont spec with
-      | Ok d -> Ocluster_client.submit_day10 submission ~pool ~cache_hint ~src d
+      | Ok d ->
+          let intro =
+            match
+              Jsont_bytesrw.encode_string ~format:Jsont.Indent Spec.day10_jsont
+                d
+            with
+            | Ok json -> json ^ "\n"
+            | Error _ -> spec ^ "\n"
+          in
+          ( Ocluster_client.submit_day10 submission ~pool ~cache_hint ~src d,
+            intro )
       | Error e -> invalid_arg ("a day10 workflow's build is unreadable: " ^ e)
-    else Ocluster_client.submit submission ~pool ~cache_hint ~src spec
+    else
+      ( Ocluster_client.submit submission ~pool ~cache_hint ~src spec,
+        Spec.pretty spec )
   in
   let job = Ocluster_client.job ticket in
   (* A cancelled workflow cancels its job, over the scheduler's connection,
@@ -695,7 +723,7 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
           (fun () ->
             section ~kind:`System
               ~command:("ocluster submit --pool " ^ pool)
-              "start" job)
+              ~intro "start" job)
       with Eio.Cancel.Cancelled _ as e ->
         (* A scheduler that stops answering must not hold the workflow, and
            its concurrency slot, forever. *)

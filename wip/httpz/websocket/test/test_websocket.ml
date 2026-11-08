@@ -141,7 +141,14 @@ let messages () =
     "\x81\x85\x37\xfa\x21\x3d\x7f\x9f\x4d\x51\x58" in
   check "server unmasks RFC frame" (receive t = (true, Some (W.Text, "Hello")));
   W.send t W.Text (bytes "Hello") ~off:0 ~len:5;
-  Alcotest.(check string) "server frame" "\x81\x05Hello" (out ())
+  Alcotest.(check string) "server frame" "\x81\x05Hello" (out ());
+  let t, out, _ = connection ~role:W.Server ~max_message:3 "" in
+  W.send t W.Binary (bytes "Hello") ~off:0 ~len:5;
+  Alcotest.(check string) "send is not bounded by max_message"
+    "\x82\x05Hello" (out ());
+  check "send checks its range"
+    (try W.send t W.Binary (bytes "Hello") ~off:3 ~len:5; false
+     with Invalid_argument _ -> true)
 
 let rejected () =
   let rejects ?max_message ?max_fragments code input =

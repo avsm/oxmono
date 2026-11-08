@@ -1,5 +1,9 @@
 # Changes
 
+- Log streams no longer abort when a workflow writes a line longer than 4 KiB.
+  The WebSocket limit now applies to what clients send, so the Tangled log
+  view shows such workflows again.
+
 - Raise the log budget of a workflow from 1 MiB to 16 MiB and make it
   configurable with `--log-megabytes` and `Engine.v ~log_limit`.
 

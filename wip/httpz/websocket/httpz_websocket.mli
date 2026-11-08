@@ -103,9 +103,9 @@ val create :
     Transport or lock exceptions invalidate the connection and propagate.
 
     Clients must supply [random], which fills fresh cryptographically random
-    mask bytes on every frame. Servers do not use it. [max_message] defaults
-    to 16 MiB and [max_fragments] to 1024. Storage grows on demand within the
-    message bound. Invalid limits or missing client randomness raise
+    mask bytes on every frame. Servers do not use it. [max_message] bounds
+    the messages received and defaults to 16 MiB. [max_fragments] defaults to
+    1024. Receive storage grows on demand within the message bound. Invalid limits or missing client randomness raise
     [Invalid_argument]. *)
 
 val receive :
@@ -124,8 +124,8 @@ val receive :
     when finished, on error or timeout. *)
 
 val send : t -> kind -> bytes -> off:int -> len:int -> unit
-(** [send t kind bytes ~off ~len] writes one final data frame. Server output
-    borrows the payload directly. Client output masks through reusable scratch
+(** [send t kind bytes ~off ~len] writes one final data frame of any length
+    [bytes] can hold. Server output borrows the payload directly. Client output masks through reusable scratch
     storage without modifying the payload. Text must be UTF-8. *)
 
 val ping : t -> bytes -> off:int -> len:int -> unit

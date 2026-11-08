@@ -65,7 +65,9 @@ waiting for the peer's close. A server acknowledges client-only close code
 A protocol error invalidates the connection and requires transport teardown.
 It does not emit another frame.
 
-Receive storage grows up to `max_message`, default 16 MiB. Fragmentation is
+Receive storage grows up to `max_message`, default 16 MiB. The bound applies
+to received messages only. A sent message may be as long as its payload
+allows. Fragmentation is
 bounded separately, default 1024 frames per message. Control frames use a
 125-byte buffer. Complete messages are lent to the callback until it returns.
 Copy the slice if it must outlive that callback. UTF-8 is checked after

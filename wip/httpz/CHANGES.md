@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- `Httpz_websocket.send` accepts a message of any length its payload holds.
+  `max_message` bounds received messages only, as documented, so a server
+  that limits what clients may send can still deliver longer frames.
+
 - `Range.generate_boundary` draws each character through a `random` closure
   the caller passes instead of a generator of its own, so the caller decides
   where boundaries come from and no state is shared between domains.

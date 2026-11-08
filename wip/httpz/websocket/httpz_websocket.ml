@@ -398,8 +398,7 @@ let send_frame t opcode b off len =
     write_frame t opcode b off len))
 
 let send t kind b ~off ~len =
-  if not (range b off len) || len > t.max_message then
-    invalid_arg "WebSocket message range or limit";
+  if not (range b off len) then invalid_arg "WebSocket message range";
   if kind = Text && not (valid_utf8 b off len) then
     invalid_arg "WebSocket text must be UTF-8";
   let opcode = match kind with Text -> Frame.Text | Binary -> Frame.Binary in

@@ -1,5 +1,6 @@
 (test
  (name test_lexicons)
+ (modules test_lexicons)
  (libraries tangled jsont.bytesrw))
 
 (rule

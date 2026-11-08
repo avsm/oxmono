@@ -1,5 +1,6 @@
 (test
  (name test_store)
+ (modules test_store)
  (libraries
   imap
   imap.store
@@ -13,30 +14,37 @@
 
 (test
  (name test_operation_evidence)
+ (modules test_operation_evidence)
  (libraries imap imap.store mail-flag eio eio_main))
 
 (test
  (name test_schema_guards)
+ (modules test_schema_guards)
  (libraries imap.store eio eio_main sqlite3 unix))
 
 (test
  (name test_append_validation)
+ (modules test_append_validation)
  (libraries imap imap.store eio eio_main sqlite3))
 
 (test
  (name test_blob_gc)
+ (modules test_blob_gc)
  (libraries imap.store eio eio_main unix sqlite3))
 
 (test
  (name test_journal_outcomes)
+ (modules test_journal_outcomes)
  (libraries imap imap.store mail-flag eio eio_main sqlite3))
 
 (test
  (name test_store_outcomes)
+ (modules test_store_outcomes)
  (libraries imap imap.store eio eio_main sqlite3 unix))
 
 (test
  (name test_stage_publication)
+ (modules test_stage_publication)
  (libraries imap imap.store mail-flag eio eio_main alcotest))
 
 (test

@@ -1,15 +1,19 @@
 (test
  (name test_keyword)
+ (modules test_keyword)
  (libraries mail-flag alcotest))
 
 (test
  (name test_mailbox_attr)
+ (modules test_mailbox_attr)
  (libraries mail-flag alcotest))
 
 (test
  (name test_flag_color)
+ (modules test_flag_color)
  (libraries mail-flag alcotest))
 
 (test
  (name test_imap_flag)
+ (modules test_imap_flag)
  (libraries mail-flag alcotest))

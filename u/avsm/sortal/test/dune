@@ -1,17 +1,21 @@
 (test
  (name test_sortal)
+ (modules test_sortal)
  (libraries sortal eio eio_main jsont jsont.bytesrw xdge.testenv))
 
 (test
  (name test_native_store)
+ (modules test_native_store)
  (libraries sortal sortal.carddav eio_main unix alcotest jsont.bytesrw))
 
 (test
  (name test_schema)
+ (modules test_schema)
  (libraries sortal.schema jsont jsont.bytesrw))
 
 (test
  (name test_feed)
+ (modules test_feed)
  (libraries
   sortal.feed
   sortal.schema
@@ -25,16 +29,20 @@
 
 (test
  (name test_feed_sync)
+ (modules test_feed_sync)
  (libraries sortal.feed sortal.schema eio eio_main fetch fetch.mock http))
 
 (test
  (name test_web)
+ (modules test_web)
  (libraries sortal.web sortal.schema proffer proffer.mock))
 
 (test
  (name test_opml)
+ (modules test_opml)
  (libraries sortal.feed))
 
 (test
  (name test_carddav)
+ (modules test_carddav)
  (libraries sortal.carddav base64 unix alcotest eio_main fetch.mock http))

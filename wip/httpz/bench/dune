@@ -5,10 +5,12 @@
 
 (executable
  (name bench_compare)
+ (modules bench_compare)
  (libraries stdio stdlib_upstream_compatible unix httpz httpe eio eio_main base))
 
 ; Per-operation allocation for conditional-request fields and chunked decoding.
 
 (executable
  (name bench_alloc)
+ (modules bench_alloc)
  (libraries stdio stdlib_upstream_compatible unix httpz base))

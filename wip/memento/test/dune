@@ -1,10 +1,12 @@
 (test
  (name test_memento)
+ (modules test_memento)
  (libraries memento memento.fetch memento.proffer fetch.mock proffer.mock
   eio.mock jsont.bytesrw http ptime))
 
 (test
  (name test_wayback)
+ (modules test_wayback)
  (libraries memento.wayback memento fetch.mock eio.mock http httpz.uri))
 
 (cram

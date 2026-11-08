@@ -1,17 +1,21 @@
 (test
  (name test_tomlt)
+ (modules test_tomlt)
  (libraries tomlt tomlt.bytesrw alcotest unix))
 
 (test
  (name test_codec)
+ (modules test_codec)
  (libraries tomlt tomlt.bytesrw alcotest unix))
 
 (test
  (name cookbook)
+ (modules cookbook)
  (libraries tomlt tomlt.bytesrw unix))
 
 (test
  (name test_utf8)
+ (modules test_utf8)
  (libraries tomlt tomlt.bytesrw))
 
 (test

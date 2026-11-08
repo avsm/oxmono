@@ -130,6 +130,13 @@ let options =
             ~doc:"Also build with OxCaml 5.4.0-ox9, as oxmono does.")
     $ diagnose)
 
+(* A project is OCaml when brief finds opam files, or OCaml sources and dune,
+   anywhere in it. The plan then looks for opam files at the root. *)
+let ocaml (report : Brief.t) =
+  Brief.package_manager report "opam" <> None
+  || Brief.language report "OCaml" <> None
+     && Brief.tool report ~category:"build" "Dune" <> None
+
 let () =
   Spindle_cli.main ~name:"ocaml-ci-spindle" ~workflow_timeout:21600.
     ~repository_workflows:false
@@ -176,4 +183,19 @@ let () =
               diagnose;
         }
       in
-      (Ci.jobs, Ci.executor config))
+      let routes =
+        [
+          {
+            Spindle_brief.name = "ocaml-ci";
+            accepts = ocaml;
+            jobs = Ci.jobs;
+            executor = Ci.executor config;
+          };
+        ]
+      in
+      ( Spindle_brief.jobs,
+        Spindle_brief.executor
+          ~scan:
+            (Detect.scan ~pool:(Variant.v "5.4").pool ~clock:env#mono_clock
+               config.scheduler)
+          routes ))

@@ -13,6 +13,7 @@ depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2"}
   "spindle"
+  "brief"
   "ocluster-client"
   "opam-core"
   "opam-format"

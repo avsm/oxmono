@@ -22,6 +22,7 @@ OCluster pool, reporting every build as its own Tangled workflow.")
   (ocaml
    (>= 5.2))
   spindle
+  brief
   ocluster-client
   opam-core
   opam-format

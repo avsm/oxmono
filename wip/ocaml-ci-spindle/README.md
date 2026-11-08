@@ -34,11 +34,22 @@ It takes every option of the `spindle` command, and these of its own:
 
 ## What it does
 
-Every push, pull request or manual run starts an `ocaml-ci` workflow:
+Every push, pull request or manual run starts a `detect` workflow, which
+submits a small OBuilder job to the `linux-x86_64` pool. The job builds a
+container from `debian:13-slim` that fetches the latest release of
+[brief](https://github.com/git-pkgs/brief) from GitHub, checked against the
+release's checksums, copies the commit the worker checked out into `/src`
+and runs `brief -json /src` as an unprivileged user. The image is cached on
+the worker and built again each day, so it follows new releases. Nothing from
+the repository runs, there or on the spindle's host. The step logs the job up
+to brief's output, then what brief found, and a folded `report` step holds
+the whole report. A project is OCaml when brief finds opam files, or OCaml
+sources and Dune, anywhere in it. Any other project ends there, in success,
+and an OCaml one gets an `ocaml-ci` workflow:
 
 1. **analyse** lists the `*.opam` files at the repository's root through its
-   knot. A repository without any is not an OCaml project, and the workflow
-   ends there.
+   knot. A repository without any at its root has nothing to build, and the
+   workflow ends there.
 2. **solve** refreshes a shallow clone of opam-repository, at most every ten
    minutes, and solves the project's packages, with their test
    dependencies, for each compiler using opam-0install. The OxCaml build

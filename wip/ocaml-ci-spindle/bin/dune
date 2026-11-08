@@ -7,6 +7,8 @@
   ocluster-client
   spindle
   spindle.cli
+  spindle.brief
+  brief
   cmdliner
   eio
   fetch-httpz

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Start every pipeline with a `detect` workflow that runs the latest brief
+  in a container on the `linux-x86_64` pool, and run `ocaml-ci` only for a
+  project brief finds opam files or OCaml and Dune in.
 - Stream a build's log as the steps `start`, `opam init`,
   `opam repositories`, `opam install` and `build` rather than one step per
   OBuilder operation, and show the spec, laid out for reading, at the start.

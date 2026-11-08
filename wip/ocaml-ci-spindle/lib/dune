@@ -3,6 +3,8 @@
  (public_name ocaml-ci-spindle)
  (libraries
   spindle
+  spindle.brief
+  brief
   ocluster-client
   opam-core
   opam-format
@@ -16,4 +18,6 @@
   jsont.bytesrw
   mtime
   mtime.clock
+  ptime
+  ptime.clock.os
   fmt))

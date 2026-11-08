@@ -444,3 +444,65 @@ let () =
   print_endline
     "ocaml-ci: compiler choice, platforms, overlays, avoided versions, test \
      dependencies, specs, OBuilder log steps and diagnosis helpers passed"
+
+(* The OCluster job's spec and the report in its log. *)
+let () =
+  let check name b = if not b then failwith ("check failed: " ^ name) in
+  let within haystack needle =
+    let n = String.length needle and h = String.length haystack in
+    let rec go i =
+      i + n <= h && (String.sub haystack i n = needle || go (i + 1))
+    in
+    go 0
+  in
+  let spec = Detect.spec "2026-11-08" in
+  check "from" (String.starts_with ~prefix:"((from debian:13-slim)\n" spec);
+  check "latest release"
+    (within spec "releases/latest/download/checksums.txt"
+    && within spec "sha256sum -c -");
+  check "refreshed" (within spec "# refreshed 2026-11-08\"))");
+  check "unprivileged"
+    (within spec "(user (uid 1000) (gid 1000))\n (workdir /src)");
+  check "runs brief"
+    (String.ends_with
+       ~suffix:
+         "(copy (src .) (dst /src))\n (run (shell \"brief -json /src\")))\n"
+       spec);
+  check "other image"
+    (String.starts_with ~prefix:"((from debian:13@sha256:abc)"
+       (Detect.spec ~image:"debian:13@sha256:abc" "x"));
+  let log =
+    [
+      "/: (run (network host) (shell \"apt-get update ... # refreshed x\"))";
+      "brief 0.15.0";
+      "/src: (copy (src .) (dst /src))";
+      "/src: (run (shell \"brief -json /src\"))";
+      "{";
+      "  \"version\": \"0.15.0\",";
+      "  \"stats\": {";
+      "    \"files_checked\": 3";
+      "  }";
+      "}";
+    ]
+  in
+  check "report"
+    (Detect.report_of_log log
+    = Ok
+        "{\n  \"version\": \"0.15.0\",\n  \"stats\": {\n    \"files_checked\": \
+         3\n  }\n}\n");
+  check "no brief run"
+    (Detect.report_of_log [ "brief -json /src"; "{"; "}" ]
+    = Error "the job did not run brief");
+  check "no report"
+    (Detect.report_of_log
+       [ "/src: (run (shell \"brief -json /src\"))"; "panic" ]
+    = Error "brief wrote no report");
+  (* Output of the repository's files cannot fake the run: only a heading
+     with a working directory counts, and the last run wins. *)
+  check "last run"
+    (Detect.report_of_log
+       ([ "/src: (run (shell \"brief -json /src\"))"; "{"; "\"fake\": 1"; "}" ]
+       @ log)
+    |> Result.map (fun s -> within s "fake")
+    = Ok false);
+  print_endline "ocaml-ci detect: the brief job's spec and its log passed"

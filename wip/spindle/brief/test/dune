@@ -1,0 +1,4 @@
+(test
+ (name test_dispatch)
+ (modules test_dispatch)
+ (libraries spindle spindle.brief brief jsont))

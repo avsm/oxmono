@@ -28,6 +28,7 @@ depends: [
   "sqlite3-eio"
   "ptime"
   "cmdliner"
+  "brief"
   "odoc" {with-doc}
 ]
 build: [

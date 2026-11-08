@@ -122,6 +122,17 @@ executor. A planning executor uses it to start one workflow per build it
 decides on, such as one per compiler a dependency solve allows. A retry of a
 spawned workflow reruns the workflow that spawned it.
 
+A spindle for more than one kind of project builds its executor with
+`Spindle_brief.executor`, from the `spindle.brief` library. Every event then
+starts a `detect` workflow, which has [brief](https://github.com/git-pkgs/brief)
+report on the commit and starts the jobs of each route that accepts the
+report, such as an OCaml CI for a repository with opam files. Each route
+names its executor, and the workflows it starts, and those they spawn, carry
+`SPINDLE_ROUTE` in their environment so they reach it again after a restart.
+The executor takes a `scan` function that gets the report from wherever
+brief runs, such as a container on a build cluster, as
+`Ocaml_ci_spindle.Detect` does on OCluster. The spindle's host runs nothing.
+
 `await_spawned ()` waits until every workflow the current one spawned, and
 everything those spawned, has finished, and returns how each ended with its
 log as text. A planner calls it last to summarise its builds. While it

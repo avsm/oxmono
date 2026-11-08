@@ -1,5 +1,10 @@
 # Changes
 
+- Add `Spindle_brief`, in the `spindle.brief` library, which starts a
+  `detect` workflow for every event, has brief report on the commit through a
+  `scan` function and routes the repository to the executors of the project
+  kinds it finds.
+
 - Log streams no longer abort when a workflow writes a line longer than 4 KiB.
   The WebSocket limit now applies to what clients send, so the Tangled log
   view shows such workflows again.

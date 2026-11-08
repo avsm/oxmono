@@ -36,4 +36,5 @@ engine. Workflow execution is delegated to an operator-supplied callback.")
   mirage-crypto-ec
   sqlite3-eio
   ptime
-  cmdliner))
+  cmdliner
+  brief))

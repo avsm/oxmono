@@ -1,0 +1,4 @@
+(library
+ (name spindle_brief)
+ (public_name spindle.brief)
+ (libraries spindle brief))

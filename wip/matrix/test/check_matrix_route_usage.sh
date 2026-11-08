@@ -16,7 +16,7 @@ allowed_room_lines='"via=" ^ Uriz.pct_encode ~component:`Query_value server)
 (Uriz.pct_encode ~component:`Segment (Id.Room_id.to_string t.room_id))
 (Uriz.pct_encode ~component:`Segment (Id.Event_id.to_string event_id))'
 
-matches=$(rg -n --glob '*.ml' --glob '*.mli' 'Uriz\.pct_encode' "$client" || true)
+matches=$(grep -rnE --include='*.ml' --include='*.mli' 'Uriz\.pct_encode' "$client" || true)
 
 while IFS=: read -r file line source; do
   [ -n "$file" ] || continue

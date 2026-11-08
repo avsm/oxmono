@@ -3,15 +3,15 @@ set -eu
 
 root=${1:-.}
 
-if rg -n \
-  --glob '*.ml' \
-  --glob '*.mli' \
-  --glob '!matrix_json.ml' \
-  --glob '!matrix_json.mli' \
-  --glob '!matrix_event.ml' \
-  --glob '!matrix_event.mli' \
-  --glob '!json_codec.ml' \
-  --glob '!json_codec.mli' \
+if grep -rnE \
+  --include='*.ml' \
+  --include='*.mli' \
+  --exclude='matrix_json.ml' \
+  --exclude='matrix_json.mli' \
+  --exclude='matrix_event.ml' \
+  --exclude='matrix_event.mli' \
+  --exclude='json_codec.ml' \
+  --exclude='json_codec.mli' \
   'Jsont\.(int|int64|int32|int16|int8|uint16|uint8|number|string)\b|Jsont\.Object\.(as_string_map|Mems\.string_map)' \
   "$root/lib" "$root/bin" "$root/test"
 then
@@ -19,10 +19,10 @@ then
   exit 1
 fi
 
-if rg -n \
-  --glob '*.ml' \
-  --glob '*.mli' \
-  --glob '!matrix_event.ml' \
+if grep -rnE \
+  --include='*.ml' \
+  --include='*.mli' \
+  --exclude='matrix_event.ml' \
   'Unsigned\.persisted_jsont\b' \
   "$root/lib" "$root/bin" "$root/test"
 then
@@ -30,12 +30,12 @@ then
   exit 1
 fi
 
-if rg -n \
-  --glob '*.ml' \
-  --glob '*.mli' \
-  --glob '!store.ml' \
-  --glob '!sliding_sync_state.ml' \
-  --glob '!thread_info.ml' \
+if grep -rnE \
+  --include='*.ml' \
+  --include='*.mli' \
+  --exclude='store.ml' \
+  --exclude='sliding_sync_state.ml' \
+  --exclude='thread_info.ml' \
   'Raw_event\.persisted_jsont\b' \
   "$root/lib" "$root/bin" "$root/test"
 then
@@ -43,12 +43,12 @@ then
   exit 1
 fi
 
-if rg -n \
-  --glob '*.ml' \
-  --glob '*.mli' \
-  --glob '!read_state.ml' \
-  --glob '!store.ml' \
-  --glob '!send_queue.ml' \
+if grep -rnE \
+  --include='*.ml' \
+  --include='*.mli' \
+  --exclude='read_state.ml' \
+  --exclude='store.ml' \
+  --exclude='send_queue.ml' \
   'Json_codec\.persisted_timestamp\b' \
   "$root/lib" "$root/bin" "$root/test"
 then
@@ -59,22 +59,22 @@ fi
 # The permissive codecs deliberately preserve old on-disk formats. Keep the
 # allowlist explicit so a new Matrix wire codec cannot silently accept numeric
 # strings or integers outside the interoperable range.
-if rg -n \
-  --glob '*.ml' \
-  --glob '*.mli' \
-  --glob '!matrix_json.ml' \
-  --glob '!matrix_json.mli' \
-  --glob '!json_codec.ml' \
-  --glob '!json_codec.mli' \
-  --glob '!session_pickle.ml' \
-  --glob '!session.ml' \
-  --glob '!store.ml' \
-  --glob '!crypto_store.ml' \
-  --glob '!send_queue.ml' \
-  --glob '!sliding_sync_state.ml' \
-  --glob '!thread_subscriptions.ml' \
-  --glob '!thread_info.ml' \
-  --glob '!thread_cache.ml' \
+if grep -rnE \
+  --include='*.ml' \
+  --include='*.mli' \
+  --exclude='matrix_json.ml' \
+  --exclude='matrix_json.mli' \
+  --exclude='json_codec.ml' \
+  --exclude='json_codec.mli' \
+  --exclude='session_pickle.ml' \
+  --exclude='session.ml' \
+  --exclude='store.ml' \
+  --exclude='crypto_store.ml' \
+  --exclude='send_queue.ml' \
+  --exclude='sliding_sync_state.ml' \
+  --exclude='thread_subscriptions.ml' \
+  --exclude='thread_info.ml' \
+  --exclude='thread_cache.ml' \
   'Matrix_proto\.Json\.Codec\.Legacy\.(int|int64)\b' \
   "$root/lib" "$root/bin" "$root/test"
 then

@@ -3,9 +3,9 @@ set -eu
 
 root=${1:-.}
 
-if rg -n \
-  --glob '*.ml' \
-  --glob '*.mli' \
+if grep -rnE \
+  --include='*.ml' \
+  --include='*.mli' \
   'assert[[:space:]]+false|\bfailwith\b' \
   "$root/lib"
 then

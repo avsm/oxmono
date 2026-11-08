@@ -1,0 +1,10 @@
+(test
+ (name test_brief)
+ (modules test_brief)
+ (deps ocaml.json oxmono.json)
+ (libraries brief))
+
+(executable
+ (name scan)
+ (modules scan)
+ (libraries brief eio_main))

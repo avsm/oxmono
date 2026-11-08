@@ -1,0 +1,269 @@
+{
+  "version": "0.15.0",
+  "path": "/src",
+  "languages": [
+    {
+      "name": "OCaml",
+      "category": "language",
+      "confidence": "medium",
+      "homepage": "https://ocaml.org",
+      "docs": "https://ocaml.org/docs",
+      "repo": "https://github.com/ocaml/ocaml",
+      "description": "Functional programming language with type inference",
+      "taxonomy": {
+        "role": [
+          "language"
+        ]
+      }
+    },
+    {
+      "name": "C",
+      "category": "language",
+      "confidence": "medium",
+      "homepage": "https://en.cppreference.com/w/c",
+      "docs": "https://en.cppreference.com/w/c",
+      "description": "General-purpose systems programming language",
+      "taxonomy": {
+        "role": [
+          "language"
+        ]
+      }
+    },
+    {
+      "name": "Python",
+      "category": "language",
+      "confidence": "medium",
+      "homepage": "https://www.python.org",
+      "docs": "https://docs.python.org",
+      "repo": "https://github.com/python/cpython",
+      "description": "High-level, general-purpose programming language",
+      "taxonomy": {
+        "role": [
+          "language"
+        ]
+      }
+    }
+  ],
+  "package_managers": [
+    {
+      "name": "opam",
+      "category": "package_manager",
+      "confidence": "medium",
+      "command": {
+        "run": "opam install . --deps-only",
+        "source": "knowledge_base"
+      },
+      "config_files": [
+        "*.opam"
+      ],
+      "homepage": "https://opam.ocaml.org",
+      "docs": "https://opam.ocaml.org/doc/",
+      "repo": "https://github.com/ocaml/opam",
+      "description": "OCaml package manager",
+      "taxonomy": {
+        "role": [
+          "package-manager"
+        ]
+      }
+    },
+    {
+      "name": "Cargo",
+      "category": "package_manager",
+      "confidence": "medium",
+      "command": {
+        "run": "cargo build",
+        "alternatives": [
+          "cargo build --release"
+        ],
+        "source": "knowledge_base"
+      },
+      "config_files": [
+        "wip/matrix/test/vodozemac-oracle/Cargo.toml",
+        "wip/matrix/test/vodozemac-oracle/Cargo.lock"
+      ],
+      "lockfile": "wip/matrix/test/vodozemac-oracle/Cargo.lock",
+      "homepage": "https://doc.rust-lang.org/cargo/",
+      "docs": "https://doc.rust-lang.org/cargo/",
+      "repo": "https://github.com/rust-lang/cargo",
+      "description": "Rust package manager and build system",
+      "taxonomy": {
+        "role": [
+          "package-manager"
+        ]
+      }
+    }
+  ],
+  "tools": {
+    "build": [
+      {
+        "name": "Dune",
+        "category": "build",
+        "confidence": "medium",
+        "command": {
+          "run": "dune build",
+          "alternatives": [
+            "dune clean",
+            "dune exec"
+          ],
+          "source": "knowledge_base"
+        },
+        "config_files": [
+          "dune-project",
+          "dune"
+        ],
+        "homepage": "https://dune.build",
+        "docs": "https://dune.readthedocs.io",
+        "repo": "https://github.com/ocaml/dune",
+        "description": "OCaml build system",
+        "taxonomy": {
+          "role": [
+            "build-tool"
+          ]
+        }
+      }
+    ],
+    "ci": [
+      {
+        "name": "GitHub Actions",
+        "category": "ci",
+        "confidence": "low",
+        "config_files": [
+          ".github/workflows/"
+        ],
+        "homepage": "https://github.com/features/actions",
+        "docs": "https://docs.github.com/en/actions",
+        "description": "CI/CD platform built into GitHub",
+        "taxonomy": {
+          "function": [
+            "ci-cd"
+          ],
+          "layer": [
+            "infrastructure"
+          ]
+        }
+      }
+    ],
+    "docs": [
+      {
+        "name": "cargo doc",
+        "category": "docs",
+        "confidence": "medium",
+        "command": {
+          "run": "cargo doc",
+          "alternatives": [
+            "cargo doc --open",
+            "cargo doc --no-deps"
+          ],
+          "source": "knowledge_base"
+        },
+        "homepage": "https://doc.rust-lang.org/cargo/commands/cargo-doc.html",
+        "docs": "https://doc.rust-lang.org/rustdoc/",
+        "description": "Built-in Rust documentation generator",
+        "taxonomy": {
+          "function": [
+            "documentation"
+          ]
+        }
+      }
+    ],
+    "security": [
+      {
+        "name": "cargo-audit",
+        "category": "security",
+        "confidence": "medium",
+        "command": {
+          "run": "cargo audit",
+          "source": "knowledge_base"
+        },
+        "homepage": "https://github.com/rustsec/rustsec",
+        "docs": "https://github.com/rustsec/rustsec/tree/main/cargo-audit#readme",
+        "repo": "https://github.com/rustsec/rustsec",
+        "description": "Rust dependency vulnerability scanner",
+        "taxonomy": {
+          "function": [
+            "security-scanning"
+          ]
+        }
+      }
+    ],
+    "test": [
+      {
+        "name": "cargo test",
+        "category": "test",
+        "confidence": "medium",
+        "command": {
+          "run": "cargo test",
+          "alternatives": [
+            "cargo test --release"
+          ],
+          "source": "knowledge_base"
+        },
+        "homepage": "https://doc.rust-lang.org/cargo/commands/cargo-test.html",
+        "docs": "https://doc.rust-lang.org/book/ch11-01-writing-tests.html",
+        "description": "Built-in Rust test runner",
+        "taxonomy": {
+          "role": [
+            "testing-framework"
+          ],
+          "function": [
+            "testing"
+          ]
+        }
+      }
+    ]
+  },
+  "style": {
+    "indentation": "4-space",
+    "indent_source": "inferred",
+    "line_ending": "LF"
+  },
+  "resources": {
+    "readme": "README.md",
+    "agents": {
+      "agents": "AGENTS.md"
+    }
+  },
+  "manifests": [
+    {
+      "ecosystem": "github-actions",
+      "path": ".github/workflows/owner-images.yml",
+      "kind": "manifest"
+    },
+    {
+      "ecosystem": "cargo",
+      "path": "wip/matrix/test/vodozemac-oracle/Cargo.toml",
+      "kind": "manifest"
+    },
+    {
+      "ecosystem": "cargo",
+      "path": "wip/matrix/test/vodozemac-oracle/Cargo.lock",
+      "kind": "lockfile"
+    }
+  ],
+  "dependencies": [
+    {
+      "manifest": ".github/workflows/owner-images.yml",
+      "name": "actions/checkout",
+      "version": "v4",
+      "purl": "pkg:githubactions/actions/checkout",
+      "scope": "runtime",
+      "direct": true
+    },
+    {
+      "manifest": "wip/matrix/test/vodozemac-oracle/Cargo.toml",
+      "name": "hkdf",
+      "version": "0.12",
+      "purl": "pkg:cargo/hkdf",
+      "scope": "runtime",
+      "direct": true
+    }
+  ],
+  "stats": {
+    "duration_ms": 484.318,
+    "files_checked": 825,
+    "tools_matched": 15,
+    "tools_checked": 632,
+    "scan_entries": 7556,
+    "scan_truncated": true
+  }
+}

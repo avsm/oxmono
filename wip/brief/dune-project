@@ -1,0 +1,25 @@
+(lang dune 3.21)
+
+(name brief)
+
+(generate_opam_files true)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "anil@recoil.org")
+
+(package
+ (name brief)
+ (synopsis "Read and run the brief project detector")
+ (description
+  "Brief reads the JSON reports of brief, the project detector from git-pkgs,
+and runs it on a directory, so OCaml programs can learn a project's
+languages, package managers and tools.")
+ (depends
+  (ocaml
+   (>= 5.2))
+  jsont
+  bytesrw
+  eio))

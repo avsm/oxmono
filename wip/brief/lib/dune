@@ -1,0 +1,4 @@
+(library
+ (name brief)
+ (public_name brief)
+ (libraries jsont jsont.bytesrw eio))

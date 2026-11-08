@@ -1,0 +1,99 @@
+{
+  "version": "0.15.0",
+  "path": "/src",
+  "languages": [
+    {
+      "name": "OCaml",
+      "category": "language",
+      "confidence": "medium",
+      "homepage": "https://ocaml.org",
+      "docs": "https://ocaml.org/docs",
+      "repo": "https://github.com/ocaml/ocaml",
+      "description": "Functional programming language with type inference",
+      "taxonomy": {
+        "role": [
+          "language"
+        ]
+      }
+    }
+  ],
+  "package_managers": [
+    {
+      "name": "opam",
+      "category": "package_manager",
+      "confidence": "medium",
+      "command": {
+        "run": "opam install . --deps-only",
+        "source": "knowledge_base"
+      },
+      "config_files": [
+        "*.opam"
+      ],
+      "homepage": "https://opam.ocaml.org",
+      "docs": "https://opam.ocaml.org/doc/",
+      "repo": "https://github.com/ocaml/opam",
+      "description": "OCaml package manager",
+      "taxonomy": {
+        "role": [
+          "package-manager"
+        ]
+      }
+    }
+  ],
+  "tools": {
+    "build": [
+      {
+        "name": "Dune",
+        "category": "build",
+        "confidence": "medium",
+        "command": {
+          "run": "dune build",
+          "alternatives": [
+            "dune clean",
+            "dune exec"
+          ],
+          "source": "knowledge_base"
+        },
+        "config_files": [
+          "dune-project"
+        ],
+        "homepage": "https://dune.build",
+        "docs": "https://dune.readthedocs.io",
+        "repo": "https://github.com/ocaml/dune",
+        "description": "OCaml build system",
+        "taxonomy": {
+          "role": [
+            "build-tool"
+          ]
+        }
+      }
+    ]
+  },
+  "layout": {
+    "source_dirs": [
+      "lib"
+    ],
+    "test_dirs": [
+      "test"
+    ]
+  },
+  "resources": {
+    "readme": "README.md",
+    "changelog": "CHANGES.md"
+  },
+  "git": {
+    "branch": "main",
+    "default_branch": "main",
+    "remotes": {
+      "origin": "https://github.com/example/project"
+    },
+    "commit_count": 12
+  },
+  "stats": {
+    "duration_ms": 5.019,
+    "files_checked": 540,
+    "tools_matched": 3,
+    "tools_checked": 632,
+    "scan_entries": 33
+  }
+}
